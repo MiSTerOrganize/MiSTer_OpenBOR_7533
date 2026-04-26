@@ -1,5 +1,5 @@
 #!/bin/bash
-# build_mister_arm.sh — Build OpenBOR 3979 ARM binary for MiSTer
+# build_mister_arm.sh — Build OpenBOR 4.0 Build 7533 ARM binary for MiSTer
 #
 # Runs inside arm32v7/debian:bullseye-slim Docker container.
 # Called by GitHub Actions CI workflow.
@@ -7,54 +7,64 @@
 # Expects /build to be mounted from the repo checkout.
 set +e
 
-SDL_PREFIX=/tmp/sdl12
+SDL_PREFIX=/tmp/sdl2
 
 apt-get update -qq
-apt-get install -y -qq gcc g++ make wget git python3
+apt-get install -y -qq gcc g++ make wget git python3 pkg-config autoconf automake libtool
 if ! which wget >/dev/null 2>&1; then echo "ERROR: apt-get install failed — wget not found"; exit 1; fi
 apt-get clean
 
-# ── Build SDL 1.2.15 (custom dummy that writes to DDR3) ──────────
-# Per CLAUDE.md: no ALSA, no real fbcon. We patch SDL's "dummy"
-# video driver in-place so its UpdateRects hook converts the final
+# ── Build SDL 2.0.8 (custom dummy that writes to DDR3) ──────────
+# Per CLAUDE.md: no ALSA, no real fbcon. We patch SDL2's "dummy"
+# video driver in-place so its FrameBuffer hook converts the final
 # composited SDL surface to RGB565 and writes it to the DDR3 ring
-# the FPGA reads. This way OpenBOR runs through its full SDL
-# pipeline (SDL_BlitSurface, format conversion, etc.) and we tap
-# the LAST stage with already-converted pixels in a known SDL
-# format -- avoids OpenBOR's per-render-path quirks (8-bit-mode
-# blend bugs, etc.) that bit us when intercepting at video_copy_screen.
-echo "=== Building SDL 1.2.15 ==="
+# the FPGA reads.
+#
+# SDL 2.0.8 pinned per OpenBOR upstream — newer SDL2 versions cause
+# instability (DCurrent reverted past this version).
+echo "=== Building SDL 2.0.8 ==="
 cd /tmp
-wget -q https://www.libsdl.org/release/SDL-1.2.15.tar.gz
-tar xzf SDL-1.2.15.tar.gz
-cd SDL-1.2.15
+wget -q https://www.libsdl.org/release/SDL2-2.0.8.tar.gz
+tar xzf SDL2-2.0.8.tar.gz
+cd SDL2-2.0.8
 
 # Patch the dummy video driver -- this is what runs when
-# SDL_VIDEODRIVER=dummy. Inject DDR3 mmap + UpdateRects writer.
-python3 /build/.github/scripts/patch_sdl_dummy.py src/video/dummy/SDL_nullvideo.c
+# SDL_VIDEODRIVER=dummy. Inject DDR3 mmap + frame writer.
+python3 /build/.github/scripts/patch_sdl_dummy.py src/video/dummy/SDL_nullframebuffer.c
 
 ./configure \
   --prefix=$SDL_PREFIX \
   --disable-video-x11 \
+  --disable-video-wayland \
   --disable-video-opengl \
-  --disable-cdrom \
+  --disable-video-opengles \
+  --disable-video-vulkan \
+  --disable-video-kmsdrm \
+  --disable-video-rpi \
+  --disable-video-directfb \
+  --disable-video-cocoa \
   --disable-shared \
   --enable-static \
   --disable-pulseaudio \
   --disable-esd \
   --disable-alsa \
-  --disable-video-fbcon \
-  --enable-video-dummy \
+  --disable-jack \
+  --disable-arts \
+  --disable-nas \
+  --disable-sndio \
+  --disable-fusionsound \
+  --disable-libsamplerate \
   --quiet
 make -j$(nproc) --quiet
 make install --quiet
 
-# ── Build SDL_gfx 2.0.26 ─────────────────────────────────────────
-echo "=== Building SDL_gfx 2.0.26 ==="
+# ── Build SDL2_gfx 1.0.4 ─────────────────────────────────────────
+echo "=== Building SDL2_gfx 1.0.4 ==="
 cd /tmp
-wget -q https://www.ferzkopp.net/Software/SDL_gfx-2.0/SDL_gfx-2.0.26.tar.gz
-tar xzf SDL_gfx-2.0.26.tar.gz
-cd SDL_gfx-2.0.26
+wget -q https://www.ferzkopp.net/Software/SDL2_gfx/SDL2_gfx-1.0.4.tar.gz
+tar xzf SDL2_gfx-1.0.4.tar.gz
+cd SDL2_gfx-1.0.4
+./autogen.sh 2>/dev/null
 ./configure \
   --prefix=$SDL_PREFIX \
   --disable-shared \
@@ -86,7 +96,8 @@ cd libvorbis-1.3.7
 make -j$(nproc) --quiet
 make install --quiet
 cd /tmp && rm -rf libvorbis-1.3.7 libvorbis-1.3.7.tar.gz
-rm -rf SDL-1.2.15 SDL-1.2.15.tar.gz
+rm -rf SDL2-2.0.8 SDL2-2.0.8.tar.gz
+rm -rf SDL2_gfx-1.0.4 SDL2_gfx-1.0.4.tar.gz
 rm -rf libogg-1.3.5 libogg-1.3.5.tar.gz
 
 # ── Build zlib 1.2.13 ────────────────────────────────────────────
@@ -112,16 +123,17 @@ make -j$(nproc) --quiet
 make install --quiet
 cd /tmp && rm -rf zlib-1.2.13 zlib-1.2.13.tar.gz libpng-1.6.39 libpng-1.6.39.tar.gz
 
-# ── Clone exact OpenBOR r4086 from DCurrent's GitHub ─────────────
-# r4086 is the most popular build for the ~300-game community packs.
-# SourceForge SVN is frozen; DCurrent/openbor on GitHub has the full
-# history. r4086 = 52 commits after r4034 ("Removed vaulting code")
-# = commit af23dc9c. Source lives under engine/ subdirectory.
-echo "=== Cloning OpenBOR r4086 ==="
+# ── Clone OpenBOR Build 7533 from DCurrent's GitHub ──────────────
+# Build 7533 is the latest stable OpenBOR 4.0 release (May 2025).
+# Required for modern fangames (Rescue-Palooza, Final Fight LNS,
+# Avengers UBF v2.7+, Zvitor arcade ports, RVGM set). Backward
+# compatible with PAK collections built for 4086.
+# Source lives under engine/ subdirectory.
+echo "=== Cloning OpenBOR Build 7533 ==="
 cd /tmp
 git clone --filter=blob:none https://github.com/DCurrent/openbor.git
 cd openbor
-git checkout af23dc9c
+git checkout v7533
 cd engine
 
 # ── Set version ──────────────────────────────────────────────────
@@ -129,9 +141,9 @@ cat > version.h << 'VERSIONEOF'
 #ifndef VERSION_H
 #define VERSION_H
 #define VERSION_NAME "OpenBOR"
-#define VERSION_MAJOR "3"
+#define VERSION_MAJOR "4"
 #define VERSION_MINOR "0"
-#define VERSION_BUILD "4086"
+#define VERSION_BUILD "7533"
 #define VERSION "v"VERSION_MAJOR"."VERSION_MINOR" Build "VERSION_BUILD
 #endif
 VERSIONEOF
@@ -145,7 +157,7 @@ cp /build/src/native_video_writer.h .
 cp /build/src/native_audio_writer.c .
 cp /build/src/native_audio_writer.h .
 
-# ── Apply Makefile patches ───────────────────────────────────────
+# ── Apply Makefile + source patches ──────────────────────────────
 python3 /build/.github/scripts/apply_patches.py /tmp/openbor/engine /build/patches
 
 # ── Build ────────────────────────────────────────────────────────

@@ -148,7 +148,7 @@ void pausemenu()
                 case 3:  /* Quit -- delete .s0 and cache so the relaunch
                           * has no PAK to load, showing the OSD menu. */
                     remove("/tmp/openbor_current.pak");
-                    remove("/media/fat/config/OpenBOR_4086.s0");
+                    remove("/media/fat/config/OpenBOR_7533.s0");
                     exit(0);
                     break;
                 }

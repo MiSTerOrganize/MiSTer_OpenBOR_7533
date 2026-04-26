@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Deploy MiSTer_OpenBOR to a running MiSTer over SSH.
+Deploy MiSTer_OpenBOR_7533 to a running MiSTer over SSH.
 
 Stops the running OpenBOR + daemon, uploads the three files that changed
-(ARM binary, daemon script, new-audio RBF), removes the old RBF, and
-re-launches the daemon.
+(ARM binary, daemon script, RBF), removes the old RBFs, and re-launches
+the daemon.
 
 Uses paramiko so we don't need sshpass on Windows. Credentials are the
 MiSTer default (root/1).
@@ -12,23 +12,29 @@ MiSTer default (root/1).
 
 import os
 import sys
+import glob
 import paramiko
 from pathlib import Path
 
-HOST = "192.168.1.105"
+HOST = "192.168.1.51"
 USER = "root"
 PASS = "1"
 REPO = Path(__file__).resolve().parent
 
+# Find the latest local RBF (by name sort = by date in filename).
+_rbfs = sorted(glob.glob(str(REPO / "_Other" / "OpenBOR_7533_*.rbf")))
+LOCAL_RBF = Path(_rbfs[-1]) if _rbfs else None
+
 FILES = [
     # (local path, remote path, chmod)
-    (REPO / "games/OpenBOR_4086/OpenBOR",
-     "/media/fat/games/OpenBOR_4086/OpenBOR", 0o755),
-    (REPO / "games/OpenBOR_4086/openbor_4086_daemon.sh",
-     "/media/fat/games/OpenBOR_4086/openbor_4086_daemon.sh", 0o755),
-    (REPO / "_Other/OpenBOR_4086_20260417.rbf",
-     "/media/fat/_Other/OpenBOR_4086_20260417.rbf", 0o644),
+    (REPO / "games/OpenBOR_7533/OpenBOR",
+     "/media/fat/games/OpenBOR_7533/OpenBOR", 0o755),
+    (REPO / "games/OpenBOR_7533/openbor_7533_daemon.sh",
+     "/media/fat/games/OpenBOR_7533/openbor_7533_daemon.sh", 0o755),
 ]
+if LOCAL_RBF:
+    FILES.append((LOCAL_RBF,
+                  f"/media/fat/_Other/{LOCAL_RBF.name}", 0o644))
 
 
 def run(client, cmd, show=True):
@@ -61,13 +67,13 @@ def main():
 
     print("\n-- Stopping running OpenBOR + daemon --")
     run(client, "killall -q OpenBOR || true")
-    run(client, "killall -q openbor_4086_daemon.sh || true")
+    run(client, "killall -q openbor_7533_daemon.sh || true")
     run(client, "kill $(cat /tmp/openbor_arm.pid 2>/dev/null) 2>/dev/null || true")
     run(client, "rm -f /tmp/openbor_arm.pid")
     run(client, "rm -rf /tmp/openbor_daemon.lock")
 
     print("\n-- Removing old RBFs --")
-    run(client, "rm -f /media/fat/_Other/OpenBOR_4086_*.rbf")
+    run(client, "rm -f /media/fat/_Other/OpenBOR_7533_*.rbf")
 
     print("\n-- Uploading files --")
     sftp = client.open_sftp()
@@ -84,11 +90,11 @@ def main():
     sftp.close()
 
     print("\n-- Re-launching daemon --")
-    run(client, "sed -i 's/\\r$//' /media/fat/games/OpenBOR_4086/openbor_4086_daemon.sh")
-    run(client, "nohup /media/fat/games/OpenBOR_4086/openbor_4086_daemon.sh </dev/null >/dev/null 2>&1 & disown")
+    run(client, "sed -i 's/\\r$//' /media/fat/games/OpenBOR_7533/openbor_7533_daemon.sh")
+    run(client, "nohup /media/fat/games/OpenBOR_7533/openbor_7533_daemon.sh </dev/null >/dev/null 2>&1 & disown")
 
     print("\n-- Verifying deployed files --")
-    run(client, "ls -lh /media/fat/games/OpenBOR_4086/ /media/fat/_Other/OpenBOR_4086_*.rbf")
+    run(client, "ls -lh /media/fat/games/OpenBOR_7533/ /media/fat/_Other/OpenBOR_7533_*.rbf")
 
     client.close()
     print("\nDone.")

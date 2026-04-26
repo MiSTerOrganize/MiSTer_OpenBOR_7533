@@ -1,11 +1,12 @@
-# MiSTer OpenBOR (Build 4086)
+# MiSTer OpenBOR (4.0 Build 7533)
 
-Hybrid ARM+FPGA OpenBOR beat-em-up engine for MiSTer FPGA with native video and audio output. Runs the ~300-game community PAK collections. Inspired by [SumolX](https://github.com/SumolX/MiSTer_OpenBOR)'s original MiSTer OpenBOR port.
+Hybrid ARM+FPGA OpenBOR beat-em-up engine for MiSTer FPGA with native video and audio output. Runs the modern OpenBOR 4.0 PAK collections, including TMNT: Rescue-Palooza, Final Fight LNS Ultimate, Avengers: United Battle Force, and the Zvitor / RVGM sets that require Build 6000+. Backward compatible with PAKs targeting earlier builds (4086 and below). Inspired by [SumolX](https://github.com/SumolX/MiSTer_OpenBOR)'s original MiSTer OpenBOR port.
 
 ## Features
 
-- **OpenBOR Build 4086** — the most compatible build for community PAK packs (~200+ games)
-- **Native FPGA video output** — 320×240 @ 59.92Hz with exact Genesis H40 pixel clock (6.712 MHz from NTSC colorburst crystal). CRT image width matches NES/SNES/Genesis exactly (47.68 µs active time)
+- **OpenBOR 4.0 Build 7533** — latest stable release (May 2025), unlocks ~6 years of fangames blocked on older ports
+- **SDL 2.0** — modern game controller abstraction with stable controller IDs across replug
+- **Native FPGA video output** — 320×240 @ 59.92 Hz with exact Genesis H40 pixel clock (6.712 MHz from NTSC colorburst crystal). CRT image width matches NES/SNES/Genesis exactly (47.68 µs active time)
 - **Native FPGA audio output** — 48 kHz stereo via DDR3 ring buffer, no ALSA
 - **CRT support** — scanlines, shadow masks, and analog video output for CRT displays
 - **MiSTer OSD integration** — load PAK files from the file browser
@@ -17,8 +18,8 @@ Hybrid ARM+FPGA OpenBOR beat-em-up engine for MiSTer FPGA with native video and 
 
 1. Copy `Scripts/Install_OpenBOR.sh` to `/media/fat/Scripts/` on your MiSTer SD card
 2. From the MiSTer main menu, go to Scripts and run **Install_OpenBOR**
-3. Place your `.pak` game modules in `games/OpenBOR_4086/Paks/`
-4. Load **OpenBOR_4086** from the console menu to play
+3. Place your `.pak` game modules in `games/OpenBOR_7533/Paks/`
+4. Load **OpenBOR_7533** from the console menu to play
 
 The install script downloads and installs everything: the FPGA core, ARM binary, daemon, and documentation.
 
@@ -29,28 +30,30 @@ Extract the release zip to the root of your MiSTer SD card (`/media/fat/`):
 ```
 /media/fat/
 ├── _Other/
-│   └── OpenBOR_4086_YYYYMMDD.rbf          FPGA core (dated build)
+│   └── OpenBOR_7533_YYYYMMDD.rbf          FPGA core (dated build)
 ├── docs/
-│   └── OpenBOR_4086/
-│       └── README.md                      Documentation
+│   └── OpenBOR_7533/
+│       └── README.md                       Documentation
 ├── games/
-│   └── OpenBOR_4086/
-│       ├── OpenBOR                        ARM binary (engine)
-│       ├── openbor_4086_daemon.sh         Auto-launch daemon
-│       └── Paks/                          Place your .pak game modules here
+│   └── OpenBOR_7533/
+│       ├── OpenBOR                         ARM binary (engine)
+│       ├── openbor_7533_daemon.sh          Auto-launch daemon
+│       └── Paks/                           Place your .pak game modules here
 ├── logs/
-│   └── OpenBOR_4086/                      Debug logs
+│   └── OpenBOR_7533/                       Debug logs
 ├── saves/
-│   └── OpenBOR_4086/                      Game saves (created automatically)
+│   └── OpenBOR_7533/                       Game saves (created automatically)
 └── Scripts/
-    └── Install_OpenBOR.sh                 Install script
+    └── Install_OpenBOR.sh                  Install script
 ```
 
 ## Game Modules (PAK Files)
 
-Place your OpenBOR PAK files in `/media/fat/games/OpenBOR_4086/Paks/`.
+Place your OpenBOR PAK files in `/media/fat/games/OpenBOR_7533/Paks/`.
 
-Build 4086 is the most popular build for the large community PAK collections (~300 games on Archive.org, Retrobat, Batocera, Launchbox). Older PAKs built for 3366–3979 are backward-compatible.
+Build 7533 runs the full modern PAK catalog. The PAK format is identical between 4086 and 7533, so PAKs from earlier collections continue to work — but PAKs that require post-4086 script commands (Rescue-Palooza, LNS Ultimate, Avengers UBF v2.7+, Zvitor arcade ports) require this build.
+
+You can install both this core and `MiSTer_OpenBOR_4086` side by side; their config, save, and PAK directories are separate. Use 4086 for older PAKs that depend on legacy scripting quirks; use 7533 for everything else.
 
 ## Controls
 
@@ -88,7 +91,7 @@ Navigate with D-pad up/down. Press A to confirm, X to go back.
 
 ## OpenBOR Build Info
 
-This core runs OpenBOR v3.0 Build 4086 from [DCurrent/openbor](https://github.com/DCurrent/openbor) (commit af23dc9c). Cross-compiled for MiSTer's ARM Cortex-A9 with SDL 1.2.15 and static linking. Video output goes through a patched SDL dummy driver that writes RGB565 directly to DDR3 for the FPGA to read.
+This core runs OpenBOR 4.0 Build 7533 from [DCurrent/openbor](https://github.com/DCurrent/openbor) (tag `v7533`). Cross-compiled for MiSTer's ARM Cortex-A9 with SDL 2.0.8 (pinned per upstream) and static linking. Video output goes through a patched SDL2 dummy framebuffer driver that writes RGB565 directly to DDR3 for the FPGA to read.
 
 ## Credits
 

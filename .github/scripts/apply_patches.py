@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-apply_patches.py — Apply all MiSTer patches to OpenBOR 3979 source tree.
+apply_patches.py — Apply all MiSTer patches to OpenBOR 4.0 Build 7533 source tree.
 
 Usage: python3 apply_patches.py <openbor_source_dir> <patches_dir>
 
 Applies:
-  1. Makefile: adds BUILD_MISTER target
+  1. Makefile: adds BUILD_MISTER target (SDL 2.0)
   2. openbor.c: replaces pausemenu() with custom 4-item menu
-  3. sdl/video.c: intercepts SDL_Flip with NativeVideoWriter
+  3. sdl/video.c: intercepts frame present with NativeVideoWriter
   4. sdl/control.c: replaces control_update() with DDR3 joystick reading
   5. sdl/sdlport.c: replaces main() with NativeVideoWriter init + OSD PAK loading
-  6. source/utils.c: redirects save path to /media/fat/saves/OpenBOR_4086/
+  6. source/utils.c: redirects save path to /media/fat/saves/OpenBOR_7533/
 """
 
 import sys
@@ -71,7 +71,11 @@ def main():
     print("Patching Makefile...")
     mf = read(os.path.join(obor, 'Makefile'))
 
-    # Add BUILD_MISTER target block after BUILD_OPENDINGUX endif
+    # Add BUILD_MISTER target block after BUILD_LINUX_LE_arm endif.
+    # v7533 dropped BUILD_OPENDINGUX entirely — the closest analog is
+    # BUILD_LINUX_LE_arm. Headers under include/SDL2 (v7533 source uses
+    # SDL2 unconditionally; no BUILD_SDL2 toggle exists). Match the
+    # warning suppressions that BUILD_LINUX_LE_arm uses for GCC 9+.
     mister_target = """
 ifdef BUILD_MISTER
 TARGET          = $(VERSION_NAME).elf
@@ -87,28 +91,32 @@ CC              = gcc
 OBJTYPE         = elf
 ARCHFLAGS       = -mcpu=cortex-a9 -mfloat-abi=hard -mfpu=neon
 INCLUDES        = $(SDL_PREFIX)/include \\
-                  $(SDL_PREFIX)/include/SDL
+                  $(SDL_PREFIX)/include/SDL2
 LIBRARIES       = $(SDL_PREFIX)/lib
+CFLAGS          += -Wno-error=format-overflow -Wno-error=implicit-function-declaration -Wno-error=unused-variable -Wno-error=unused-label -Wno-error=stringop-overflow
 ifeq ($(BUILD_MISTER), 0)
 BUILD_DEBUG     = 1
 endif
 endif
 
 """
-    # Insert after the BUILD_OPENDINGUX endif
-    marker = "ifeq ($(BUILD_OPENDINGUX), 0)\nBUILD_DEBUG     = 1\nendif\nendif"
-    mf = mf.replace(marker, marker + "\n" + mister_target)
+    # Insert after BUILD_LINUX_LE_arm closes. The "Workaround for GCC 9"
+    # comment is unique enough to anchor on safely.
+    marker = "# Workaround for GCC 9\nCFLAGS          += -Wno-error=format-overflow -Wno-error=implicit-function-declaration -Wno-error=unused-variable -Wno-error=unused-label -Wno-error=stringop-overflow\nendif"
+    if marker in mf:
+        mf = mf.replace(marker, marker + "\n" + mister_target)
+    else:
+        print("  ERROR: BUILD_LINUX_LE_arm anchor not found — Makefile structure may have changed")
 
-    # Add MISTER_NATIVE_VIDEO CFLAG + suppress warnings that v4153's
-    # older C style triggers under modern GCC (stringop-overflow,
-    # multistatement-macros, etc.)
+    # Add MISTER_NATIVE_VIDEO CFLAGS. v7533 uses SDL2 natively; no
+    # -DSDL2 needed (no codepaths gate on it). Keep -O1 to dodge the
+    # GCC aggressive-loop UB that bit us at openbor.c in 4086.
     mf = mf.replace(
-        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL\nendif",
-        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O1 -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nendif"
+        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif",
+        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O1 -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nendif"
     )
 
     # Add native_video_writer.o and native_audio_writer.o to objects.
-    # r3979 has trailing spaces after menu.o; r4086 doesn't. Match both.
     menu_anchor = None
     for pattern in ["sdl/menu.o                                                                        \nendif",
                      "sdl/menu.o\nendif"]:
@@ -124,16 +132,24 @@ endif
     else:
         print("  WARN: sdl/menu.o endif pattern not found for object injection")
 
-    # Add strip rule
-    mf = mf.replace(
-        "ifdef BUILD_OPENDINGUX\nSTRIP           = $(OPENDINGUX_TOOLCHAIN_PREFIX)/bin/mipsel-linux-strip $(TARGET) -o $(TARGET_FINAL)\nendif",
-        "ifdef BUILD_OPENDINGUX\nSTRIP           = $(OPENDINGUX_TOOLCHAIN_PREFIX)/bin/mipsel-linux-strip $(TARGET) -o $(TARGET_FINAL)\nendif\nifdef BUILD_MISTER\nSTRIP           = strip $(TARGET) -o $(TARGET_FINAL)\nendif"
-    )
+    # Add strip rule. v7533 strip block is gated by ifndef BUILD_DEBUG /
+    # ifndef NO_STRIP and contains per-platform overrides (BUILD_WIN,
+    # BUILD_LINUX, BUILD_DARWIN, BUILD_PANDORA). Insert ours after
+    # BUILD_PANDORA so it's still inside the gating ifndefs.
+    strip_anchor = "ifdef BUILD_PANDORA\nSTRIP \t        = $(PNDDEV)/bin/arm-none-linux-gnueabi-strip $(TARGET) -o $(TARGET_FINAL)\nendif"
+    if strip_anchor in mf:
+        mf = mf.replace(
+            strip_anchor,
+            strip_anchor + "\nifdef BUILD_MISTER\nSTRIP           = strip $(TARGET) -o $(TARGET_FINAL)\nendif"
+        )
+    else:
+        print("  WARN: BUILD_PANDORA strip anchor not found — binary may not be stripped")
 
-    # Add -ldl for MiSTer (needed for dlopen/dlsym/dlclose in static SDL)
+    # Force SDL2 link libs for MiSTer (-lSDL2 instead of -lSDL),
+    # plus -ldl for dlopen, -lpthread for native writer threads.
     mf = mf.replace(
         "LIBS           += -lpng -lz -lm",
-        "LIBS           += -lpng -lz -lm\n\n\nifdef BUILD_MISTER\nLIBS           += -ldl\nendif"
+        "LIBS           += -lpng -lz -lm\n\n\nifdef BUILD_MISTER\nLIBS           += -lSDL2 -lSDL2_gfx -ldl -lpthread\nendif"
     )
 
     write(os.path.join(obor, 'Makefile'), mf)
@@ -146,46 +162,14 @@ endif
     write(os.path.join(obor, 'openbor.c'), src)
     print("  pausemenu() replaced.")
 
-    # ── 3. sdl/video.c -- stub SDL 2 API for SDL 1.2 build ─────────
-    # r4086+ added unguarded SDL 2 calls (SDL_AllocPalette,
-    # SDL_GetDesktopDisplayMode, etc.) in video init. Since we use
-    # SDL_VIDEODRIVER=dummy and our DDR3 bridge, video.c's init just
-    # needs to compile -- it doesn't have to produce real output.
-    # Guard the SDL 2 calls so they're skipped on SDL 1.2.
-    print("Patching sdl/video.c (SDL 1.2 compat stubs)...")
-    vid_path = os.path.join(obor, 'sdl/video.c')
-    vid = read(vid_path)
-    # Add compat header after includes
-    compat_block = """
-/* MiSTer SDL 1.2 compat -- stub SDL 2 functions that r4086+ uses
-   outside of #ifdef SDL2 guards. Our DDR3 bridge handles all real
-   video output; these stubs just prevent link/compile errors. */
-#ifndef SDL2
-#include <stdlib.h>
-typedef struct { int ncolors; SDL_Color *colors; } MiSTer_Palette;
-static inline MiSTer_Palette *SDL_AllocPalette(int n) {
-    MiSTer_Palette *p = (MiSTer_Palette*)malloc(sizeof(MiSTer_Palette));
-    if(p) { p->ncolors = n; p->colors = (SDL_Color*)calloc(n, sizeof(SDL_Color)); }
-    return p;
-}
-static inline void SDL_FreePalette(MiSTer_Palette *p) { if(p) { free(p->colors); free(p); } }
-static inline int SDL_SetPaletteColors(MiSTer_Palette *p, const SDL_Color *c, int f, int n) {
-    if(p && c) { int i; for(i=0;i<n&&(f+i)<p->ncolors;i++) p->colors[f+i]=c[i]; } return 0;
-}
-static inline int SDL_SetSurfacePalette(SDL_Surface *s, MiSTer_Palette *p) { (void)s;(void)p; return 0; }
-typedef struct { int w, h, refresh_rate; unsigned format; } SDL_DisplayMode;
-static inline int SDL_GetDesktopDisplayMode(int d, SDL_DisplayMode *m) {
-    if(m){m->w=320;m->h=240;m->refresh_rate=60;m->format=0;} return 0;
-}
-#define SDL_Palette MiSTer_Palette
-#endif
-"""
-    # Insert after the last #include line
-    last_include = vid.rfind('#include')
-    eol = vid.index('\n', last_include) + 1
-    vid = vid[:eol] + compat_block + vid[eol:]
-    write(vid_path, vid)
-    print("  SDL 1.2 compat stubs injected.")
+    # ── 3. sdl/video.c — intercept frame present for SDL2 ────────────
+    # 7533 uses SDL2 codepaths natively; no compat stubs needed (those
+    # were a 4086 + SDL 1.2 hack). The video intercept is documented
+    # in patches/openbor_source_patches.c — we now rely on SDL2's
+    # standard SDL_BlitSurface + SDL_UpdateWindowSurface block being
+    # replaced by NativeVideoWriter_WriteFrame at the dummy driver
+    # level (see patch_sdl_dummy.py for SDL_nullframebuffer.c).
+    print("Patching sdl/video.c (no compat stubs needed for SDL2 build).")
 
     # ── 4. Patch sdl/control.c — replace control_update() ────────────
     print("Patching sdl/control.c (input mapping)...")
@@ -240,13 +224,13 @@ static inline int SDL_GetDesktopDisplayMode(int d, SDL_DisplayMode *m) {
 #define COPY_ROOT_PATH(buf, name) \\
     do { \\
         if (strcmp(name, "Saves") == 0) { \\
-            strcpy(buf, "/media/fat/saves/OpenBOR_4086/"); \\
+            strcpy(buf, "/media/fat/saves/OpenBOR_7533/"); \\
         } else if (strcmp(name, "SaveStates") == 0) { \\
-            strcpy(buf, "/media/fat/savestates/OpenBOR_4086/"); \\
+            strcpy(buf, "/media/fat/savestates/OpenBOR_7533/"); \\
         } else if (strcmp(name, "Config") == 0) { \\
             strcpy(buf, "/media/fat/config/"); \\
         } else if (strcmp(name, "Logs") == 0) { \\
-            strcpy(buf, "/media/fat/logs/OpenBOR_4086/"); \\
+            strcpy(buf, "/media/fat/logs/OpenBOR_7533/"); \\
         } else { \\
             strncpy(buf, "./", 2); strncat(buf, name, strlen(name)); strncat(buf, "/", 1); \\
         } \\
@@ -264,51 +248,47 @@ static inline int SDL_GetDesktopDisplayMode(int d, SDL_DisplayMode *m) {
     obor_c = read(os.path.join(obor, 'openbor.c'))
 
     # .cfg files: savesettings/loadsettings → "Config"
-    # These have: getBasePath(path, "Saves", 0); getPakName(tmpname, 4);
     obor_c = obor_c.replace(
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpname, 4);',
         '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 4);'
     )
 
-    # default.cfg: saveasdefault/loadfromdefault → "Config"
-    # These have: getBasePath(path, "Saves", 0); strncat(path, "default.cfg", 128);
+    # default.cfg — v7533 uses strcat instead of strncat with size limit
     obor_c = obor_c.replace(
-        'getBasePath(path, "Saves", 0);\n    strncat(path, "default.cfg", 128);',
-        '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    strncat(path, "default.cfg", 128);'
+        'getBasePath(path, "Saves", 0);\n    strcat(path, "default.cfg");',
+        '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    strcat(path, "default.cfg");',
     )
 
-    # .hi files: saveHighScoreFile/loadHighScoreFile → "Config"
-    # These have: getBasePath(path, "Saves", 0); getPakName(tmpname, 1);
+    # .hi files
     obor_c = obor_c.replace(
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpname, 1);',
         '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 1);'
     )
 
-    # .s00 save states: saveScriptFile/loadScriptFile → "SaveStates"
-    # These have: getBasePath(path, "Saves", 0); getPakName(tmpvalue, 2);//.scr
+    # .s00 save states (saveScriptFile uses tmpvalue)
     obor_c = obor_c.replace(
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpvalue, 2);//.scr',
         '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "SaveStates", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpvalue, 2);//.scr'
     )
-    # loadScriptFile uses tmpname instead of tmpvalue
+    # loadScriptFile uses tmpname
     obor_c = obor_c.replace(
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpname, 2);//.scr',
         '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "SaveStates", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 2);//.scr'
     )
 
     write(os.path.join(obor, 'openbor.c'), obor_c)
-    print("  .cfg/.hi → /media/fat/config/, .s00 → /media/fat/savestates/OpenBOR_4086/")
+    print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
 
-    # ── 6b. Patch logsDir default to /media/fat/logs/OpenBOR_4086 ────
-    # logsDir is declared in sdl/sdlport.c as: char logsDir[128] = {"Logs"};
+    # ── 6b. Patch logsDir default to /media/fat/logs/OpenBOR_7533 ────
     print("Patching logsDir default in sdl/sdlport.c...")
     sdlport = read(os.path.join(obor, 'sdl/sdlport.c'))
-    logs_old = 'char logsDir[128] = {"Logs"};'
-    logs_new = '#ifdef MISTER_NATIVE_VIDEO\nchar logsDir[128] = {"/media/fat/logs/OpenBOR_4086"};\n#else\nchar logsDir[128] = {"Logs"};\n#endif'
+    # v7533 uses MAX_FILENAME_LEN macro instead of literal 128
+    logs_old = 'char logsDir[MAX_FILENAME_LEN] = {"Logs"};'
+    logs_new = '#ifdef MISTER_NATIVE_VIDEO\nchar logsDir[MAX_FILENAME_LEN] = {"/media/fat/logs/OpenBOR_7533"};\n#else\nchar logsDir[MAX_FILENAME_LEN] = {"Logs"};\n#endif'
     if logs_old in sdlport:
         sdlport = sdlport.replace(logs_old, logs_new, 1)
         write(os.path.join(obor, 'sdl/sdlport.c'), sdlport)
-        print("  logsDir default changed to /media/fat/logs/OpenBOR_4086")
+        print("  logsDir default changed to /media/fat/logs/OpenBOR_7533")
     else:
         print("  WARN: logsDir pattern not found in sdl/sdlport.c")
 
@@ -320,62 +300,50 @@ static inline int SDL_GetDesktopDisplayMode(int d, SDL_DisplayMode *m) {
 
     # -- 8. Fix R/B swap bug in 32-bit blend functions ------------------
     # pixelformat.c's blend_screen32 / blend_multiply32 / blend_half32
-    # pass arguments to _color() in swapped (B, G, R) order when they
-    # use their inline math path. That path only runs when blendtables
-    # is NULL, which is ALWAYS the case in PIXEL_32 mode (set_blendtables
-    # is gated on screenformat == PIXEL_8 in openbor.c). Result: every
-    # sprite drawn with a screen / multiply / half blend comes out with
-    # its R and B channels swapped. Player draws are direct copies and
-    # don't hit this; enemies using hit-flash / shadow / alpha blend do.
-    #
-    # Fix: swap the first and third args of the inline _color(...) calls
-    # so argument order matches the _color(r, g, b) signature.
+    # pass arguments to _color() in swapped (B, G, R) order. Same bug
+    # carried over from 4086 — verify and fix if still present.
     print("Patching source/gamelib/pixelformat.c (32-bit blend R/B fix)...")
     pf_path = os.path.join(obor, 'source/gamelib/pixelformat.c')
-    pf = read(pf_path)
-    fixes = [
-        (
-            "return _color(_screen(color1 >> 16, color2 >> 16),\n"
-            "                  _screen((color1 & 0xFF00) >> 8, (color2 & 0xFF00) >> 8),\n"
-            "                  _screen(color1 & 0xFF, color2 & 0xFF));",
-            "return _color(_screen(color1 & 0xFF, color2 & 0xFF),\n"
-            "                  _screen((color1 & 0xFF00) >> 8, (color2 & 0xFF00) >> 8),\n"
-            "                  _screen(color1 >> 16, color2 >> 16));"
-        ),
-        (
-            "return _color(_multiply(color1 >> 16, color2 >> 16),\n"
-            "                  _multiply((color1 & 0xFF00) >> 8, (color2 & 0xFF00) >> 8),\n"
-            "                  _multiply(color1 & 0xFF, color2 & 0xFF));",
-            "return _color(_multiply(color1 & 0xFF, color2 & 0xFF),\n"
-            "                  _multiply((color1 & 0xFF00) >> 8, (color2 & 0xFF00) >> 8),\n"
-            "                  _multiply(color1 >> 16, color2 >> 16));"
-        ),
-        (
-            "return _color(((color1 >> 16) + (color2 >> 16)) >> 1,\n"
-            "                  (((color1 & 0xFF00) >> 8) + ((color2 & 0xFF00) >> 8)) >> 1,\n"
-            "                  ((color1 & 0xFF) + (color2 & 0xFF)) >> 1);",
-            "return _color(((color1 & 0xFF) + (color2 & 0xFF)) >> 1,\n"
-            "                  (((color1 & 0xFF00) >> 8) + ((color2 & 0xFF00) >> 8)) >> 1,\n"
-            "                  ((color1 >> 16) + (color2 >> 16)) >> 1);"
-        ),
-    ]
-    applied = 0
-    for old, new in fixes:
-        if old in pf:
-            pf = pf.replace(old, new)
-            applied += 1
-        else:
-            print(f"  WARN: blend fix pattern not found (already patched?):\n    {old[:60]}...")
+    if os.path.exists(pf_path):
+        pf = read(pf_path)
+        fixes = [
+            (
+                "return _color(_screen(color1 >> 16, color2 >> 16),\n"
+                "                  _screen((color1 & 0xFF00) >> 8, (color2 & 0xFF00) >> 8),\n"
+                "                  _screen(color1 & 0xFF, color2 & 0xFF));",
+                "return _color(_screen(color1 & 0xFF, color2 & 0xFF),\n"
+                "                  _screen((color1 & 0xFF00) >> 8, (color2 & 0xFF00) >> 8),\n"
+                "                  _screen(color1 >> 16, color2 >> 16));"
+            ),
+            (
+                "return _color(_multiply(color1 >> 16, color2 >> 16),\n"
+                "                  _multiply((color1 & 0xFF00) >> 8, (color2 & 0xFF00) >> 8),\n"
+                "                  _multiply(color1 & 0xFF, color2 & 0xFF));",
+                "return _color(_multiply(color1 & 0xFF, color2 & 0xFF),\n"
+                "                  _multiply((color1 & 0xFF00) >> 8, (color2 & 0xFF00) >> 8),\n"
+                "                  _multiply(color1 >> 16, color2 >> 16));"
+            ),
+            (
+                "return _color(((color1 >> 16) + (color2 >> 16)) >> 1,\n"
+                "                  (((color1 & 0xFF00) >> 8) + ((color2 & 0xFF00) >> 8)) >> 1,\n"
+                "                  ((color1 & 0xFF) + (color2 & 0xFF)) >> 1);",
+                "return _color(((color1 & 0xFF) + (color2 & 0xFF)) >> 1,\n"
+                "                  (((color1 & 0xFF00) >> 8) + ((color2 & 0xFF00) >> 8)) >> 1,\n"
+                "                  ((color1 >> 16) + (color2 >> 16)) >> 1);"
+            ),
+        ]
+        applied = 0
+        for old, new in fixes:
+            if old in pf:
+                pf = pf.replace(old, new)
+                applied += 1
+            else:
+                print(f"  WARN: blend fix pattern not found (already fixed upstream in 7533?):\n    {old[:60]}...")
 
-    # -- Keep native PIXEL_8 default.
-    # PIXEL_32 causes NULL pointer crash at address 0xe4 during model
-    # loading — OpenBOR structs aren't initialized in 32bpp path.
-    # 8bpp works for all PAKs. Colors may use shared palette but no crashes.
-    # PAKs with data/video.txt still override to their own format.
-    print("  Keeping native PIXEL_8 default (all PAKs work, no crashes).")
-
-    write(pf_path, pf)
-    print(f"  {applied}/{len(fixes)} blend R/B fixes applied.")
+        write(pf_path, pf)
+        print(f"  {applied}/{len(fixes)} blend R/B fixes applied.")
+    else:
+        print("  WARN: pixelformat.c not found at expected path — may have moved in 7533")
 
     print("\nAll patches applied successfully.")
 

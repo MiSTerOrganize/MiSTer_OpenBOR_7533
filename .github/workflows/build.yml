@@ -34,17 +34,17 @@ jobs:
 
       - name: Package release
         run: |
-          mkdir -p release-staging/games/OpenBOR_4086/Paks
+          mkdir -p release-staging/games/OpenBOR_7533/Paks
           mkdir -p release-staging/Scripts
           mkdir -p release-staging/_Other
-          mkdir -p release-staging/docs/OpenBOR_4086
-          cp OpenBOR release-staging/games/OpenBOR_4086/
-          cp games/OpenBOR_4086/openbor_4086_daemon.sh release-staging/games/OpenBOR_4086/
+          mkdir -p release-staging/docs/OpenBOR_7533
+          cp OpenBOR release-staging/games/OpenBOR_7533/
+          cp games/OpenBOR_7533/openbor_7533_daemon.sh release-staging/games/OpenBOR_7533/
           cp Scripts/Install_OpenBOR.sh release-staging/Scripts/
           test -f _Other/OpenBOR_*.rbf && cp _Other/OpenBOR_*.rbf release-staging/_Other/ || true
-          cp docs/OpenBOR_4086/README.md release-staging/docs/OpenBOR_4086/
-          chmod +x release-staging/games/OpenBOR_4086/OpenBOR
-          chmod +x release-staging/games/OpenBOR_4086/openbor_4086_daemon.sh
+          cp docs/OpenBOR_7533/README.md release-staging/docs/OpenBOR_7533/
+          chmod +x release-staging/games/OpenBOR_7533/OpenBOR
+          chmod +x release-staging/games/OpenBOR_7533/openbor_7533_daemon.sh
           chmod +x release-staging/Scripts/Install_OpenBOR.sh
           cd release-staging && zip -r ../MiSTer-OpenBOR-release.zip .
 

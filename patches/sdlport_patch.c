@@ -82,7 +82,7 @@ static void *mister_swap_thread(void *arg)
 
     while (!mister_swap_requested) {
         sleep(1);
-        FILE *f = fopen("/media/fat/config/OpenBOR_4086.s0", "r");
+        FILE *f = fopen("/media/fat/config/OpenBOR_7533.s0", "r");
         if (!f) continue;
         check_path[0] = 0;
         if (fgets(check_path, sizeof(check_path), f)) {
@@ -175,9 +175,9 @@ int main(int argc, char *argv[])
 
     /* Create MiSTer directories */
     mkdir("/media/fat/saves", 0755);
-    mkdir("/media/fat/saves/OpenBOR_4086", 0755);
+    mkdir("/media/fat/saves/OpenBOR_7533", 0755);
     mkdir("/media/fat/savestates", 0755);
-    mkdir("/media/fat/savestates/OpenBOR_4086", 0755);
+    mkdir("/media/fat/savestates/OpenBOR_7533", 0755);
     mkdir("/media/fat/config", 0755);
 #endif
 
@@ -188,7 +188,7 @@ int main(int argc, char *argv[])
 #endif
     dirExists(paksDir, 1);
 #ifdef MISTER_NATIVE_VIDEO
-    /* Saves redirected to /media/fat/saves/OpenBOR_4086/ in utils.c. */
+    /* Saves redirected to /media/fat/saves/OpenBOR_7533/ in utils.c. */
     dirExists(logsDir, 1);
 #else
     dirExists(savesDir, 1);
@@ -215,7 +215,7 @@ int main(int argc, char *argv[])
      * the cart will stream via ioctl into DDR3, and we cache it here
      * fresh. */
     #define MISTER_PAK_CACHE "/tmp/openbor_current.pak"
-    #define MISTER_S0_PATH   "/media/fat/config/OpenBOR_4086.s0"
+    #define MISTER_S0_PATH   "/media/fat/config/OpenBOR_7533.s0"
     {
         /* SC0 (mounted image + config) approach: user selects PAK
          * from OSD, MiSTer writes path to .s0 config INSTANTLY —

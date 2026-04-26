@@ -1,24 +1,20 @@
 #!/usr/bin/env python3
 """
-patch_sdl_dummy.py -- inject DDR3-write code into SDL 1.2.15's dummy
-video driver so OpenBOR's full SDL render pipeline lands its final
-composited frames directly in the FPGA's video ring buffer.
+patch_sdl_dummy.py -- inject DDR3-write code into SDL 2.0.8's dummy
+video driver framebuffer hook so OpenBOR's full SDL render pipeline
+lands its final composited frames directly in the FPGA's video ring
+buffer.
 
-Why we do this instead of intercepting at OpenBOR's video_copy_screen:
-The video_copy_screen intercept reads OpenBOR's vscreen, which contains
-buggy R/B-swapped pixels for sprites drawn through certain blend
-functions in PIXEL_32 mode. By letting OpenBOR's full SDL pipeline run
-(memcpy vscreen -> bscreen, then SDL_BlitSurface bscreen -> screen),
-SDL's BlitSurface does its own format conversion based on surface
-masks. We then read 'screen->pixels' in our patched UpdateRects and
-get the same final image that SumolX's fbcon path produces.
+SDL2's dummy driver routes window surface updates through:
+  SDL_DUMMY_CreateWindowFramebuffer  -- allocates the pixel buffer
+  SDL_DUMMY_UpdateWindowFramebuffer  -- called on SDL_UpdateWindowSurface
+  SDL_DUMMY_DestroyWindowFramebuffer -- frees the pixel buffer
 
-The patch:
-  1. Adds includes for /dev/mem mmap and our DDR3 layout constants
-  2. Initialises the DDR3 mapping in DUMMY_VideoInit
-  3. Hooks DUMMY_UpdateRects: walks 'this->hidden->buffer' (the
-     screen surface pixels), converts each pixel to RGB565, writes
-     to the active DDR3 buffer, and flips the control word
+We hook UpdateWindowFramebuffer to read the surface attached to the
+window and write its pixels (after fixed-point fit-to-screen scaling)
+into the FPGA's DDR3 ring buffer at 0x3A000000.
+
+Patches src/video/dummy/SDL_nullframebuffer.c.
 """
 
 import sys
@@ -45,21 +41,18 @@ static volatile uint32_t  *mister_ctrl      = NULL;
 static uint32_t            mister_frame_cnt = 0;
 static int                 mister_active_buf = 0;
 static int                 mister_logged    = 0;
-/* Every MISTER_SAMPLE_EVERY frames, dump a 4x4 grid of sample pixel
- * values so we can inspect actual colours after OpenBOR + SDL ran. */
-#define MISTER_SAMPLE_EVERY 120   /* ~2 seconds at 60 fps */
 
 static void mister_ddr_init(void) {
     if (mister_ddr) return;
     mister_fd = open("/dev/mem", O_RDWR | O_SYNC);
     if (mister_fd < 0) {
-        fprintf(stderr, "MiSTer SDL: open /dev/mem failed\\n");
+        fprintf(stderr, "MiSTer SDL2: open /dev/mem failed\\n");
         return;
     }
     mister_ddr = (volatile uint8_t *)mmap(NULL, MISTER_DDR_REGION_SIZE,
         PROT_READ | PROT_WRITE, MAP_SHARED, mister_fd, MISTER_DDR_PHYS_BASE);
     if (mister_ddr == MAP_FAILED) {
-        fprintf(stderr, "MiSTer SDL: mmap DDR3 failed\\n");
+        fprintf(stderr, "MiSTer SDL2: mmap DDR3 failed\\n");
         mister_ddr = NULL;
         close(mister_fd);
         mister_fd = -1;
@@ -67,7 +60,7 @@ static void mister_ddr_init(void) {
     }
     mister_ctrl = (volatile uint32_t *)(mister_ddr + MISTER_CTRL_OFFSET);
     *mister_ctrl = 0;
-    fprintf(stderr, "MiSTer SDL: DDR3 mapped @ 0x%08X (driver=dummy_native)\\n",
+    fprintf(stderr, "MiSTer SDL2: DDR3 mapped @ 0x%08X (driver=dummy_native)\\n",
             MISTER_DDR_PHYS_BASE);
 }
 
@@ -79,35 +72,29 @@ static void mister_present(SDL_Surface *screen) {
     int Rshift = screen->format->Rshift;
     int Gshift = screen->format->Gshift;
     int Bshift = screen->format->Bshift;
+    /* SDL2 SDL_PixelFormat has Rloss/Gloss/Bloss too. */
     int Rloss  = screen->format->Rloss;
     int Gloss  = screen->format->Gloss;
     int Bloss  = screen->format->Bloss;
     SDL_Palette *pal = screen->format->palette;
 
-    /* Scale to fit entirely within 320x240, no cropping.
-     * Use the larger axis ratio so everything fits.
-     * 640x480 -> /2 -> 320x240, 480x272 -> /1.5 -> 320x181
-     * Output is centered vertically with black bars if needed.
-     * Fixed-point: multiply by 256 to avoid floating point. */
-    int scale256 = 256; /* 256 = 1.0x */
+    /* Scale to fit entirely within 320x240, no cropping. */
+    int scale256 = 256;
     if (w > MISTER_FRAME_W || h > MISTER_FRAME_H) {
         int sx256 = (w * 256 + MISTER_FRAME_W - 1) / MISTER_FRAME_W;
         int sy256 = (h * 256 + MISTER_FRAME_H - 1) / MISTER_FRAME_H;
-        scale256 = sx256 > sy256 ? sx256 : sy256; /* use larger to fit both */
+        scale256 = sx256 > sy256 ? sx256 : sy256;
     }
     int out_w = (w * 256) / scale256;
     int out_h = (h * 256) / scale256;
     if (out_w > MISTER_FRAME_W) out_w = MISTER_FRAME_W;
     if (out_h > MISTER_FRAME_H) out_h = MISTER_FRAME_H;
-    int dst_y0 = (MISTER_FRAME_H - out_h) / 2; /* vertical centering */
+    int dst_y0 = (MISTER_FRAME_H - out_h) / 2;
 
     if (!mister_logged) {
-        fprintf(stderr, "MiSTer SDL: first present %dx%d bpp=%d pitch=%d "
-                "scale256=%d -> %dx%d dst_y0=%d "
-                "Rmask=0x%08X Gmask=0x%08X Bmask=0x%08X palette=%p\\n",
-                w, h, bpp, pitch, scale256, out_w, out_h, dst_y0,
-                screen->format->Rmask, screen->format->Gmask,
-                screen->format->Bmask, pal);
+        fprintf(stderr, "MiSTer SDL2: first present %dx%d bpp=%d pitch=%d "
+                "scale256=%d -> %dx%d dst_y0=%d palette=%p\\n",
+                w, h, bpp, pitch, scale256, out_w, out_h, dst_y0, pal);
         mister_logged = 1;
     }
 
@@ -115,9 +102,7 @@ static void mister_present(SDL_Surface *screen) {
     volatile uint16_t *dst = (volatile uint16_t *)(mister_ddr + buf_off);
     const uint8_t *rows = (const uint8_t *)screen->pixels;
 
-    /* Clear BOTH buffers once on first frame for letterboxing.
-     * Never clear per-frame — FPGA reads the zeroed buffer mid-write = flicker.
-     * Black bars persist since nothing overwrites them. */
+    /* Clear BOTH buffers once on first frame for letterboxing. */
     {
         static int cleared = 0;
         if (!cleared) {
@@ -175,28 +160,6 @@ static void mister_present(SDL_Surface *screen) {
         return;
     }
 
-    /* Periodically dump a grid of sample pixels. Lets us see actual
-     * colour values after OpenBOR + SDL ran, for comparing against
-     * the expected on-screen colours. */
-    if (bpp == 32 && (mister_frame_cnt % MISTER_SAMPLE_EVERY) == 0) {
-        const uint32_t *rows = (const uint32_t *)screen->pixels;
-        int pitch_w = pitch / 4;
-        fprintf(stderr, "MiSTer SDL sample (frame %u):\\n", mister_frame_cnt);
-        for (int gy = 0; gy < 3; gy++) {
-            int sy = (h * (gy * 2 + 1)) / 6;
-            for (int gx = 0; gx < 4; gx++) {
-                int sx = (w * (gx * 2 + 1)) / 8;
-                uint32_t px = rows[sy * pitch_w + sx];
-                uint8_t r = ((px & screen->format->Rmask) >> Rshift) << Rloss;
-                uint8_t g = ((px & screen->format->Gmask) >> Gshift) << Gloss;
-                uint8_t b = ((px & screen->format->Bmask) >> Bshift) << Bloss;
-                fprintf(stderr, "  (%3d,%3d) raw=0x%08X r=%02X g=%02X b=%02X\\n",
-                        sx, sy, px, r, g, b);
-            }
-        }
-        fflush(stderr);
-    }
-
     mister_frame_cnt++;
     *mister_ctrl = (mister_frame_cnt << 2) | (mister_active_buf & 1);
     mister_active_buf ^= 1;
@@ -204,56 +167,91 @@ static void mister_present(SDL_Surface *screen) {
 /* end MiSTer DDR3 bridge */
 """
 
+# In SDL2's dummy framebuffer driver, the window surface is owned by
+# SDL itself (SDL_GetWindowSurface returns it). The driver's
+# UpdateWindowFramebuffer hook is called after the user calls
+# SDL_UpdateWindowSurface — that's our cue to read the surface and
+# write to DDR3.
+UPDATE_NEW_BODY = (
+    "int SDL_DUMMY_UpdateWindowFramebuffer(_THIS, SDL_Window * window, const SDL_Rect * rects, int numrects)\n"
+    "{\n"
+    "    /* SDL_GetWindowSurface returns the cached framebuffer surface\n"
+    "     * created by SDL_DUMMY_CreateWindowFramebuffer above; this is\n"
+    "     * the same SDL_Surface OpenBOR drew into. */\n"
+    "    SDL_Surface *surface = SDL_GetWindowSurface(window);\n"
+    "    if (surface) mister_present(surface);\n"
+    "    return 0;\n"
+    "}"
+)
+
 def main():
     if len(sys.argv) != 2:
-        print("usage: patch_sdl_dummy.py <SDL_nullvideo.c>", file=sys.stderr)
+        print("usage: patch_sdl_dummy.py <SDL_nullframebuffer.c>", file=sys.stderr)
         sys.exit(1)
     path = sys.argv[1]
     with open(path) as f:
         src = f.read()
 
     # 1) Inject our helper code right after the existing #include block.
-    inject_after = '#include "../../events/SDL_events_c.h"\n'
-    if inject_after not in src:
-        # SDL include layout might differ; fall back to the first occurrence
-        # of an obvious SDL include and bolt on right after.
-        inject_after = '#include "SDL_video.h"\n'
-    if inject_after not in src:
+    inject_anchor = '#include "SDL_nullframebuffer_c.h"\n'
+    if inject_anchor not in src:
+        # Fallback: any local include in the dummy driver
+        for cand in ['#include "../SDL_sysvideo.h"\n', '#include "SDL_video.h"\n']:
+            if cand in src:
+                inject_anchor = cand
+                break
+    if inject_anchor not in src:
         print("ERROR: couldn't find an include anchor to inject helpers", file=sys.stderr)
         sys.exit(2)
-    src = src.replace(inject_after, inject_after + INJECT_INCLUDES, 1)
+    src = src.replace(inject_anchor, inject_anchor + INJECT_INCLUDES, 1)
 
-    # 2) Init the DDR3 mapping in VideoInit. Keep 8bpp default —
-    #    mister_present() handles 8/16/32bpp surfaces via palette/mask conversion.
-    init_anchor = "/* We're done!"
-    if init_anchor in src:
-        src = src.replace(init_anchor, "mister_ddr_init();\n\t" + init_anchor, 1)
-        print("  VideoInit: mister_ddr_init() injected (8bpp default kept).")
+    # 2) Initialize DDR3 mapping inside CreateWindowFramebuffer so it
+    #    runs lazily on first frame allocation.
+    create_anchor = "int SDL_DUMMY_CreateWindowFramebuffer(_THIS, SDL_Window * window, Uint32 * format, void ** pixels, int *pitch)\n{"
+    if create_anchor in src:
+        src = src.replace(
+            create_anchor,
+            create_anchor + "\n    mister_ddr_init();",
+            1
+        )
+        print("  CreateWindowFramebuffer: mister_ddr_init() injected.")
     else:
-            src = src.replace(
-                "static int DUMMY_VideoInit(_THIS, SDL_PixelFormat *vformat)\n{",
-                "static int DUMMY_VideoInit(_THIS, SDL_PixelFormat *vformat)\n{\n\tmister_ddr_init();",
-                1
-            )
-            print("  Fallback 2: mister_ddr_init() injected (NO 32bpp override).")
+        print("  WARN: CreateWindowFramebuffer signature not found; init may not happen.")
 
-    # 3) Make UpdateRects actually push the screen surface to DDR3.
-    update_old = "static void DUMMY_UpdateRects(_THIS, int numrects, SDL_Rect *rects)\n{\n\t/* do nothing. */\n}"
-    update_new = (
-        "static void DUMMY_UpdateRects(_THIS, int numrects, SDL_Rect *rects)\n"
-        "{\n"
-        "\t/* SDL_VideoSurface is a macro expanding to (current_video->screen). */\n"
-        "\tmister_present(SDL_VideoSurface);\n"
-        "}"
-    )
-    if update_old not in src:
-        print("ERROR: couldn't locate DUMMY_UpdateRects original body", file=sys.stderr)
+    # 3) Replace UpdateWindowFramebuffer body to push the surface to DDR3.
+    #    SDL2's stock implementation is a no-op (returns 0).
+    update_sigs = [
+        "int SDL_DUMMY_UpdateWindowFramebuffer(_THIS, SDL_Window * window, const SDL_Rect * rects, int numrects)\n{",
+        "int SDL_DUMMY_UpdateWindowFramebuffer(_THIS, SDL_Window * window,\n                                      const SDL_Rect * rects, int numrects)\n{",
+    ]
+    sig_found = None
+    for sig in update_sigs:
+        if sig in src:
+            sig_found = sig
+            break
+    if not sig_found:
+        print("ERROR: couldn't locate SDL_DUMMY_UpdateWindowFramebuffer in source", file=sys.stderr)
         sys.exit(3)
-    src = src.replace(update_old, update_new)
+
+    # Find the function and replace its full body.
+    start = src.find(sig_found)
+    brace = 0
+    found_open = False
+    end = start
+    for i in range(start, len(src)):
+        if src[i] == '{':
+            brace += 1
+            found_open = True
+        elif src[i] == '}':
+            brace -= 1
+        if found_open and brace == 0:
+            end = i + 1
+            break
+    src = src[:start] + UPDATE_NEW_BODY + src[end:]
 
     with open(path, 'w') as f:
         f.write(src)
-    print(f"Patched {path}: DDR3 bridge installed in dummy video driver.")
+    print(f"Patched {path}: DDR3 bridge installed in dummy framebuffer driver.")
 
 if __name__ == '__main__':
     main()
