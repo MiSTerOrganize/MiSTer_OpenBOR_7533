@@ -1,0 +1,10 @@
+fpga/db/
+fpga/incremental_db/
+fpga/output_files/
+fpga/simulation/
+fpga/greybox_tmp/
+fpga/*.qws
+fpga/*.bak
+fpga/build_*.log
+fpga/build_id.v
+__pycache__/

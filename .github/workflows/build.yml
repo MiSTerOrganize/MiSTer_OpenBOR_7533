@@ -1,0 +1,61 @@
+name: Build MiSTer ARM
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-arm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+
+      - name: Build in ARM container
+        run: |
+          chmod +x .github/scripts/build_mister_arm.sh
+          docker run --rm --platform linux/arm/v7 \
+            -v ${{ github.workspace }}:/build \
+            -w /tmp \
+            arm32v7/debian:bullseye-slim \
+            bash /build/.github/scripts/build_mister_arm.sh
+
+      - name: Generate build_id
+        run: echo '`define BUILD_DATE "'$(date +%y%m%d)'"' > fpga/build_id.v
+
+      - name: Package release
+        run: |
+          mkdir -p release-staging/games/OpenBOR_4086/Paks
+          mkdir -p release-staging/Scripts
+          mkdir -p release-staging/_Other
+          mkdir -p release-staging/docs/OpenBOR_4086
+          cp OpenBOR release-staging/games/OpenBOR_4086/
+          cp games/OpenBOR_4086/openbor_4086_daemon.sh release-staging/games/OpenBOR_4086/
+          cp Scripts/Install_OpenBOR.sh release-staging/Scripts/
+          test -f _Other/OpenBOR_*.rbf && cp _Other/OpenBOR_*.rbf release-staging/_Other/ || true
+          cp docs/OpenBOR_4086/README.md release-staging/docs/OpenBOR_4086/
+          chmod +x release-staging/games/OpenBOR_4086/OpenBOR
+          chmod +x release-staging/games/OpenBOR_4086/openbor_4086_daemon.sh
+          chmod +x release-staging/Scripts/Install_OpenBOR.sh
+          cd release-staging && zip -r ../MiSTer-OpenBOR-release.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiSTer-OpenBOR-release
+          path: release-staging/
+
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: MiSTer-OpenBOR-release.zip

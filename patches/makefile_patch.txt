@@ -1,0 +1,112 @@
+#
+# MiSTer_OpenBOR — Makefile Patch
+#
+# Add this block to the OpenBOR 3979 Makefile after the BUILD_OPENDINGUX
+# section (around line 219) and before the STRIP section (around line 255).
+#
+# Also add native_video_writer.o to the GAME_CONSOLE list — see bottom
+# of this file for that patch.
+#
+# Build with:  make BUILD_MISTER=1
+#
+# In Docker:   docker run --rm --platform linux/arm/v7 \
+#                -v $(pwd):/build -w /build \
+#                arm32v7/debian:bullseye-slim \
+#                bash -c 'apt-get update && apt-get install -y gcc make && make BUILD_MISTER=1'
+#
+
+
+# ---- ADD THIS BLOCK after BUILD_OPENDINGUX (around line 219): ----
+
+ifdef BUILD_MISTER
+TARGET          = $(VERSION_NAME).elf
+TARGET_FINAL    = $(VERSION_NAME)
+TARGET_PLATFORM = LINUX
+BUILD_SDL       = 1
+BUILD_GFX       = 1
+BUILD_PTHREAD   = 1
+BUILD_SDL_IO    = 1
+BUILD_VORBIS    = 1
+BUILDING        = 1
+CC              = gcc
+OBJTYPE         = elf
+ARCHFLAGS       = -mcpu=cortex-a9 -mfloat-abi=hard -mfpu=neon
+INCLUDES        = $(SDL_PREFIX)/include \
+                  $(SDL_PREFIX)/include/SDL
+LIBRARIES       = $(SDL_PREFIX)/lib
+ifeq ($(BUILD_MISTER), 0)
+BUILD_DEBUG     = 1
+endif
+endif
+
+
+# ---- ADD THIS to CFLAGS section (after the BUILD_SDL line, around line 545): ----
+
+#ifdef BUILD_MISTER
+#CFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error
+#endif
+
+# (Remove the # at start of each line above — they're commented to prevent
+#  this file from being parsed as a real Makefile fragment.)
+#
+# The actual lines to add to the Makefile are:
+#
+# ifdef BUILD_MISTER
+# CFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error
+# endif
+
+
+# ---- ADD native_video_writer.o to the BUILD_SDL_IO section (around line 460): ----
+#
+# Find this block:
+#
+#   ifdef BUILD_SDL_IO
+#   GAME_CONSOLE   += sdl/joysticks.o \
+#                     sdl/control.o \
+#                     sdl/sblaster.o \
+#                     sdl/timer.o \
+#                     sdl/sdlport.o \
+#                     sdl/video.o \
+#                     sdl/menu.o
+#   endif
+#
+# Add after the endif:
+#
+#   ifdef BUILD_MISTER
+#   GAME_CONSOLE   += native_video_writer.o
+#   INCS           += src
+#   endif
+#
+# This adds native_video_writer.c (placed in the OpenBOR root alongside
+# openbor.c) to the build, and adds the src/ directory to the include
+# path so #include "native_video_writer.h" works from sdl/video.c,
+# sdl/control.c, and sdl/sdlport.c.
+
+
+# ---- STRIP section: ADD after BUILD_OPENDINGUX strip (around line 278): ----
+#
+#   ifdef BUILD_MISTER
+#   STRIP           = strip $(TARGET) -o $(TARGET_FINAL)
+#   endif
+
+
+# ---- LIBRARY section: OpenGL must NOT be linked for MiSTer ----
+#
+# The BUILD_MISTER block above does NOT set BUILD_OPENGL or BUILD_LOADGL,
+# so OpenGL objects and libraries are automatically excluded. No changes
+# needed in the library section.
+#
+# For static linking of vorbis/ogg, the existing BUILD_VORBIS line
+# handles -lvorbisfile -lvorbis -logg. These must be available as
+# static libraries at $(SDL_PREFIX)/lib/ when building in Docker.
+
+
+# ---- COMPLETE BUILD COMMAND (in Docker arm32v7 container): ----
+#
+#   export SDL_PREFIX=/tmp/sdl12
+#   # (build SDL 1.2.15, SDL_gfx, libogg, libvorbis, libpng, zlib
+#   #  as static libs into $SDL_PREFIX first — same as PICO-8 CI)
+#
+#   make BUILD_MISTER=1 SDL_PREFIX=$SDL_PREFIX
+#
+# Output: OpenBOR (ARM ELF binary, stripped)

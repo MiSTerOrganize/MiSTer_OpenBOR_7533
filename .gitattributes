@@ -1,0 +1,8 @@
+# Prevent git from modifying binary files
+*.rbf binary
+*.pak binary
+games/*/OpenBOR binary
+
+# Ensure shell scripts use LF even on Windows
+*.sh text eol=lf
+*.py text eol=lf
