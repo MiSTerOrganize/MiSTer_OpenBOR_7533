@@ -32,12 +32,6 @@ cd SDL2-2.0.8
 # SDL_VIDEODRIVER=dummy. Inject DDR3 mmap + frame writer.
 python3 /build/.github/scripts/patch_sdl_dummy.py src/video/dummy/SDL_nullframebuffer.c
 
-# SDL 2.0.8 builds with -Werror=declaration-after-statement. Our
-# injected C code mixes decls with statements (C99 style), so disable
-# that one warning-as-error. We do this via env-var so it's appended
-# to SDL's own CFLAGS rather than overwriting them.
-export CFLAGS="-Wno-error=declaration-after-statement"
-
 ./configure \
   --prefix=$SDL_PREFIX \
   --disable-video-x11 \
@@ -63,7 +57,6 @@ export CFLAGS="-Wno-error=declaration-after-statement"
   --quiet
 make -j$(nproc) --quiet
 make install --quiet
-unset CFLAGS
 
 # Hard-fail if SDL2 headers didn't install. The downstream SDL2_gfx
 # and OpenBOR builds need these — easier to debug here than to chase

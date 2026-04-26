@@ -64,32 +64,48 @@ static void mister_ddr_init(void) {
             MISTER_DDR_PHYS_BASE);
 }
 
+/* C90-compliant: all decls at function top, all loop indices declared
+ * up front. SDL 2.0.8 builds with -Werror=declaration-after-statement
+ * so we cannot mix decls with statements anywhere in this file. */
 static void mister_present(SDL_Surface *screen) {
+    int w, h, bpp, pitch;
+    int Rshift, Gshift, Bshift, Rloss, Gloss, Bloss;
+    SDL_Palette *pal;
+    int scale256;
+    int sx256, sy256;
+    int out_w, out_h, dst_y0;
+    uint32_t buf_off;
+    volatile uint16_t *dst;
+    const uint8_t *rows;
+    static int cleared = 0;
+    int x, y, src_x, src_y;
+
     if (!mister_ddr || !screen || !screen->pixels) return;
-    int w = screen->w, h = screen->h;
-    int bpp = screen->format->BitsPerPixel;
-    int pitch = screen->pitch;
-    int Rshift = screen->format->Rshift;
-    int Gshift = screen->format->Gshift;
-    int Bshift = screen->format->Bshift;
-    /* SDL2 SDL_PixelFormat has Rloss/Gloss/Bloss too. */
-    int Rloss  = screen->format->Rloss;
-    int Gloss  = screen->format->Gloss;
-    int Bloss  = screen->format->Bloss;
-    SDL_Palette *pal = screen->format->palette;
+
+    w      = screen->w;
+    h      = screen->h;
+    bpp    = screen->format->BitsPerPixel;
+    pitch  = screen->pitch;
+    Rshift = screen->format->Rshift;
+    Gshift = screen->format->Gshift;
+    Bshift = screen->format->Bshift;
+    Rloss  = screen->format->Rloss;
+    Gloss  = screen->format->Gloss;
+    Bloss  = screen->format->Bloss;
+    pal    = screen->format->palette;
 
     /* Scale to fit entirely within 320x240, no cropping. */
-    int scale256 = 256;
+    scale256 = 256;
     if (w > MISTER_FRAME_W || h > MISTER_FRAME_H) {
-        int sx256 = (w * 256 + MISTER_FRAME_W - 1) / MISTER_FRAME_W;
-        int sy256 = (h * 256 + MISTER_FRAME_H - 1) / MISTER_FRAME_H;
+        sx256 = (w * 256 + MISTER_FRAME_W - 1) / MISTER_FRAME_W;
+        sy256 = (h * 256 + MISTER_FRAME_H - 1) / MISTER_FRAME_H;
         scale256 = sx256 > sy256 ? sx256 : sy256;
     }
-    int out_w = (w * 256) / scale256;
-    int out_h = (h * 256) / scale256;
+    out_w = (w * 256) / scale256;
+    out_h = (h * 256) / scale256;
     if (out_w > MISTER_FRAME_W) out_w = MISTER_FRAME_W;
     if (out_h > MISTER_FRAME_H) out_h = MISTER_FRAME_H;
-    int dst_y0 = (MISTER_FRAME_H - out_h) / 2;
+    dst_y0 = (MISTER_FRAME_H - out_h) / 2;
 
     if (!mister_logged) {
         fprintf(stderr, "MiSTer SDL2: first present %dx%d bpp=%d pitch=%d "
@@ -98,60 +114,68 @@ static void mister_present(SDL_Surface *screen) {
         mister_logged = 1;
     }
 
-    uint32_t buf_off = mister_active_buf ? MISTER_BUF1_OFFSET : MISTER_BUF0_OFFSET;
-    volatile uint16_t *dst = (volatile uint16_t *)(mister_ddr + buf_off);
-    const uint8_t *rows = (const uint8_t *)screen->pixels;
+    buf_off = mister_active_buf ? MISTER_BUF1_OFFSET : MISTER_BUF0_OFFSET;
+    dst  = (volatile uint16_t *)(mister_ddr + buf_off);
+    rows = (const uint8_t *)screen->pixels;
 
     /* Clear BOTH buffers once on first frame for letterboxing. */
-    {
-        static int cleared = 0;
-        if (!cleared) {
-            volatile uint16_t *buf0 = (volatile uint16_t *)(mister_ddr + MISTER_BUF0_OFFSET);
-            volatile uint16_t *buf1 = (volatile uint16_t *)(mister_ddr + MISTER_BUF1_OFFSET);
-            memset((void*)buf0, 0, MISTER_FRAME_W * MISTER_FRAME_H * 2);
-            memset((void*)buf1, 0, MISTER_FRAME_W * MISTER_FRAME_H * 2);
-            cleared = 1;
-        }
+    if (!cleared) {
+        volatile uint16_t *buf0 = (volatile uint16_t *)(mister_ddr + MISTER_BUF0_OFFSET);
+        volatile uint16_t *buf1 = (volatile uint16_t *)(mister_ddr + MISTER_BUF1_OFFSET);
+        memset((void*)buf0, 0, MISTER_FRAME_W * MISTER_FRAME_H * 2);
+        memset((void*)buf1, 0, MISTER_FRAME_W * MISTER_FRAME_H * 2);
+        cleared = 1;
     }
 
     if (bpp == 32) {
-        for (int y = 0; y < out_h; y++) {
-            int src_y = (y * scale256) / 256;
-            const uint32_t *row = (const uint32_t *)(rows + src_y * pitch);
-            volatile uint16_t *out_row = dst + (dst_y0 + y) * MISTER_FRAME_W;
-            for (int x = 0; x < out_w; x++) {
-                int src_x = (x * scale256) / 256;
-                uint32_t px = row[src_x];
-                uint8_t r = ((px & screen->format->Rmask) >> Rshift) << Rloss;
-                uint8_t g = ((px & screen->format->Gmask) >> Gshift) << Gloss;
-                uint8_t b = ((px & screen->format->Bmask) >> Bshift) << Bloss;
+        for (y = 0; y < out_h; y++) {
+            const uint32_t *row;
+            volatile uint16_t *out_row;
+            src_y = (y * scale256) / 256;
+            row = (const uint32_t *)(rows + src_y * pitch);
+            out_row = dst + (dst_y0 + y) * MISTER_FRAME_W;
+            for (x = 0; x < out_w; x++) {
+                uint32_t px;
+                uint8_t r, g, b;
+                src_x = (x * scale256) / 256;
+                px = row[src_x];
+                r = ((px & screen->format->Rmask) >> Rshift) << Rloss;
+                g = ((px & screen->format->Gmask) >> Gshift) << Gloss;
+                b = ((px & screen->format->Bmask) >> Bshift) << Bloss;
                 out_row[x] = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
             }
         }
     }
     else if (bpp == 16) {
-        for (int y = 0; y < out_h; y++) {
-            int src_y = (y * scale256) / 256;
-            const uint16_t *row = (const uint16_t *)(rows + src_y * pitch);
-            volatile uint16_t *out_row = dst + (dst_y0 + y) * MISTER_FRAME_W;
-            for (int x = 0; x < out_w; x++) {
-                int src_x = (x * scale256) / 256;
-                uint16_t px = row[src_x];
-                uint8_t r = ((px & screen->format->Rmask) >> Rshift) << Rloss;
-                uint8_t g = ((px & screen->format->Gmask) >> Gshift) << Gloss;
-                uint8_t b = ((px & screen->format->Bmask) >> Bshift) << Bloss;
+        for (y = 0; y < out_h; y++) {
+            const uint16_t *row;
+            volatile uint16_t *out_row;
+            src_y = (y * scale256) / 256;
+            row = (const uint16_t *)(rows + src_y * pitch);
+            out_row = dst + (dst_y0 + y) * MISTER_FRAME_W;
+            for (x = 0; x < out_w; x++) {
+                uint16_t px;
+                uint8_t r, g, b;
+                src_x = (x * scale256) / 256;
+                px = row[src_x];
+                r = ((px & screen->format->Rmask) >> Rshift) << Rloss;
+                g = ((px & screen->format->Gmask) >> Gshift) << Gloss;
+                b = ((px & screen->format->Bmask) >> Bshift) << Bloss;
                 out_row[x] = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
             }
         }
     }
     else if (bpp == 8 && pal) {
-        for (int y = 0; y < out_h; y++) {
-            int src_y = (y * scale256) / 256;
-            const uint8_t *row = rows + src_y * pitch;
-            volatile uint16_t *out_row = dst + (dst_y0 + y) * MISTER_FRAME_W;
-            for (int x = 0; x < out_w; x++) {
-                int src_x = (x * scale256) / 256;
-                SDL_Color c = pal->colors[row[src_x]];
+        for (y = 0; y < out_h; y++) {
+            const uint8_t *row;
+            volatile uint16_t *out_row;
+            src_y = (y * scale256) / 256;
+            row = rows + src_y * pitch;
+            out_row = dst + (dst_y0 + y) * MISTER_FRAME_W;
+            for (x = 0; x < out_w; x++) {
+                SDL_Color c;
+                src_x = (x * scale256) / 256;
+                c = pal->colors[row[src_x]];
                 out_row[x] = ((c.r >> 3) << 11) | ((c.g >> 2) << 5) | (c.b >> 3);
             }
         }
@@ -175,10 +199,12 @@ static void mister_present(SDL_Surface *screen) {
 UPDATE_NEW_BODY = (
     "int SDL_DUMMY_UpdateWindowFramebuffer(_THIS, SDL_Window * window, const SDL_Rect * rects, int numrects)\n"
     "{\n"
-    "    /* SDL_GetWindowSurface returns the cached framebuffer surface\n"
-    "     * created by SDL_DUMMY_CreateWindowFramebuffer above; this is\n"
-    "     * the same SDL_Surface OpenBOR drew into. */\n"
-    "    SDL_Surface *surface = SDL_GetWindowSurface(window);\n"
+    "    /* C90 strict: all decls first, then statements. mister_ddr_init\n"
+    "     * is idempotent (returns immediately if already mapped) so it's\n"
+    "     * safe to call lazily on every frame instead of CreateFramebuffer. */\n"
+    "    SDL_Surface *surface;\n"
+    "    mister_ddr_init();\n"
+    "    surface = SDL_GetWindowSurface(window);\n"
     "    if (surface) mister_present(surface);\n"
     "    return 0;\n"
     "}"
@@ -205,18 +231,9 @@ def main():
         sys.exit(2)
     src = src.replace(inject_anchor, inject_anchor + INJECT_INCLUDES, 1)
 
-    # 2) Initialize DDR3 mapping inside CreateWindowFramebuffer so it
-    #    runs lazily on first frame allocation.
-    create_anchor = "int SDL_DUMMY_CreateWindowFramebuffer(_THIS, SDL_Window * window, Uint32 * format, void ** pixels, int *pitch)\n{"
-    if create_anchor in src:
-        src = src.replace(
-            create_anchor,
-            create_anchor + "\n    mister_ddr_init();",
-            1
-        )
-        print("  CreateWindowFramebuffer: mister_ddr_init() injected.")
-    else:
-        print("  WARN: CreateWindowFramebuffer signature not found; init may not happen.")
+    # 2) DDR3 init now happens lazily in UpdateWindowFramebuffer body
+    #    (see UPDATE_NEW_BODY). Don't touch CreateWindowFramebuffer —
+    #    SDL 2.0.8 strict C90 mode rejects mid-function decl injection.
 
     # 3) Replace UpdateWindowFramebuffer body to push the surface to DDR3.
     #    SDL2's stock implementation is a no-op (returns 0).
