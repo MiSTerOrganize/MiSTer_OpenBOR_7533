@@ -156,6 +156,11 @@ int main(int argc, char *argv[])
     }
     setenv("SDL_VIDEODRIVER", "dummy",  1);
     setenv("SDL_AUDIODRIVER", "dummy",  1);
+    /* Disable stdio buffering so OpenBOR's printf calls appear in
+     * the log immediately. Without this, a crash mid-init swallows
+     * up to 4KB of pending output (including the version banner). */
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
 #endif
 
     setSystemRam();

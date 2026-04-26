@@ -280,6 +280,29 @@ endif
     write(os.path.join(obor, 'openbor.c'), obor_c)
     print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
 
+    # ── DIAG: inject step markers in openborMain so we can bisect early init failure ──
+    print("Injecting openborMain step markers (diag)...")
+    obor_c = read(os.path.join(obor, 'openbor.c'))
+    diag_pairs = [
+        ('void openborMain(int argc, char **argv)\n{\n    sprite_map = NULL;',
+         'void openborMain(int argc, char **argv)\n{\n#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] openborMain entry\\n");\n#endif\n    sprite_map = NULL;'),
+        ('modelcmdlist = createModelCommandList();',
+         '#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] before createModelCommandList\\n");\n#endif\n    modelcmdlist = createModelCommandList();'),
+        ('createModelList();',
+         '#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] before createModelList\\n");\n#endif\n    createModelList();'),
+        ('loadsettings();',
+         '#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] before loadsettings\\n");\n#endif\n    loadsettings();'),
+        ('startup();',
+         '#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] before startup\\n");\n#endif\n    startup();'),
+    ]
+    for old, new in diag_pairs:
+        if old in obor_c:
+            obor_c = obor_c.replace(old, new, 1)
+            print(f"  injected before: {old.split(chr(10))[-1][:60]}")
+        else:
+            print(f"  WARN: anchor not found for diag inject: {old.split(chr(10))[-1][:60]}")
+    write(os.path.join(obor, 'openbor.c'), obor_c)
+
     # ── 6b. Patch logsDir default to /media/fat/logs/OpenBOR_7533 ────
     print("Patching logsDir default in sdl/sdlport.c...")
     sdlport = read(os.path.join(obor, 'sdl/sdlport.c'))
