@@ -32,6 +32,12 @@ cd SDL2-2.0.8
 # SDL_VIDEODRIVER=dummy. Inject DDR3 mmap + frame writer.
 python3 /build/.github/scripts/patch_sdl_dummy.py src/video/dummy/SDL_nullframebuffer.c
 
+# SDL 2.0.8 builds with -Werror=declaration-after-statement. Our
+# injected C code mixes decls with statements (C99 style), so disable
+# that one warning-as-error. We do this via env-var so it's appended
+# to SDL's own CFLAGS rather than overwriting them.
+export CFLAGS="-Wno-error=declaration-after-statement"
+
 ./configure \
   --prefix=$SDL_PREFIX \
   --disable-video-x11 \
@@ -57,6 +63,13 @@ python3 /build/.github/scripts/patch_sdl_dummy.py src/video/dummy/SDL_nullframeb
   --quiet
 make -j$(nproc) --quiet
 make install --quiet
+unset CFLAGS
+
+# Hard-fail if SDL2 headers didn't install. The downstream SDL2_gfx
+# and OpenBOR builds need these — easier to debug here than to chase
+# cascading "SDL.h: No such file" errors.
+test -f $SDL_PREFIX/include/SDL2/SDL.h || { echo "ERROR: SDL2 build/install failed — SDL.h not present"; exit 1; }
+test -f $SDL_PREFIX/lib/libSDL2.a || { echo "ERROR: SDL2 build/install failed — libSDL2.a not present"; exit 1; }
 
 # ── Build SDL2_gfx 1.0.4 ─────────────────────────────────────────
 echo "=== Building SDL2_gfx 1.0.4 ==="
@@ -65,6 +78,8 @@ wget -q https://www.ferzkopp.net/Software/SDL2_gfx/SDL2_gfx-1.0.4.tar.gz
 tar xzf SDL2_gfx-1.0.4.tar.gz
 cd SDL2_gfx-1.0.4
 ./autogen.sh 2>/dev/null
+# Use sdl2-config from our SDL2 install so headers/libs resolve.
+export SDL2_CONFIG=$SDL_PREFIX/bin/sdl2-config
 ./configure \
   --prefix=$SDL_PREFIX \
   --disable-shared \
@@ -75,6 +90,8 @@ cd SDL2_gfx-1.0.4
   --quiet
 make -j$(nproc) --quiet
 make install --quiet
+unset SDL2_CONFIG
+test -f $SDL_PREFIX/lib/libSDL2_gfx.a || { echo "ERROR: SDL2_gfx build/install failed — libSDL2_gfx.a not present"; exit 1; }
 
 # ── Build libogg 1.3.5 ───────────────────────────────────────────
 echo "=== Building libogg ==="

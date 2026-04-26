@@ -93,6 +93,7 @@ ARCHFLAGS       = -mcpu=cortex-a9 -mfloat-abi=hard -mfpu=neon
 INCLUDES        = $(SDL_PREFIX)/include \\
                   $(SDL_PREFIX)/include/SDL2
 LIBRARIES       = $(SDL_PREFIX)/lib
+INCS            += source/webmlib
 CFLAGS          += -Wno-error=format-overflow -Wno-error=implicit-function-declaration -Wno-error=unused-variable -Wno-error=unused-label -Wno-error=stringop-overflow
 ifeq ($(BUILD_MISTER), 0)
 BUILD_DEBUG     = 1
