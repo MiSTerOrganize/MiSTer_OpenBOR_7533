@@ -16,7 +16,8 @@
 set -e
 
 OUTPUT_DIR="${1:-../_Other}"
-PROJECT="OpenBOR"
+PROJECT="OpenBOR"           # matches OpenBOR.qpf (don't change)
+RBF_PREFIX="OpenBOR_7533"   # output filename prefix
 DATE=$(date +%Y%m%d)
 
 # Locate quartus_sh. Prefer PATH, then fall back to the Windows default.
@@ -50,7 +51,7 @@ if [ ! -f "$SRC_RBF" ]; then
 fi
 
 mkdir -p "$OUTPUT_DIR"
-DST_RBF="$OUTPUT_DIR/${PROJECT}_${DATE}.rbf"
+DST_RBF="$OUTPUT_DIR/${RBF_PREFIX}_${DATE}.rbf"
 cp "$SRC_RBF" "$DST_RBF"
 SIZE=$(ls -lh "$DST_RBF" | awk '{print $5}')
 
