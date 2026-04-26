@@ -32,14 +32,19 @@
 
 void control_update(s_playercontrols ** playercontrols, int numplayers)
 {
-    unsigned k;
+    u64 k;
     unsigned i;
     int player;
     int t;
     s_playercontrols * pcontrols;
+    /* v7533 changed getPads to take both primary and default-key states.
+     * SDL_GetKeyState is a compat macro for SDL_GetKeyboardState in
+     * sdl/control.h. We don't actually use either array (we read joystick
+     * state from DDR3 below), but pass them through to keep getPads happy. */
     Uint8* keystate = (Uint8*)SDL_GetKeyState(NULL);
+    Uint8* keystate_def = (Uint8*)SDL_GetKeyState(NULL);
 
-    getPads(keystate);
+    getPads(keystate, keystate_def);
     for(player = 0; player < numplayers; player++)
     {
         pcontrols = playercontrols[player];

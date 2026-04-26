@@ -55,7 +55,9 @@ void pausemenu()
     int newkeys;
     char volbuf[64];
     s_set_entry *set = levelsets + current_set;
-    s_screen *pausebuffer = allocscreen(videomodes.hRes, videomodes.vRes, screenformat);
+    /* v7533 hardcodes PIXEL_32 here (the global `screenformat` var was
+     * removed in the rendering rewrite). Match the stock pausemenu. */
+    s_screen *pausebuffer = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_32);
 
     copyscreen(pausebuffer, vscreen);
     spriteq_draw(pausebuffer, 0, MIN_INT, MAX_INT, 0, 0);
@@ -73,32 +75,36 @@ void pausemenu()
         }
     }
 
-    pause = 2;
+    /* v7533 renamed the pause-state global from `pause` to `_pause` */
+    _pause = 2;
     bothnewkeys = 0;
 
     while(!quit)
     {
+        /* v7533 menu API: _menutextmshift(font, line_y, ?, x_pos, y_pos, text)
+         * font = pauseoffset[0] (unselected) or pauseoffset[1] (selected)
+         * x_pos = pauseoffset[2], y_pos = pauseoffset[3] (PAK-customizable) */
         if(!in_options)
         {
             /* -- Main pause menu: Continue / Options / Reset Pak / Quit -- */
-            _menutextm(3, -3, 0, Tr("Pause"));
-            _menutextm((pauselector == 0), -1, 0, Tr("Continue"));
-            _menutextm((pauselector == 1),  0, 0, Tr("Options"));
-            _menutextm((pauselector == 2),  1, 0, Tr("Reset Pak"));
-            _menutextm((pauselector == 3),  2, 0, Tr("Quit"));
+            _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6], Tr("Pause"));
+            _menutextmshift((pauselector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Continue"));
+            _menutextmshift((pauselector == 1)?pauseoffset[1]:pauseoffset[0],  0, 0, pauseoffset[2], pauseoffset[3], Tr("Options"));
+            _menutextmshift((pauselector == 2)?pauseoffset[1]:pauseoffset[0],  1, 0, pauseoffset[2], pauseoffset[3], Tr("Reset Pak"));
+            _menutextmshift((pauselector == 3)?pauseoffset[1]:pauseoffset[0],  2, 0, pauseoffset[2], pauseoffset[3], Tr("Quit"));
         }
         else
         {
             /* -- Options submenu: Music Volume / SFX Volume / Back -- */
-            _menutextm(3, -3, 0, Tr("Options"));
+            _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6], Tr("Options"));
 
             snprintf(volbuf, sizeof(volbuf), "Music Volume: %ld", (long)savedata.musicvol);
-            _menutextm((option_selector == 0), -1, 0, volbuf);
+            _menutextmshift((option_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], volbuf);
 
             snprintf(volbuf, sizeof(volbuf), "SFX Volume: %ld", (long)savedata.effectvol);
-            _menutextm((option_selector == 1),  0, 0, volbuf);
+            _menutextmshift((option_selector == 1)?pauseoffset[1]:pauseoffset[0],  0, 0, pauseoffset[2], pauseoffset[3], volbuf);
 
-            _menutextm((option_selector == 2),  2, 0, Tr("Back"));
+            _menutextmshift((option_selector == 2)?pauseoffset[1]:pauseoffset[0],  2, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
         }
 
         update(1, 0);
@@ -113,18 +119,18 @@ void pausemenu()
             if(newkeys & FLAG_MOVEUP)
             {
                 pauselector = (pauselector + 3) % 4;
-                sound_play_sample(SAMPLE_BEEP, 0, savedata.effectvol, savedata.effectvol, 100);
+                sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
             if(newkeys & FLAG_MOVEDOWN)
             {
                 pauselector = (pauselector + 1) % 4;
-                sound_play_sample(SAMPLE_BEEP, 0, savedata.effectvol, savedata.effectvol, 100);
+                sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
 
             /* Xbox A (FLAG_JUMP in this mapping) or Start -- confirm selection */
             if(newkeys & (FLAG_JUMP | FLAG_START))
             {
-                sound_play_sample(SAMPLE_BEEP2, 0, savedata.effectvol, savedata.effectvol, 100);
+                sound_play_sample(global_sample_list.beep_2, 0, savedata.effectvol, savedata.effectvol, 100);
                 switch(pauselector)
                 {
                 case 0:  /* Continue — resume game */
@@ -160,7 +166,7 @@ void pausemenu()
                 quit = 1;
                 sound_pause_music(0);
                 sound_pause_sample(0);
-                sound_play_sample(SAMPLE_BEEP2, 0, savedata.effectvol, savedata.effectvol, 100);
+                sound_play_sample(global_sample_list.beep_2, 0, savedata.effectvol, savedata.effectvol, 100);
             }
         }
         else
@@ -171,12 +177,12 @@ void pausemenu()
             if(newkeys & FLAG_MOVEUP)
             {
                 option_selector = (option_selector + 2) % 3;
-                sound_play_sample(SAMPLE_BEEP, 0, savedata.effectvol, savedata.effectvol, 100);
+                sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
             if(newkeys & FLAG_MOVEDOWN)
             {
                 option_selector = (option_selector + 1) % 3;
-                sound_play_sample(SAMPLE_BEEP, 0, savedata.effectvol, savedata.effectvol, 100);
+                sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
 
             /* D-pad left — decrease volume (Music or SFX, depending on selection) */
@@ -191,7 +197,7 @@ void pausemenu()
                 {
                     savedata.effectvol -= 10;
                 }
-                sound_play_sample(SAMPLE_BEEP, 0, savedata.effectvol, savedata.effectvol, 100);
+                sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
 
             /* D-pad right — increase volume */
@@ -207,7 +213,7 @@ void pausemenu()
                     /* Effect volume default is 120, allow up to 120 max */
                     savedata.effectvol += 10;
                 }
-                sound_play_sample(SAMPLE_BEEP, 0, savedata.effectvol, savedata.effectvol, 100);
+                sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
 
             /* Xbox A (FLAG_JUMP) or Start -- confirm (only Back does anything) */
@@ -217,7 +223,7 @@ void pausemenu()
                 {
                     in_options = 0;
                     pauselector = 1;  /* return highlight to Options entry */
-                    sound_play_sample(SAMPLE_BEEP2, 0, savedata.effectvol, savedata.effectvol, 100);
+                    sound_play_sample(global_sample_list.beep_2, 0, savedata.effectvol, savedata.effectvol, 100);
                 }
             }
 
@@ -226,12 +232,12 @@ void pausemenu()
             {
                 in_options = 0;
                 pauselector = 1;  /* return highlight to Options entry */
-                sound_play_sample(SAMPLE_BEEP2, 0, savedata.effectvol, savedata.effectvol, 100);
+                sound_play_sample(global_sample_list.beep_2, 0, savedata.effectvol, savedata.effectvol, 100);
             }
         }
     }
 
-    pause = 0;
+    _pause = 0;
     bothnewkeys = 0;
     spriteq_unlock();
     spriteq_clear();
