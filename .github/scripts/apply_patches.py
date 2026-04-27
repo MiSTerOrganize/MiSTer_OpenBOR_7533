@@ -280,42 +280,12 @@ endif
     write(os.path.join(obor, 'openbor.c'), obor_c)
     print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
 
-    # ── DIAG: inject step markers in startup() so we can find the
-    #         exact line that kills the binary. Last green build said
-    #         '[diag] before startup' was the last marker before exit 1.
-    print("Injecting startup() bisect markers (diag)...")
-    obor_c = read(os.path.join(obor, 'openbor.c'))
-
-    # Use unique multi-line contexts so we hit the right callsites
-    # (Python str.replace(old, new, 1) replaces only the first match).
-    diag_pairs = [
-        # Marker 0: openborMain entry (unchanged from previous build)
-        ('void openborMain(int argc, char **argv)\n{\n    sprite_map = NULL;',
-         'void openborMain(int argc, char **argv)\n{\n#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] openborMain entry\\n"); fflush(stderr);\n#endif\n    sprite_map = NULL;'),
-        # Marker 1: openborMain reaches startup call
-        ('    loadsettings();\n    startup();',
-         '#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] openborMain about to call startup()\\n"); fflush(stderr);\n#endif\n    loadsettings();\n#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] openborMain loadsettings() returned\\n"); fflush(stderr);\n#endif\n    startup();'),
-        # Marker 2-N: bisect inside startup() body
-        ('void startup()\n{\n    int i;\n\n    printf("FileCaching System Init',
-         'void startup()\n{\n    int i;\n#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] startup() entry\\n"); fflush(stderr);\n#endif\n\n    printf("FileCaching System Init'),
-        ('    if(pak_init())\n    {\n        printf("Enabled\\n");',
-         '#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] startup: before pak_init\\n"); fflush(stderr);\n#endif\n    if(pak_init())\n    {\n#ifdef MISTER_NATIVE_VIDEO\n        fprintf(stderr, "[diag] startup: pak_init returned true\\n"); fflush(stderr);\n#endif\n        printf("Enabled\\n");'),
-        ('    loadHighScoreFile();\n    clearSavedGame();',
-         '#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] startup: before loadHighScoreFile\\n"); fflush(stderr);\n#endif\n    loadHighScoreFile();\n#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] startup: before clearSavedGame\\n"); fflush(stderr);\n#endif\n    clearSavedGame();'),
-        ('    init_videomodes(1);\n    if(!video_set_mode(videomodes))',
-         '#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] startup: before init_videomodes(1)\\n"); fflush(stderr);\n#endif\n    init_videomodes(1);\n#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] startup: before video_set_mode\\n"); fflush(stderr);\n#endif\n    if(!video_set_mode(videomodes))'),
-        ('        borShutdown(1, "Unable to set video mode: %d x %d!\\n", videomodes.hRes, videomodes.vRes);',
-         '#ifdef MISTER_NATIVE_VIDEO\n        fprintf(stderr, "[diag] startup: video_set_mode returned FALSE -> borShutdown\\n"); fflush(stderr);\n#endif\n        borShutdown(1, "Unable to set video mode: %d x %d!\\n", videomodes.hRes, videomodes.vRes);'),
-        ('    borTimerInit();',
-         '#ifdef MISTER_NATIVE_VIDEO\n    fprintf(stderr, "[diag] startup: before borTimerInit (video_set_mode succeeded)\\n"); fflush(stderr);\n#endif\n    borTimerInit();'),
-    ]
-    for old, new in diag_pairs:
-        if old in obor_c:
-            obor_c = obor_c.replace(old, new, 1)
-            print(f"  injected: {old.split(chr(10))[-1][:60]}")
-        else:
-            print(f"  WARN: anchor not found: {old.split(chr(10))[-1][:60]}")
-    write(os.path.join(obor, 'openbor.c'), obor_c)
+    # (Diagnostic step-marker injection was removed after first
+    #  successful boot was achieved. Bisect findings are documented
+    #  in the project memory; the actual fix was setenv
+    #  SDL_RENDER_DRIVER=software in main(), since v7533 uses the
+    #  SDL2 SDL_Renderer API and the dummy video driver registers
+    #  no render drivers.)
 
     # ── 6b. Patch logsDir default to /media/fat/logs/OpenBOR_7533 ────
     print("Patching logsDir default in sdl/sdlport.c...")

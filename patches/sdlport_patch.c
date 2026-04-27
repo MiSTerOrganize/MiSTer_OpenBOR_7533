@@ -156,6 +156,14 @@ int main(int argc, char *argv[])
     }
     setenv("SDL_VIDEODRIVER", "dummy",  1);
     setenv("SDL_AUDIODRIVER", "dummy",  1);
+    /* OpenBOR 4.0 uses the SDL2 SDL_Renderer API (renderer + texture)
+     * for video output. The dummy video driver registers no render
+     * drivers, so SDL_CreateRenderer auto-select fails with
+     * "Couldn't find matching render driver". Force the software
+     * renderer — its SW_RenderPresent calls SDL_UpdateWindowSurface,
+     * which lands in our patched SDL_DUMMY_UpdateWindowFramebuffer
+     * and pushes the frame to DDR3. */
+    setenv("SDL_RENDER_DRIVER", "software", 1);
     /* Disable stdio buffering so OpenBOR's printf calls appear in
      * the log immediately. Without this, a crash mid-init swallows
      * up to 4KB of pending output (including the version banner). */

@@ -48,11 +48,19 @@ while true; do
             FIRST_LOAD=0
         fi
         export SDL_VIDEODRIVER=dummy
+        export SDL_AUDIODRIVER=dummy
+        # Force SDL2 software renderer — dummy video driver registers no
+        # render drivers, so SDL_CreateRenderer fails without this.
+        export SDL_RENDER_DRIVER=software
         cd "$GAMEDIR"
         # Free kernel buffer cache before starting — FC0 ioctl streams
         # the entire PAK (50-150MB) through SPI, filling the cache.
         # Without this, repeated PAK loads exhaust RAM and OpenBOR segfaults.
         echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+        # OpenBOR's writeToLogFile (printf macro) tries to fopen
+        # ./Logs/OpenBorLog.txt — create the dir or all engine printf
+        # output is silently dropped.
+        mkdir -p Logs
         mkdir -p /media/fat/logs/OpenBOR_7533
         mv -f /media/fat/logs/OpenBOR_7533/OpenBOR.log /media/fat/logs/OpenBOR_7533/OpenBOR.prev.log 2>/dev/null
         ./OpenBOR > /media/fat/logs/OpenBOR_7533/OpenBOR.log 2>&1 &
