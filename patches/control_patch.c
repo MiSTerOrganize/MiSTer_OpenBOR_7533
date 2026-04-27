@@ -37,14 +37,21 @@ void control_update(s_playercontrols ** playercontrols, int numplayers)
     int player;
     int t;
     s_playercontrols * pcontrols;
-    /* v7533 changed getPads to take both primary and default-key states.
-     * SDL_GetKeyState is a compat macro for SDL_GetKeyboardState in
-     * sdl/control.h. We don't actually use either array (we read joystick
-     * state from DDR3 below), but pass them through to keep getPads happy. */
-    Uint8* keystate = (Uint8*)SDL_GetKeyState(NULL);
-    Uint8* keystate_def = (Uint8*)SDL_GetKeyState(NULL);
 
-    getPads(keystate, keystate_def);
+    /* DO NOT call getPads() — it polls SDL events and dispatches
+     * SDL_QUIT to borShutdown(0,...). Under SDL2 dummy driver +
+     * our cwd-less main, spurious SDL_QUIT events fire during
+     * model loading and silently exit the engine mid-init,
+     * producing a daemon-restart loop ("loading bar restarts
+     * forever" symptom).
+     *
+     * We read joystick state from DDR3 below, so we don't need
+     * keyboard state at all. Pump+discard SDL events so the SDL
+     * internal queue stays drained without triggering shutdown. */
+    {
+        SDL_Event ev;
+        while(SDL_PollEvent(&ev)) { /* swallow everything, including SDL_QUIT */ }
+    }
     for(player = 0; player < numplayers; player++)
     {
         pcontrols = playercontrols[player];
