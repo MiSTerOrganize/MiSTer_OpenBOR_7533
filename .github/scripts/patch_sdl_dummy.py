@@ -25,6 +25,7 @@ INJECT_INCLUDES = """
 #include <unistd.h>
 #include <sys/mman.h>
 #include <stdint.h>
+#include <pthread.h>
 
 #define MISTER_DDR_PHYS_BASE   0x3A000000u
 #define MISTER_DDR_REGION_SIZE 0x00100000u
@@ -41,6 +42,32 @@ static volatile uint32_t  *mister_ctrl      = NULL;
 static uint32_t            mister_frame_cnt = 0;
 static int                 mister_active_buf = 0;
 static int                 mister_logged    = 0;
+static pthread_t           mister_keepalive_tid;
+static volatile int        mister_keepalive_run = 0;
+
+/* Keepalive thread — pings the FPGA frame counter every ~150ms even
+ * when ARM isn't producing frames. The FPGA video reader has a
+ * staleness timeout: if frame_cnt doesn't change for ~30 vblanks
+ * (~500ms) it sets frame_ready_reg=0 and BLANKS the screen. During
+ * heavy model loading on big PAKs (He-Man, Avengers, late-build
+ * sets) individual model parses take >500ms while the engine
+ * throttles update_loading calls — so the FPGA blanks then unblanks,
+ * producing the visible black/content flicker on the loading screen.
+ *
+ * Bumping the counter without rewriting the buffer leaves the same
+ * image on screen (FPGA re-reads same active_buffer offset) but
+ * keeps frame_ready_reg latched true. Same image, no flicker. */
+static void *mister_keepalive_fn(void *arg) {
+    (void)arg;
+    while (mister_keepalive_run) {
+        usleep(150000); /* 150ms */
+        if (mister_ctrl) {
+            mister_frame_cnt++;
+            *mister_ctrl = (mister_frame_cnt << 2) | (mister_active_buf & 1);
+        }
+    }
+    return NULL;
+}
 
 static void mister_ddr_init(void) {
     if (mister_ddr) return;
@@ -62,6 +89,8 @@ static void mister_ddr_init(void) {
     *mister_ctrl = 0;
     fprintf(stderr, "MiSTer SDL2: DDR3 mapped @ 0x%08X (driver=dummy_native)\\n",
             MISTER_DDR_PHYS_BASE);
+    mister_keepalive_run = 1;
+    pthread_create(&mister_keepalive_tid, NULL, mister_keepalive_fn, NULL);
 }
 
 /* C90-compliant: all decls at function top, all loop indices declared
