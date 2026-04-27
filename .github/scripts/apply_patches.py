@@ -280,6 +280,47 @@ endif
     write(os.path.join(obor, 'openbor.c'), obor_c)
     print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
 
+    # ── 8b. Register `cheats` as openborvariant ──
+    # Some PAKs (Pocket Dimensional Clash 2, He-Man, Avengers UBF) call
+    # openborvariant("cheats") which v7533 doesn't expose. Add it.
+    # Three coordinated edits required: enum, svlist[], switch case.
+    print("Patching openborscript.c + config.h (expose cheats to openborvariant)...")
+
+    # 8b.1 — config.h enum (insert SYSTEM_PROPERTY_CHEATS alphabetically
+    # between BRANCHNAME and COUNT_ENEMIES)
+    cfg_path = os.path.join(obor, 'source/openborscript/config.h')
+    cfg = read(cfg_path)
+    cfg_old = '    SYSTEM_PROPERTY_BRANCHNAME,\n    SYSTEM_PROPERTY_COUNT_ENEMIES,'
+    cfg_new = '    SYSTEM_PROPERTY_BRANCHNAME,\n    SYSTEM_PROPERTY_CHEATS,\n    SYSTEM_PROPERTY_COUNT_ENEMIES,'
+    if cfg_old in cfg:
+        cfg = cfg.replace(cfg_old, cfg_new, 1)
+        write(cfg_path, cfg)
+        print("  config.h: SYSTEM_PROPERTY_CHEATS enum entry added.")
+    else:
+        print("  WARN: enum anchor not found in config.h")
+
+    # 8b.2 — openborscript.c svlist[] alphabetical insert
+    obs_path = os.path.join(obor, 'openborscript.c')
+    obs = read(obs_path)
+    sv_old = '    "branchname",\n    "count_enemies",'
+    sv_new = '    "branchname",\n    "cheats",\n    "count_enemies",'
+    if sv_old in obs:
+        obs = obs.replace(sv_old, sv_new, 1)
+        print("  openborscript.c: svlist[] cheats entry added.")
+    else:
+        print("  WARN: svlist anchor not found")
+
+    # 8b.3 — switch case in getsyspropertybyindex
+    sw_old = '    case SYSTEM_PROPERTY_BRANCHNAME:\n\n        ScriptVariant_ChangeType(var, VT_STR);\n        var->strVal = StrCache_CreateNewFrom(branch_name);\n        break;\n\n    case SYSTEM_PROPERTY_COUNT_ENEMIES:'
+    sw_new = '    case SYSTEM_PROPERTY_BRANCHNAME:\n\n        ScriptVariant_ChangeType(var, VT_STR);\n        var->strVal = StrCache_CreateNewFrom(branch_name);\n        break;\n\n    case SYSTEM_PROPERTY_CHEATS:\n\n        ScriptVariant_ChangeType(var, VT_INTEGER);\n        var->lVal = global_config.cheats;\n        break;\n\n    case SYSTEM_PROPERTY_COUNT_ENEMIES:'
+    if sw_old in obs:
+        obs = obs.replace(sw_old, sw_new, 1)
+        print("  openborscript.c: getsyspropertybyindex case added.")
+    else:
+        print("  WARN: switch-case anchor not found")
+
+    write(obs_path, obs)
+
     # ── 9. Register PLAYER_MIN_Z / PLAYER_MAX_Z as openborconstant ──
     # v7533 only registers these in the openborvariant lookup, not
     # the openborconstant table. Several PAKs (Pocket Dimensional
