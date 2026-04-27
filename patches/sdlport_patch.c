@@ -106,8 +106,14 @@ static void *mister_swap_thread(void *arg)
             snprintf(full, sizeof(full), "/media/fat/%s", check_path);
             if (strcmp(full, mister_loaded_path) != 0) {
                 fprintf(stderr, "MiSTer: PAK swap detected: %s\n", full);
+                fflush(stderr);
                 mister_swap_requested = 1;
-                borExit(1);
+                /* Use _exit instead of borExit. borExit() calls SDL_Quit()
+                 * which is not safe from a non-main thread (we crashed
+                 * with SIGSEGV under our keepalive + SDL teardown). The
+                 * process is terminating anyway — daemon will relaunch
+                 * cleanly and pick up the new .s0 path. */
+                _exit(1);
             }
         }
     }
