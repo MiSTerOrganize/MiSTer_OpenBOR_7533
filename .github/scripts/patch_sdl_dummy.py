@@ -164,21 +164,95 @@ static void mister_present(SDL_Surface *screen) {
     }
 
     if (bpp == 32) {
-        for (y = 0; y < out_h; y++) {
-            const uint32_t *row;
-            volatile uint16_t *out_row;
-            src_y = (y * scale256) / 256;
-            row = (const uint32_t *)(rows + src_y * pitch);
-            out_row = dst + (dst_y0 + y) * MISTER_FRAME_W;
-            for (x = 0; x < out_w; x++) {
-                uint32_t px;
-                uint8_t r, g, b;
-                src_x = (x * scale256) / 256;
-                px = row[src_x];
-                r = ((px & screen->format->Rmask) >> Rshift) << Rloss;
-                g = ((px & screen->format->Gmask) >> Gshift) << Gloss;
-                b = ((px & screen->format->Bmask) >> Bshift) << Bloss;
-                out_row[x] = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+        /* Use bilinear interpolation when downscaling (scale256 > 256)
+         * to avoid the blocky / dropped-pixel artifacts of nearest-
+         * neighbor on non-integer ratios (e.g. 480x272 -> 320x181 is
+         * a 1.5x downscale that drops every 3rd source pixel under NN
+         * — text and sprite outlines lose pixels unevenly). For 1x
+         * native (scale256 == 256), fall back to nearest since bilinear
+         * with zero fractional weights is just slower nearest. */
+        uint32_t Rmask = screen->format->Rmask;
+        uint32_t Gmask = screen->format->Gmask;
+        uint32_t Bmask = screen->format->Bmask;
+        if (scale256 == 256) {
+            /* Native — fast nearest path */
+            for (y = 0; y < out_h; y++) {
+                const uint32_t *row;
+                volatile uint16_t *out_row;
+                src_y = y;
+                row = (const uint32_t *)(rows + src_y * pitch);
+                out_row = dst + (dst_y0 + y) * MISTER_FRAME_W;
+                for (x = 0; x < out_w; x++) {
+                    uint32_t px;
+                    uint8_t r, g, b;
+                    px = row[x];
+                    r = ((px & Rmask) >> Rshift) << Rloss;
+                    g = ((px & Gmask) >> Gshift) << Gloss;
+                    b = ((px & Bmask) >> Bshift) << Bloss;
+                    out_row[x] = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+                }
+            }
+        } else {
+            /* Bilinear path for non-1x scale */
+            for (y = 0; y < out_h; y++) {
+                int sy_fp, sy_int, sy_frac, sy_next;
+                int sy_w0, sy_w1;
+                const uint32_t *row0;
+                const uint32_t *row1;
+                volatile uint16_t *out_row;
+                sy_fp   = y * scale256;
+                sy_int  = sy_fp >> 8;
+                sy_frac = sy_fp & 0xFF;
+                sy_next = sy_int + 1;
+                if (sy_next >= h) sy_next = h - 1;
+                sy_w0 = 256 - sy_frac;
+                sy_w1 = sy_frac;
+                row0 = (const uint32_t *)(rows + sy_int  * pitch);
+                row1 = (const uint32_t *)(rows + sy_next * pitch);
+                out_row = dst + (dst_y0 + y) * MISTER_FRAME_W;
+                for (x = 0; x < out_w; x++) {
+                    int sx_fp, sx_int, sx_frac, sx_next;
+                    int sx_w0, sx_w1;
+                    uint32_t p00, p01, p10, p11;
+                    int r00, r01, r10, r11, g00, g01, g10, g11, b00, b01, b10, b11;
+                    int top_r, top_g, top_b, bot_r, bot_g, bot_b;
+                    int out_r, out_g, out_b;
+                    sx_fp   = x * scale256;
+                    sx_int  = sx_fp >> 8;
+                    sx_frac = sx_fp & 0xFF;
+                    sx_next = sx_int + 1;
+                    if (sx_next >= w) sx_next = w - 1;
+                    sx_w0 = 256 - sx_frac;
+                    sx_w1 = sx_frac;
+                    p00 = row0[sx_int];
+                    p01 = row0[sx_next];
+                    p10 = row1[sx_int];
+                    p11 = row1[sx_next];
+                    r00 = (int)(((p00 & Rmask) >> Rshift) << Rloss);
+                    g00 = (int)(((p00 & Gmask) >> Gshift) << Gloss);
+                    b00 = (int)(((p00 & Bmask) >> Bshift) << Bloss);
+                    r01 = (int)(((p01 & Rmask) >> Rshift) << Rloss);
+                    g01 = (int)(((p01 & Gmask) >> Gshift) << Gloss);
+                    b01 = (int)(((p01 & Bmask) >> Bshift) << Bloss);
+                    r10 = (int)(((p10 & Rmask) >> Rshift) << Rloss);
+                    g10 = (int)(((p10 & Gmask) >> Gshift) << Gloss);
+                    b10 = (int)(((p10 & Bmask) >> Bshift) << Bloss);
+                    r11 = (int)(((p11 & Rmask) >> Rshift) << Rloss);
+                    g11 = (int)(((p11 & Gmask) >> Gshift) << Gloss);
+                    b11 = (int)(((p11 & Bmask) >> Bshift) << Bloss);
+                    top_r = r00 * sx_w0 + r01 * sx_w1;
+                    top_g = g00 * sx_w0 + g01 * sx_w1;
+                    top_b = b00 * sx_w0 + b01 * sx_w1;
+                    bot_r = r10 * sx_w0 + r11 * sx_w1;
+                    bot_g = g10 * sx_w0 + g11 * sx_w1;
+                    bot_b = b10 * sx_w0 + b11 * sx_w1;
+                    /* top/bot are in [0, 255*256] = [0, 65280]. After
+                     * vertical blend and >>16 we land back in [0, 255]. */
+                    out_r = (top_r * sy_w0 + bot_r * sy_w1) >> 16;
+                    out_g = (top_g * sy_w0 + bot_g * sy_w1) >> 16;
+                    out_b = (top_b * sy_w0 + bot_b * sy_w1) >> 16;
+                    out_row[x] = ((out_r >> 3) << 11) | ((out_g >> 2) << 5) | (out_b >> 3);
+                }
             }
         }
     }
