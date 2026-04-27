@@ -280,6 +280,37 @@ endif
     write(os.path.join(obor, 'openbor.c'), obor_c)
     print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
 
+    # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
+    # Avengers - United Battle Force (and likely other late-build PAKs)
+    # call getentityproperty(self, "dot") in scripts. v7533 renamed
+    # this property to "damage_on_landing". Inject an alias so legacy
+    # PAKs compile. Same pattern can extend to other renamed properties.
+    print("Patching openborscript.c (legacy entity-property aliases)...")
+    obs_path = os.path.join(obor, 'openborscript.c')
+    obs = read(obs_path)
+    eplist_anchor = '    // map entity properties\n    MAPSTRINGS(varlist[1], eplist, _ep_the_end,'
+    if eplist_anchor in obs:
+        alias_block = (
+            '    /* Legacy alias: pre-rename PAKs (Avengers UBF etc.) call\n'
+            '     * getentityproperty(self, "dot") for what is now\n'
+            '     * "damage_on_landing". Pre-resolve the index here so\n'
+            '     * the script compiles. */\n'
+            '#ifdef MISTER_NATIVE_VIDEO\n'
+            '    if (varlist[1]->vt == VT_STR) {\n'
+            '        const char *_alias_propname = (const char*)StrCache_Get(varlist[1]->strVal);\n'
+            '        if (_alias_propname && stricmp(_alias_propname, "dot") == 0) {\n'
+            '            ScriptVariant_ChangeType(varlist[1], VT_INTEGER);\n'
+            '            varlist[1]->lVal = _ep_damage_on_landing;\n'
+            '        }\n'
+            '    }\n'
+            '#endif\n'
+        )
+        obs = obs.replace(eplist_anchor, alias_block + eplist_anchor, 1)
+        write(obs_path, obs)
+        print("  'dot' -> '_ep_damage_on_landing' alias injected.")
+    else:
+        print("  WARN: eplist MAPSTRINGS anchor not found")
+
     # ── 8b. Register `cheats` as openborvariant ──
     # Some PAKs (Pocket Dimensional Clash 2, He-Man, Avengers UBF) call
     # openborvariant("cheats") which v7533 doesn't expose. Add it.
