@@ -54,16 +54,23 @@ static volatile int        mister_keepalive_run = 0;
  * throttles update_loading calls — so the FPGA blanks then unblanks,
  * producing the visible black/content flicker on the loading screen.
  *
- * Bumping the counter without rewriting the buffer leaves the same
+ * Bumping the counter without rewriting the buffer keeps the same
  * image on screen (FPGA re-reads same active_buffer offset) but
- * keeps frame_ready_reg latched true. Same image, no flicker. */
+ * keeps frame_ready_reg latched true. Same image, no flicker.
+ *
+ * IMPORTANT: mister_present writes buf X then TOGGLES mister_active_buf
+ * to !X. So after a present, the LAST WRITTEN buffer is (!mister_active_buf).
+ * Use that for the keepalive ctrl word — otherwise the FPGA flips to
+ * the OTHER buffer (which holds the previous frame) and the loading
+ * bar jitters between two positions. */
 static void *mister_keepalive_fn(void *arg) {
     (void)arg;
     while (mister_keepalive_run) {
         usleep(150000); /* 150ms */
         if (mister_ctrl) {
+            int last_written = !mister_active_buf & 1;
             mister_frame_cnt++;
-            *mister_ctrl = (mister_frame_cnt << 2) | (mister_active_buf & 1);
+            *mister_ctrl = (mister_frame_cnt << 2) | last_written;
         }
     }
     return NULL;
