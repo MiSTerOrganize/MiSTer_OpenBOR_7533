@@ -280,12 +280,32 @@ endif
     write(os.path.join(obor, 'openbor.c'), obor_c)
     print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
 
-    # (Diagnostic step-marker injection was removed after first
-    #  successful boot was achieved. Bisect findings are documented
-    #  in the project memory; the actual fix was setenv
-    #  SDL_RENDER_DRIVER=software in main(), since v7533 uses the
-    #  SDL2 SDL_Renderer API and the dummy video driver registers
-    #  no render drivers.)
+    # ── 9. Register PLAYER_MIN_Z / PLAYER_MAX_Z as openborconstant ──
+    # v7533 only registers these in the openborvariant lookup, not
+    # the openborconstant table. Several PAKs (Pocket Dimensional
+    # Clash 2, others) call openborconstant("PLAYER_MIN_Z") and
+    # die with "Can't find openbor constant" + script compile error.
+    # Adding ICMPCONST entries makes both lookups work — backward
+    # compatible (no PAK that already worked will break, since the
+    # variant lookup is unchanged and the constant lookup just gains
+    # two more entries).
+    print("Patching constants.c (expose PLAYER_MIN_Z/MAX_Z to openborconstant)...")
+    cpath = os.path.join(obor, 'source/openborscript/constants.c')
+    if os.path.exists(cpath):
+        cdata = read(cpath)
+        anchor = '        ICMPCONST(MOVE_CONFIG_SUBJECT_TO_WALL)'
+        if anchor in cdata:
+            cdata = cdata.replace(
+                anchor,
+                anchor + '\n        ICMPCONST(PLAYER_MIN_Z)\n        ICMPCONST(PLAYER_MAX_Z)',
+                1
+            )
+            write(cpath, cdata)
+            print("  PLAYER_MIN_Z/MAX_Z registered as openborconstant.")
+        else:
+            print("  WARN: constants.c anchor not found; PAK script-API workaround skipped")
+    else:
+        print("  WARN: constants.c not found at expected path")
 
     # ── 6b. Patch logsDir default to /media/fat/logs/OpenBOR_7533 ────
     print("Patching logsDir default in sdl/sdlport.c...")
