@@ -65,7 +65,13 @@ while true; do
         mv -f /media/fat/logs/OpenBOR_7533/OpenBOR.log /media/fat/logs/OpenBOR_7533/OpenBOR.prev.log 2>/dev/null
         # Preserve OpenBOR's internal log too — it gets truncated on
         # every launch ("wt" mode). When OpenBOR exits early in a
-        # crash loop, we'd otherwise lose the error message.
+        # crash loop, we'd otherwise lose the error message. Also
+        # archive every non-empty log with a timestamp so a fast
+        # restart loop doesn't overwrite the diagnostic info.
+        if [ -s Logs/OpenBorLog.txt ]; then
+            TS=$(date +%H%M%S)
+            cp -f Logs/OpenBorLog.txt Logs/OpenBorLog.${TS}.txt 2>/dev/null
+        fi
         mv -f Logs/OpenBorLog.txt Logs/OpenBorLog.prev.txt 2>/dev/null
         mv -f Logs/ScriptLog.txt Logs/ScriptLog.prev.txt 2>/dev/null
         ./OpenBOR > /media/fat/logs/OpenBOR_7533/OpenBOR.log 2>&1 &

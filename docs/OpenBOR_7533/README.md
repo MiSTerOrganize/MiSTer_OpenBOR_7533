@@ -1,6 +1,10 @@
 # MiSTer OpenBOR (4.0 Build 7533)
 
-Hybrid ARM+FPGA OpenBOR beat-em-up engine for MiSTer FPGA with native video and audio output. Runs the modern OpenBOR 4.0 PAK collections, including TMNT: Rescue-Palooza, Final Fight LNS Ultimate, Avengers: United Battle Force, and the Zvitor / RVGM sets that require Build 6000+. Backward compatible with PAKs targeting earlier builds (4086 and below). Inspired by [SumolX](https://github.com/SumolX/MiSTer_OpenBOR)'s original MiSTer OpenBOR port.
+**Status: stable** — confirmed working on real MiSTer hardware with the modern OpenBOR PAK catalog (Pocket Dimensional Clash 2, He-Man and the Masters of the Universe, Avengers: United Battle Force, plus the broader 4086-era and earlier collections).
+
+Hybrid ARM+FPGA OpenBOR beat-em-up engine for MiSTer FPGA with native video and audio output. Runs the modern OpenBOR 4.0 PAK collections (TMNT: Rescue-Palooza, Final Fight LNS Ultimate, Avengers UBF v2.7+, Zvitor / RVGM sets), and remains backward compatible with PAKs targeting earlier builds. Inspired by [SumolX](https://github.com/SumolX/MiSTer_OpenBOR)'s original MiSTer OpenBOR port.
+
+For older PAKs that depend on legacy 3979/4086-era scripting quirks, see the sister repo [MiSTer_OpenBOR_4086](https://github.com/MiSTerOrganize/MiSTer_OpenBOR_4086). The two cores install side by side and keep separate `Paks/`, `saves/`, `savestates/`, and `config/` directories so they never collide. Hot-swap between PAKs (and between the two cores) works.
 
 ## Features
 
@@ -51,9 +55,9 @@ Extract the release zip to the root of your MiSTer SD card (`/media/fat/`):
 
 Place your OpenBOR PAK files in `/media/fat/games/OpenBOR_7533/Paks/`.
 
-Build 7533 runs the full modern PAK catalog. The PAK format is identical between 4086 and 7533, so PAKs from earlier collections continue to work — but PAKs that require post-4086 script commands (Rescue-Palooza, LNS Ultimate, Avengers UBF v2.7+, Zvitor arcade ports) require this build.
+The PAK format is fully backward compatible — PAKs from 4086 and earlier collections continue to work. Modern PAKs that need post-4086 script commands (Build 6000+ era) require this build.
 
-You can install both this core and `MiSTer_OpenBOR_4086` side by side; their config, save, and PAK directories are separate. Use 4086 for older PAKs that depend on legacy scripting quirks; use 7533 for everything else.
+**Sub-native PAKs scale automatically:** PAKs with native resolutions higher than 320×240 (Pocket Dimensional Clash 2 at 480×272, He-Man at 960×480, Avengers UBF at 480×272, etc.) are bilinear-downscaled into the 320×240 CRT-correct envelope with letterboxing where needed. This keeps the Genesis H40 timing intact for CRT users.
 
 ## Controls
 
@@ -91,7 +95,7 @@ Navigate with D-pad up/down. Press A to confirm, X to go back.
 
 ## OpenBOR Build Info
 
-This core runs OpenBOR 4.0 Build 7533 from [DCurrent/openbor](https://github.com/DCurrent/openbor) (tag `v7533`). Cross-compiled for MiSTer's ARM Cortex-A9 with SDL 2.0.8 (pinned per upstream) and static linking. Video output goes through a patched SDL2 dummy framebuffer driver that writes RGB565 directly to DDR3 for the FPGA to read.
+This core runs OpenBOR 4.0 Build 7533 from [DCurrent/openbor](https://github.com/DCurrent/openbor) (tag `v7533`). Cross-compiled for MiSTer's ARM Cortex-A9 with SDL 2.0.8 (pinned per upstream) and static linking. Video output goes through a patched SDL2 dummy framebuffer driver that writes RGB565 directly to DDR3 for the FPGA to read. The patcher applies eleven targeted source modifications to v7533 (path redirects, R/B blend fix, missing script API names — `cheats`, `PLAYER_MIN_Z`, `dot`-as-`damage_on_landing` alias, etc.) so the engine boots cleanly into the dummy-driver pipeline.
 
 ## Credits
 
