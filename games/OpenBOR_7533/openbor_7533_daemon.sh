@@ -63,6 +63,11 @@ while true; do
         mkdir -p Logs
         mkdir -p /media/fat/logs/OpenBOR_7533
         mv -f /media/fat/logs/OpenBOR_7533/OpenBOR.log /media/fat/logs/OpenBOR_7533/OpenBOR.prev.log 2>/dev/null
+        # Preserve OpenBOR's internal log too — it gets truncated on
+        # every launch ("wt" mode). When OpenBOR exits early in a
+        # crash loop, we'd otherwise lose the error message.
+        mv -f Logs/OpenBorLog.txt Logs/OpenBorLog.prev.txt 2>/dev/null
+        mv -f Logs/ScriptLog.txt Logs/ScriptLog.prev.txt 2>/dev/null
         ./OpenBOR > /media/fat/logs/OpenBOR_7533/OpenBOR.log 2>&1 &
         CHILD=$!
         echo $CHILD > "$PIDFILE"

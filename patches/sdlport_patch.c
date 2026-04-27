@@ -90,6 +90,14 @@ static void *mister_swap_thread(void *arg)
             if (nl) *nl = 0;
             char *cr = strchr(check_path, '\r');
             if (cr) *cr = 0;
+            /* Same MiSTer write-without-truncate workaround as the
+             * initial reader — trim at first .pak + strip trailing space. */
+            char *pakext = strstr(check_path, ".pak");
+            if (pakext) pakext[4] = 0;
+            int pl = (int)strlen(check_path);
+            while (pl > 0 && (check_path[pl-1] == ' ' || check_path[pl-1] == '\t')) {
+                check_path[--pl] = 0;
+            }
         }
         fclose(f);
 
@@ -256,6 +264,17 @@ int main(int argc, char *argv[])
                         if (nl) *nl = 0;
                         char *cr = strchr(s0_path, '\r');
                         if (cr) *cr = 0;
+                        /* MiSTer's OSD writes .s0 without truncating, so when
+                         * a shorter PAK path overwrites a longer one, trailing
+                         * bytes of the previous filename remain. Truncate at
+                         * the first ".pak" extension to recover the real path. */
+                        char *pakext = strstr(s0_path, ".pak");
+                        if (pakext) pakext[4] = 0;
+                        /* Strip trailing whitespace (some writers pad with spaces). */
+                        int pl = (int)strlen(s0_path);
+                        while (pl > 0 && (s0_path[pl-1] == ' ' || s0_path[pl-1] == '\t')) {
+                            s0_path[--pl] = 0;
+                        }
                     }
                     fclose(f);
                     if (strlen(s0_path) > 0) {
