@@ -14,6 +14,18 @@ BINARY="$GAMEDIR/OpenBOR"
 # auto-mount the previous PAK on core load
 rm -f /media/fat/config/OpenBOR_7533.s0
 
+# Sweep any rogue OpenBOR_7533 binary left over from a previous
+# daemon instance that failed to kill its child cleanly. Use /proc
+# to filter by working directory so we only kill OUR core's binary,
+# not the sister core (OpenBOR_4086). Both binaries are named
+# "OpenBOR" so a plain killall would kill both.
+for pid in $(pidof OpenBOR 2>/dev/null); do
+    cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null)
+    if [ "$cwd" = "$GAMEDIR" ]; then
+        kill -9 "$pid" 2>/dev/null
+    fi
+done
+
 # Prevent multiple daemon instances
 if ! mkdir "$LOCKDIR" 2>/dev/null; then
     OLDPID=$(cat "$LOCKDIR/pid" 2>/dev/null)
@@ -91,10 +103,15 @@ while true; do
             continue
         fi
         if [ "$CUR" != "OpenBOR_7533" ]; then
-            # User left the core -- kill binary and clear cached state
-            # so the next entry goes through MiSTer's OSD picker instead
-            # of auto-loading the previous PAK.
+            # User left the core -- kill binary aggressively so it
+            # cannot keep writing to DDR3 while the sister core
+            # (OpenBOR_4086) tries to render. Both binaries map the
+            # same physical DDR3 region, so a leftover process from
+            # the wrong core corrupts video on the new core (the
+            # symptom is black screen / flicker on PAK load).
             kill $CHILD 2>/dev/null
+            sleep 1
+            kill -9 $CHILD 2>/dev/null    # SIGKILL if SIGTERM was ignored
             wait $CHILD 2>/dev/null
             CHILD=""
             FIRST_LOAD=1
