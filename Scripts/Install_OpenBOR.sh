@@ -24,9 +24,9 @@ echo ""
 killall OpenBOR 2>/dev/null
 killall openbor_7533_daemon.sh 2>/dev/null
 killall openbor_4086_daemon.sh 2>/dev/null
-kill $(cat /tmp/openbor_arm.pid 2>/dev/null) 2>/dev/null
-rm -f /tmp/openbor_arm.pid
-rm -rf /tmp/openbor_daemon.lock
+kill $(cat /tmp/openbor_7533_arm.pid 2>/dev/null) 2>/dev/null
+rm -f /tmp/openbor_7533_arm.pid
+rm -rf /tmp/openbor_7533_daemon.lock
 sleep 1
 
 # ── Download files from GitHub repo ───────────────────────────────
