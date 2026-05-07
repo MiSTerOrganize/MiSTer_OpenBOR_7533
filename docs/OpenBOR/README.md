@@ -26,12 +26,32 @@ If a PAK won't run on one build, reload the other RBF and try again — your `Pa
 
 ## Quick Install
 
-1. Copy `Scripts/Install_OpenBOR.sh` to `/media/fat/Scripts/` on your MiSTer SD card
-2. From the MiSTer main menu, go to Scripts and run **Install_OpenBOR**
-3. Place your `.pak` game modules in `games/OpenBOR/Paks/`
-4. Load either **OpenBOR_4086** or **OpenBOR_7533** from the console menu to play
+The recommended path is via the **MiSTer Frontier** combined database, which auto-deploys both OpenBOR builds (and any other Frontier core you opt into) every time you run `update_all`.
 
-The install script downloads and installs everything: both FPGA cores, both ARM binaries, the unified handler, and documentation.
+Add this to `/media/fat/downloader.ini` on your MiSTer's SD card:
+
+```ini
+[MiSTerOrganize/MiSTer_Frontier]
+db_url = https://raw.githubusercontent.com/MiSTerOrganize/MiSTer_Frontier/db/db.json.zip
+filter = openbor-4086 openbor-7533
+```
+
+The `filter` line picks both OpenBOR builds. Drop the filter line entirely if you want every Frontier core, or pick just one build — see the [Frontier README](https://github.com/MiSTerOrganize/MiSTer_Frontier#choosing-what-to-install-filters) for the full filter list.
+
+| Filter | Result |
+|---|---|
+| `openbor-4086 openbor-7533` | Both builds + shared handler/docs |
+| `openbor-4086` | 4086 only (with shared infra) |
+| `openbor-7533` | 7533 only (with shared infra) |
+
+After editing `downloader.ini`:
+
+1. Run `update_all` from MiSTer's Scripts menu — installs the FPGA cores, ARM binaries, unified handler, and docs
+2. Run `Scripts/Install_MiSTer_Frontier.sh` once — registers the Master Daemon that auto-launches the engine. Idempotent
+3. Place your `.pak` game modules in `/media/fat/games/OpenBOR/Paks/`
+4. Load either **OpenBOR_4086** or **OpenBOR_7533** from the MiSTer console menu — the engine launches automatically
+
+**Inspecting the manifest:** [DB Inspector for MiSTer_Frontier](https://theypsilon.github.io/DB-Inspector_MiSTer/?database-url=https%3A%2F%2Fraw.githubusercontent.com%2FMiSTerOrganize%2FMiSTer_Frontier%2Fdb%2Fdb.json.zip) — every file, hash, size, and tag visible in the browser. Useful for verifying which files a given filter would install before you run `update_all`.
 
 ## Manual Install
 
