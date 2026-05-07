@@ -82,7 +82,7 @@ static void *mister_swap_thread(void *arg)
 
     while (!mister_swap_requested) {
         sleep(1);
-        FILE *f = fopen("/media/fat/config/OpenBOR_7533.s0", "r");
+        FILE *f = fopen("/media/fat/config/OpenBOR.s0", "r");
         if (!f) continue;
         check_path[0] = 0;
         if (fgets(check_path, sizeof(check_path), f)) {
@@ -242,7 +242,7 @@ int main(int argc, char *argv[])
      * the cart will stream via ioctl into DDR3, and we cache it here
      * fresh. */
     #define MISTER_PAK_CACHE "/tmp/openbor_current.pak"
-    #define MISTER_S0_PATH   "/media/fat/config/OpenBOR_7533.s0"
+    #define MISTER_S0_PATH   "/media/fat/config/OpenBOR.s0"
     {
         /* SC0 (mounted image + config) approach: user selects PAK
          * from OSD, MiSTer writes path to .s0 config INSTANTLY —

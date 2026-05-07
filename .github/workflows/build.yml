@@ -29,33 +29,24 @@ jobs:
             arm32v7/debian:bullseye-slim \
             bash /build/.github/scripts/build_mister_arm.sh
 
-      - name: Generate build_id
-        run: echo '`define BUILD_DATE "'$(date +%y%m%d)'"' > fpga/build_id.v
-
-      - name: Package release
+      - name: Commit fresh ARM binary back to repo
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          mkdir -p release-staging/games/OpenBOR_7533/Paks
-          mkdir -p release-staging/Scripts
-          mkdir -p release-staging/_Other
-          mkdir -p release-staging/docs/OpenBOR_7533
-          cp OpenBOR release-staging/games/OpenBOR_7533/
-          cp games/OpenBOR_7533/openbor_7533_daemon.sh release-staging/games/OpenBOR_7533/
-          cp Scripts/Install_OpenBOR.sh release-staging/Scripts/
-          test -f _Other/OpenBOR_*.rbf && cp _Other/OpenBOR_*.rbf release-staging/_Other/ || true
-          cp docs/OpenBOR_7533/README.md release-staging/docs/OpenBOR_7533/
-          chmod +x release-staging/games/OpenBOR_7533/OpenBOR
-          chmod +x release-staging/games/OpenBOR_7533/openbor_7533_daemon.sh
-          chmod +x release-staging/Scripts/Install_OpenBOR.sh
-          cd release-staging && zip -r ../MiSTer-OpenBOR-release.zip .
+          mkdir -p games/OpenBOR
+          cp OpenBOR games/OpenBOR/OpenBOR_7533
+          chmod +x games/OpenBOR/OpenBOR_7533
+          git config user.email "ci@misterorganize"
+          git config user.name "MiSTer Organize CI"
+          if ! git diff --quiet games/OpenBOR/OpenBOR_7533; then
+            git add games/OpenBOR/OpenBOR_7533
+            git commit -m "CI: rebuild ARM binary for ${{ github.sha }}"
+            git push
+          else
+            echo "ARM binary unchanged."
+          fi
 
-      - name: Upload artifact
+      - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MiSTer-OpenBOR-release
-          path: release-staging/
-
-      - name: Create release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: MiSTer-OpenBOR-release.zip
+          name: OpenBOR_7533-arm-binary
+          path: OpenBOR
