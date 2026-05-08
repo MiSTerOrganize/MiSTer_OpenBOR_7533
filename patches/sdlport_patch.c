@@ -103,7 +103,14 @@ static void *mister_swap_thread(void *arg)
 
         if (strlen(check_path) > 0 && strlen(mister_loaded_path) > 0) {
             char full[256];
-            snprintf(full, sizeof(full), "/media/fat/%s", check_path);
+            /* OSD picks write relative paths (games/OpenBOR/Paks/foo.pak);
+             * MGL writes absolute paths (/media/fat/...). exFAT does not
+             * normalize //, so unconditional prefix-prepend silently breaks
+             * MGL loads. Conditionally prepend only for relative paths. */
+            if (check_path[0] == '/')
+                snprintf(full, sizeof(full), "%s", check_path);
+            else
+                snprintf(full, sizeof(full), "/media/fat/%s", check_path);
             if (strcmp(full, mister_loaded_path) != 0) {
                 fprintf(stderr, "MiSTer: PAK swap detected: %s\n", full);
                 fflush(stderr);
@@ -284,8 +291,14 @@ int main(int argc, char *argv[])
                     }
                     fclose(f);
                     if (strlen(s0_path) > 0) {
-                        /* .s0 contains full path (not relative like .f0) */
-                        snprintf(packfile, sizeof(packfile), "/media/fat/%s", s0_path);
+                        /* OSD picks write relative paths; MGL writes
+                         * absolute. exFAT doesn't normalize //, so
+                         * conditionally prepend /media/fat/ only for
+                         * relative paths. */
+                        if (s0_path[0] == '/')
+                            snprintf(packfile, sizeof(packfile), "%s", s0_path);
+                        else
+                            snprintf(packfile, sizeof(packfile), "/media/fat/%s", s0_path);
                         fprintf(stderr, "MiSTer: OSD selected: %s\n", packfile);
                         break;
                     }
