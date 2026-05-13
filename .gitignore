@@ -1,6 +1,17 @@
 fpga/db/
 fpga/incremental_db/
-fpga/output_files/
+fpga/output_files/*
+# KEEP all .summary files (sta = timing closure, fit = resource
+# utilization including ALM/DSP/M10K/PLL counts, map = synthesis stats).
+# Tiny (~5 KB total) and load-bearing for audits + capacity planning.
+!fpga/output_files/*.summary
+# KEEP small warning messages too (.smsg, 1-15 KB).
+!fpga/output_files/*.smsg
+# KEEP the RBF (deployed bitstream) and side-files commonly tracked.
+!fpga/output_files/*.rbf
+!fpga/output_files/*.pin
+!fpga/output_files/*.jdi
+!fpga/output_files/*.sld
 fpga/simulation/
 fpga/greybox_tmp/
 fpga/*.qws
