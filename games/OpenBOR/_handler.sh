@@ -51,8 +51,9 @@ mkdir -p "$LOGDIR"
 mv -f "$LOGDIR/OpenBOR.log" "$LOGDIR/OpenBOR.prev.log" 2>/dev/null
 
 # Preserve OpenBOR's engine logs across restart loops. The engine writes
-# to /media/fat/logs/OpenBOR/{OpenBorLog,ScriptLog}.txt in "wt" mode
-# (truncate on open) thanks to the apply_patches.py absolute-path patch.
+# to /media/fat/logs/$BINARY/{OpenBorLog,ScriptLog}.txt in "wt" mode
+# (truncate on open) thanks to the apply_patches.py absolute-path patch
+# — per-build path matches the saves/savestates pattern.
 # Keep one .prev + timestamped copy of any non-empty current log.
 if [ -s "$LOGDIR/OpenBorLog.txt" ]; then
     cp -f "$LOGDIR/OpenBorLog.txt" "$LOGDIR/OpenBorLog.$(date +%H%M%S).txt" 2>/dev/null
@@ -62,7 +63,7 @@ mv -f "$LOGDIR/ScriptLog.txt"    "$LOGDIR/ScriptLog.prev.txt"    2>/dev/null
 
 # Auto-prune: keep only the 10 newest timestamped OpenBorLog archives.
 # Per CLAUDE.md "hybrid-core handlers must auto-prune log history" —
-# without this, /media/fat/logs/OpenBOR/ accumulates one timestamped
+# without this, /media/fat/logs/$BINARY/ accumulates one timestamped
 # copy per launch and grows unbounded over months of use.
 ls -t "$LOGDIR"/OpenBorLog.[0-9]*.txt 2>/dev/null | tail -n +11 | xargs -r rm -f
 ls -t "$LOGDIR"/ScriptLog.[0-9]*.txt  2>/dev/null | tail -n +11 | xargs -r rm -f
