@@ -72,10 +72,14 @@ Extract the release zip to the root of your MiSTer SD card (`/media/fat/`):
 │       ├── _handler.sh                    Master_Daemon dispatcher
 │       └── Paks/                          Place your .pak game modules here
 ├── logs/
-│   └── OpenBOR/                           Debug logs (shared by both builds)
+│   ├── OpenBOR_4086/                      4086 engine logs (handler + engine + script)
+│   └── OpenBOR_7533/                      7533 engine logs (handler + engine + script)
 ├── saves/
 │   ├── OpenBOR_4086/                      4086 engine saves
 │   └── OpenBOR_7533/                      7533 engine saves
+├── savestates/
+│   ├── OpenBOR_4086/                      4086 savestates
+│   └── OpenBOR_7533/                      7533 savestates
 └── Scripts/
     └── Install_OpenBOR.sh                 Install script
 ```
