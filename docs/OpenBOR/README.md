@@ -81,7 +81,7 @@ Extract the release zip to the root of your MiSTer SD card (`/media/fat/`):
 │   ├── OpenBOR_4086/                      4086 savestates
 │   └── OpenBOR_7533/                      7533 savestates
 └── Scripts/
-    └── Install_OpenBOR.sh                 Install script
+    └── Install_MiSTer_Frontier.sh         Install script (shipped by MiSTer_Frontier — unified across all Frontier cores)
 ```
 
 Saves and savestates are kept separate between the two engine builds because the on-disk format isn't guaranteed compatible across the OpenBOR 3.x → 4.0 boundary.
