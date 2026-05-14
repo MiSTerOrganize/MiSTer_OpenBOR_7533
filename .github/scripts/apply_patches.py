@@ -215,12 +215,17 @@ endif
     write(os.path.join(obor, 'sdl/sdlport.c'), src)
     print("  main() replaced.")
 
-    # ── 6. Patch source/utils.c — redirect save path ─────────────────
-    print("Patching source/utils.c (save path redirect)...")
+    # ── 6. Patch source/utils.c — redirect save + log paths ─────────────
+    print("Patching source/utils.c (save path redirect + log path absolute)...")
     src = read(os.path.join(obor, 'source/utils.c'))
 
     old_macro = '#define COPY_ROOT_PATH(buf, name) strncpy(buf, "./", 2); strncat(buf, name, strlen(name)); strncat(buf, "/", 1);'
 
+    # Note: Logs path is /media/fat/logs/OpenBOR_7533/ — per-build, matching
+    # the saves/savestates per-build pattern (sister cores share PAK content
+    # at games/OpenBOR/Paks/ but write to separate save/savestate/log dirs
+    # because the data is build-specific). This prevents cross-build log
+    # mixing when both binaries dispatch under the unified "OpenBOR" setname.
     new_macro = """#ifdef MISTER_NATIVE_VIDEO
 #define COPY_ROOT_PATH(buf, name) \\
     do { \\
@@ -241,8 +246,24 @@ endif
 #endif"""
 
     src = src.replace(old_macro, new_macro)
+
+    # Patch the four LOGFILE macros that hardcode "./Logs/OpenBorLog.txt"
+    # and "./Logs/ScriptLog.txt" relative paths. These are used by the
+    # engine's writeToLogFile() unconditionally (NOT via COPY_ROOT_PATH),
+    # so they need their own replacement. Writing to cwd's Logs/ directory
+    # violates the canonical single-location log rule
+    # (/media/fat/logs/{CoreName}/) — patch to absolute paths.
+    src = src.replace(
+        '"./Logs/OpenBorLog.txt"',
+        '"/media/fat/logs/OpenBOR_7533/OpenBorLog.txt"'
+    )
+    src = src.replace(
+        '"./Logs/ScriptLog.txt"',
+        '"/media/fat/logs/OpenBOR_7533/ScriptLog.txt"'
+    )
+
     write(os.path.join(obor, 'source/utils.c'), src)
-    print("  Save path redirected.")
+    print("  Save path redirected; log path absolute (/media/fat/logs/OpenBOR_7533/).")
 
     # ── 6c. Patch openbor.c — route .cfg/.hi to Config, .s00 to SaveStates ──
     print("Patching openbor.c (split save directories)...")

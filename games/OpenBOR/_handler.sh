@@ -9,7 +9,9 @@
 # Master_Daemon owns the lifecycle.
 
 GAMEDIR="/media/fat/games/OpenBOR"
-LOGDIR="/media/fat/logs/OpenBOR"
+# LOGDIR is per-build, set after the dispatch case below — matches the
+# saves/savestates per-build pattern. Prevents cross-build log mixing
+# when both binaries dispatch under the unified "OpenBOR" setname.
 
 cd "$GAMEDIR" || exit 1
 
@@ -41,19 +43,29 @@ case "$MISTER_RBF" in
         ;;
 esac
 
-mkdir -p "$LOGDIR" Logs
+# Per-build log directory (matches per-build saves/savestates pattern).
+LOGDIR="/media/fat/logs/$BINARY"
+mkdir -p "$LOGDIR"
 
 # Rotate ARM-binary log
 mv -f "$LOGDIR/OpenBOR.log" "$LOGDIR/OpenBOR.prev.log" 2>/dev/null
 
-# Preserve OpenBOR's internal engine log across restart loops
-# (truncated on every launch in 'wt' mode by the engine itself).
-# Keeps one prev + timestamped copy of any non-empty current log.
-if [ -s Logs/OpenBorLog.txt ]; then
-    cp -f Logs/OpenBorLog.txt "Logs/OpenBorLog.$(date +%H%M%S).txt" 2>/dev/null
+# Preserve OpenBOR's engine logs across restart loops. The engine writes
+# to /media/fat/logs/OpenBOR/{OpenBorLog,ScriptLog}.txt in "wt" mode
+# (truncate on open) thanks to the apply_patches.py absolute-path patch.
+# Keep one .prev + timestamped copy of any non-empty current log.
+if [ -s "$LOGDIR/OpenBorLog.txt" ]; then
+    cp -f "$LOGDIR/OpenBorLog.txt" "$LOGDIR/OpenBorLog.$(date +%H%M%S).txt" 2>/dev/null
 fi
-mv -f Logs/OpenBorLog.txt   Logs/OpenBorLog.prev.txt   2>/dev/null
-mv -f Logs/ScriptLog.txt    Logs/ScriptLog.prev.txt    2>/dev/null
+mv -f "$LOGDIR/OpenBorLog.txt"   "$LOGDIR/OpenBorLog.prev.txt"   2>/dev/null
+mv -f "$LOGDIR/ScriptLog.txt"    "$LOGDIR/ScriptLog.prev.txt"    2>/dev/null
+
+# Auto-prune: keep only the 10 newest timestamped OpenBorLog archives.
+# Per CLAUDE.md "hybrid-core handlers must auto-prune log history" —
+# without this, /media/fat/logs/OpenBOR/ accumulates one timestamped
+# copy per launch and grows unbounded over months of use.
+ls -t "$LOGDIR"/OpenBorLog.[0-9]*.txt 2>/dev/null | tail -n +11 | xargs -r rm -f
+ls -t "$LOGDIR"/ScriptLog.[0-9]*.txt  2>/dev/null | tail -n +11 | xargs -r rm -f
 
 # Free kernel page cache — FC0 PAK streaming exhausts RAM otherwise.
 # OpenBOR segfaults on repeated PAK loads without this.
