@@ -594,14 +594,15 @@ endif
         '#endif\n'
     )
 
-    # Insert helpers right after the #include block at the top of soundmix.c.
-    # Use a unique anchor — the soundmix.h include should be present.
-    helper_anchor = '#include "soundmix.h"'
+    # Insert helpers AFTER the full #include block — _mister_hermite_s16_swap
+    # uses SwapLSB16 which is defined in borendian.h. Anchor on the last
+    # include in the standard block so all dependencies are visible.
+    helper_anchor = '#include "List.h"'
     if helper_anchor in sm:
         sm = sm.replace(helper_anchor, helper_anchor + hermite_helpers, 1)
-        print("  Hermite helpers injected (s16, s16_swap, u8).")
+        print("  Hermite helpers injected (s16, s16_swap, u8) — post-borendian.h.")
     else:
-        print("  WARN: soundmix.h include anchor not found — Hermite helpers skipped")
+        print("  WARN: List.h include anchor not found — Hermite helpers skipped")
 
     # 10c — Site 1 (music ch 16-bit, ~line 483):
     s1_old = ('            // Mix a sample\n'
