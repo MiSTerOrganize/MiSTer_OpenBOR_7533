@@ -3,10 +3,10 @@
 //  OpenBOR Native Video Timing Generator
 //
 //  320x240 active area @ 59.92 Hz (420x262 total)
-//  Exact Genesis H40 timing — NTSC-derived MCLK from colorburst crystal.
+//  Exact Sega CD (H40 mode) timing — NTSC-derived MCLK from colorburst crystal.
 //  CLK_VIDEO: 53.693 MHz (exact Genesis MCLK), variable CE_PIXEL for H_TOTAL=420.
 //
-//  H: 320 active + 100 blanking = 420 total (exact Genesis H40)
+//  H: 320 active + 100 blanking = 420 total (exact Sega CD (H40 mode))
 //  V: 240 active +   2 FP + 3 sync + 17 BP = 262 total (exact Genesis NTSC)
 //
 //  Refresh: 15,700 / 262 = 59.92 Hz (exact Genesis)
@@ -20,7 +20,7 @@
 
 module openbor_video_timing (
     input  wire        clk,        // CLK_VIDEO (53.693 MHz)
-    input  wire        ce_pix,     // pixel enable (variable rate — exact Genesis H40)
+    input  wire        ce_pix,     // pixel enable (variable rate — exact Sega CD (H40 mode))
     input  wire        reset,
 
     // CRT position offset (signed: -3 to +3, from OSD)
@@ -45,7 +45,7 @@ localparam H_ACTIVE = 320;
 localparam H_FP     = 17;
 localparam H_SYNC   = 38;
 localparam H_BP     = 45;
-localparam H_TOTAL  = 420;   // 320+17+38+45 (exact Genesis H40)
+localparam H_TOTAL  = 420;   // 320+17+38+45 (exact Sega CD (H40 mode))
 
 localparam V_ACTIVE = 240;
 localparam V_FP     = 2;

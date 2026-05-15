@@ -6,7 +6,7 @@
 //  interface for integration into OpenBOR.sv.
 //
 //  Runs on CLK_VIDEO (53.693 MHz) with variable CE_PIXEL for exact
-//  Genesis H40 timing — 47.68 µs active, 15,700 Hz H rate.
+//  Sega CD (H40 mode) timing — 47.68 µs active, 15,700 Hz H rate.
 //
 //  Differences from pico8_video_top:
 //    - 320x240 instead of 256x256
@@ -22,7 +22,7 @@
 module openbor_video_top (
     input  wire        clk_sys,       // system clock for DDR3
     input  wire        clk_vid,       // video clock (53.693 MHz, CLK_VIDEO)
-    input  wire        ce_pix,        // pixel enable (variable rate — exact Genesis H40)
+    input  wire        ce_pix,        // pixel enable (variable rate — exact Sega CD (H40 mode))
     input  wire        reset,
 
     // DDR3 Avalon-MM master

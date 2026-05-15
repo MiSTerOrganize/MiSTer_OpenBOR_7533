@@ -186,7 +186,7 @@ assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 
 assign DDRAM_CLK = clk_sys;
 
-// CE_PIXEL: exact Genesis H40 timing from CLK_VIDEO (53.693 MHz).
+// CE_PIXEL: exact Sega CD (H40 mode) timing from CLK_VIDEO (53.693 MHz).
 // Active pixels: /8 (6.712 MHz). Blanking uses variable /8,/9,/10 widths
 // so that total MCLK per line = 3420, matching Genesis exactly (H_TOTAL=420).
 // Pattern per line: 320 active @/8 + blanking @mixed = 3420 MCLK total.

@@ -15,14 +15,14 @@ If a PAK won't run on one build, reload the other RBF and try again — your `Pa
 
 ## Features
 
-- **Native FPGA video output** — 320×240 @ 59.92 Hz with exact Genesis H40 pixel clock (6.712 MHz from NTSC colorburst crystal). CRT image width matches NES/SNES/Genesis exactly (47.68 µs active time)
+- **Native FPGA video output** — 320×240 @ 59.92 Hz with exact Sega CD (H40 mode) pixel clock (6.712 MHz from NTSC colorburst crystal). CRT image width matches NES/SNES/Genesis exactly (47.68 µs active time)
 - **Native FPGA audio output** — 48 kHz stereo via DDR3 ring buffer, no ALSA
 - **CRT support** — scanlines, shadow masks, and analog video output for CRT displays
 - **MiSTer OSD integration** — load PAK files from the file browser
 - **4-player support** — connect up to 4 controllers, add players by pressing START
 - **Custom pause menu** — Continue / Options / Reset Pak / Quit
 - **Auto-launch** — OpenBOR starts automatically when the core is loaded
-- **Sub-native PAKs scale automatically** (7533) — PAKs with native resolutions higher than 320×240 (Pocket Dimensional Clash 2 at 480×272, He-Man at 960×480, Avengers UBF at 480×272, etc.) are bilinear-downscaled into the 320×240 CRT-correct envelope with letterboxing where needed. Genesis H40 timing stays intact for CRT users.
+- **Sub-native PAKs scale automatically** (7533) — PAKs with native resolutions higher than 320×240 (Pocket Dimensional Clash 2 at 480×272, He-Man at 960×480, Avengers UBF at 480×272, etc.) are bilinear-downscaled into the 320×240 CRT-correct envelope with letterboxing where needed. Sega CD (H40 mode) timing stays intact for CRT users.
 
 ## Quick Install
 
@@ -115,9 +115,9 @@ Navigate with D-pad up/down. Press A to confirm, X to go back.
 
 Both builds share the same FPGA core, identical timing.
 
-- Resolution: 320×240 active, 420×262 total (exact Genesis H40)
+- Resolution: 320×240 active, 420×262 total (exact Sega CD (H40 mode))
 - Refresh: 59.92 Hz (exact Genesis NTSC)
-- Pixel clock: 53.693 MHz CLK_VIDEO / 8 = 6.712 MHz (exact Genesis H40, NTSC colorburst-derived)
+- Pixel clock: 53.693 MHz CLK_VIDEO / 8 = 6.712 MHz (exact Sega CD (H40 mode), NTSC colorburst-derived)
 - Pixel format: RGB565 (16 bits per pixel)
 - Audio: 48 kHz stereo S16 PCM via DDR3 ring buffer → I2S/SPDIF/DAC
 - Double-buffered video via DDR3
