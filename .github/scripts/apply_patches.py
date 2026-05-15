@@ -466,44 +466,31 @@ endif
     else:
         print("  WARN: pixelformat.c not found at expected path — may have moved in 7533")
 
-    # ── 10. Audio Stage 1: force 48kHz native + cubic Hermite resample ─
-    # Two coordinated fixes per the audio quality ladder and the rate-
-    # mismatch finding:
+    # ── 10. Audio Stage 1: cubic Hermite resample at sample-read sites ─
+    # Engine renders at upstream's native 44.1 kHz; our sblaster_patch.c
+    # handles the 44.1 → 48 kHz resample to match the FPGA pipeline (see
+    # the cubic Hermite resampler in audio_thread_fn). This patch only
+    # upgrades the engine-internal sample-rate-conversion stage from
+    # nearest-neighbor to cubic Hermite — useful for PAK content with
+    # non-44.1 native rates (22050 voice samples etc.). For pure 44.1
+    # content the Hermite degenerates to bit-perfect pass-through.
     #
-    # (a) Force playfrequency = 48000. Upstream hardcodes 44100; our
-    #     sblaster_patch.c submits to the DDR3 ring at 48 kHz pace, so
-    #     every PAK has played +0.88 semitone sharp (~8.8% too fast)
-    #     since launch. Force-override just before SB_playstart() so
-    #     the upstream mixer's per-sample rate math uses 48000 too.
+    # Replace the three nearest-neighbor sample reads (FIX_TO_INT(fp_pos)
+    # lookups) in update_sample() with cubic Hermite (4-tap Catmull-Rom).
+    # OpenBOR content is 16-bit recorded audio (music tracks + vocals +
+    # percussion + SFX) — the "16-bit + treble + sharp transients"
+    # ladder case where cubic is correct, not linear.
     #
-    # (b) Replace the three nearest-neighbor sample reads (FIX_TO_INT
-    #     (fp_pos) lookups) in update_sample() with cubic Hermite
-    #     (4-tap Catmull-Rom). OpenBOR content is 16-bit recorded
-    #     audio (music tracks + vocals + percussion + SFX) — the
-    #     "16-bit + treble + sharp transients" ladder case where
-    #     cubic is correct, not linear.
+    # NOTE: do NOT force playfrequency=48000 here. The architecturally
+    # cleaner approach (Option C per the 2026-05-15 audit) is to leave
+    # the engine at its native 44.1 kHz and resample at our glue layer.
+    # Bit-perfect engine pass-through for 44.1 kHz Red-Book PAK content.
     #
     # See project_openbor_audio_rate_mismatch.md +
     #     project_openbor_audio_stage1_nearest_neighbor.md
-    print("Patching source/gamelib/soundmix.c (force 48kHz + cubic Hermite)...")
+    print("Patching source/gamelib/soundmix.c (cubic Hermite sample reads)...")
     sm_path = os.path.join(obor, 'source/gamelib/soundmix.c')
     sm = read(sm_path)
-
-    # 10a — force playfrequency = 48000, playbits = 16 right before
-    #       SB_playstart() so it overrides every prior code-path
-    #       assignment (default, savedata, WII path, etc.)
-    fr_old = '    if(!SB_playstart(playbits, playfrequency))'
-    fr_new = ('    /* MiSTer: force 48 kHz / 16-bit output to match FPGA audio rate.\n'
-              '     * Kills the +0.88 semitone pitch shift from rate mismatch with\n'
-              '     * sblaster_patch.c which submits the DDR3 ring at 48 kHz pace. */\n'
-              '    playfrequency = 48000;\n'
-              '    playbits = 16;\n'
-              '    if(!SB_playstart(playbits, playfrequency))')
-    if fr_old in sm:
-        sm = sm.replace(fr_old, fr_new, 1)
-        print("  Audio output rate forced to 48000 Hz / 16-bit.")
-    else:
-        print("  WARN: SB_playstart anchor not found — playfrequency override skipped")
 
     # 10b — inject three cubic Hermite (4-tap Catmull-Rom) helpers near
     #       the top of soundmix.c, then call them from each sample-read
