@@ -466,6 +466,175 @@ endif
     else:
         print("  WARN: pixelformat.c not found at expected path — may have moved in 7533")
 
+    # ── 10. Audio Stage 1: force 48kHz native + cubic Hermite resample ─
+    # Two coordinated fixes per the audio quality ladder and the rate-
+    # mismatch finding:
+    #
+    # (a) Force playfrequency = 48000. Upstream hardcodes 44100; our
+    #     sblaster_patch.c submits to the DDR3 ring at 48 kHz pace, so
+    #     every PAK has played +0.88 semitone sharp (~8.8% too fast)
+    #     since launch. Force-override just before SB_playstart() so
+    #     the upstream mixer's per-sample rate math uses 48000 too.
+    #
+    # (b) Replace the three nearest-neighbor sample reads (FIX_TO_INT
+    #     (fp_pos) lookups) in update_sample() with cubic Hermite
+    #     (4-tap Catmull-Rom). OpenBOR content is 16-bit recorded
+    #     audio (music tracks + vocals + percussion + SFX) — the
+    #     "16-bit + treble + sharp transients" ladder case where
+    #     cubic is correct, not linear.
+    #
+    # See project_openbor_audio_rate_mismatch.md +
+    #     project_openbor_audio_stage1_nearest_neighbor.md
+    print("Patching source/gamelib/soundmix.c (force 48kHz + cubic Hermite)...")
+    sm_path = os.path.join(obor, 'source/gamelib/soundmix.c')
+    sm = read(sm_path)
+
+    # 10a — force playfrequency = 48000, playbits = 16 right before
+    #       SB_playstart() so it overrides every prior code-path
+    #       assignment (default, savedata, WII path, etc.)
+    fr_old = '    if(!SB_playstart(playbits, playfrequency))'
+    fr_new = ('    /* MiSTer: force 48 kHz / 16-bit output to match FPGA audio rate.\n'
+              '     * Kills the +0.88 semitone pitch shift from rate mismatch with\n'
+              '     * sblaster_patch.c which submits the DDR3 ring at 48 kHz pace. */\n'
+              '    playfrequency = 48000;\n'
+              '    playbits = 16;\n'
+              '    if(!SB_playstart(playbits, playfrequency))')
+    if fr_old in sm:
+        sm = sm.replace(fr_old, fr_new, 1)
+        print("  Audio output rate forced to 48000 Hz / 16-bit.")
+    else:
+        print("  WARN: SB_playstart anchor not found — playfrequency override skipped")
+
+    # 10b — inject three cubic Hermite (4-tap Catmull-Rom) helpers near
+    #       the top of soundmix.c, then call them from each sample-read
+    #       site.
+    hermite_helpers = (
+        '\n'
+        '/* MiSTer audio Stage 1: cubic Hermite (4-tap Catmull-Rom) helpers.\n'
+        ' * Replace nearest-neighbor FIX_TO_INT(fp_pos) reads in update_sample()\n'
+        ' * to eliminate aliasing on 16-bit recorded audio with treble + sharp\n'
+        ' * transients (music, vocals, percussion, SFX in OpenBOR PAKs).\n'
+        ' *\n'
+        ' * fp_pos uses INT_TO_FIX/FIX_TO_INT with shift 12 (see soundmix.h).\n'
+        ' * Boundary handling: neighbors outside [0, maxip) clamp to the\n'
+        ' * nearest valid sample (1-2 samples per buffer end use clamped\n'
+        ' * Hermite vs full 4-tap, below audible threshold).\n'
+        ' *\n'
+        ' * Cost on Cortex-A9 NEON: ~3 mul (smull) + ~6 add per output\n'
+        ' * sample, negligible against the mixer\'s existing per-sample math.\n'
+        ' */\n'
+        '#ifdef MISTER_NATIVE_VIDEO\n'
+        'static inline int _mister_hermite_s16(short *p, int ip, int fr, int maxip)\n'
+        '{\n'
+        '    int sm1 = (ip >= 1) ? (int)p[ip - 1] : (int)p[ip];\n'
+        '    int s0  = (int)p[ip];\n'
+        '    int s1  = (ip + 1 < maxip) ? (int)p[ip + 1] : s0;\n'
+        '    int s2  = (ip + 2 < maxip) ? (int)p[ip + 2] : s1;\n'
+        '    int a0_2 = -sm1 + 3*s0 - 3*s1 + s2;\n'
+        '    int a1_2 = 2*sm1 - 5*s0 + 4*s1 - s2;\n'
+        '    int a2_2 = -sm1 + s1;\n'
+        '    int a3_2 = 2*s0;\n'
+        '    int t  = fr;\n'
+        '    int t2 = (int)(((long long)t  * t ) >> 12);\n'
+        '    int t3 = (int)(((long long)t2 * t ) >> 12);\n'
+        '    int x2 = (int)(((long long)a0_2 * t3) >> 12)\n'
+        '          + (int)(((long long)a1_2 * t2) >> 12)\n'
+        '          + (int)(((long long)a2_2 * t ) >> 12)\n'
+        '          +  a3_2;\n'
+        '    return x2 >> 1;\n'
+        '}\n'
+        'static inline int _mister_hermite_s16_swap(unsigned short *p, int ip, int fr, int maxip)\n'
+        '{\n'
+        '    /* For sites that read via (int)(short)SwapLSB16(p[i]). On ARM\n'
+        '     * little-endian SwapLSB16 swaps to big-endian — but since the\n'
+        '     * upstream cast back to short re-interprets the bytes anyway,\n'
+        '     * we mimic that behavior here for byte-exact parity. */\n'
+        '    int sm1 = (ip >= 1) ? (int)(short)SwapLSB16(p[ip - 1]) : (int)(short)SwapLSB16(p[ip]);\n'
+        '    int s0  = (int)(short)SwapLSB16(p[ip]);\n'
+        '    int s1  = (ip + 1 < maxip) ? (int)(short)SwapLSB16(p[ip + 1]) : s0;\n'
+        '    int s2  = (ip + 2 < maxip) ? (int)(short)SwapLSB16(p[ip + 2]) : s1;\n'
+        '    int a0_2 = -sm1 + 3*s0 - 3*s1 + s2;\n'
+        '    int a1_2 = 2*sm1 - 5*s0 + 4*s1 - s2;\n'
+        '    int a2_2 = -sm1 + s1;\n'
+        '    int a3_2 = 2*s0;\n'
+        '    int t  = fr;\n'
+        '    int t2 = (int)(((long long)t  * t ) >> 12);\n'
+        '    int t3 = (int)(((long long)t2 * t ) >> 12);\n'
+        '    int x2 = (int)(((long long)a0_2 * t3) >> 12)\n'
+        '          + (int)(((long long)a1_2 * t2) >> 12)\n'
+        '          + (int)(((long long)a2_2 * t ) >> 12)\n'
+        '          +  a3_2;\n'
+        '    return x2 >> 1;\n'
+        '}\n'
+        'static inline int _mister_hermite_u8(unsigned char *p, int ip, int fr, int maxip)\n'
+        '{\n'
+        '    /* Samples are unsigned 8-bit centered at 128; downstream code\n'
+        '     * does (val << 8) - 0x8000 to re-center. Keep Hermite output\n'
+        '     * in the same unsigned 0..255 convention; clamp overshoot. */\n'
+        '    int sm1 = (ip >= 1) ? (int)p[ip - 1] : (int)p[ip];\n'
+        '    int s0  = (int)p[ip];\n'
+        '    int s1  = (ip + 1 < maxip) ? (int)p[ip + 1] : s0;\n'
+        '    int s2  = (ip + 2 < maxip) ? (int)p[ip + 2] : s1;\n'
+        '    int a0_2 = -sm1 + 3*s0 - 3*s1 + s2;\n'
+        '    int a1_2 = 2*sm1 - 5*s0 + 4*s1 - s2;\n'
+        '    int a2_2 = -sm1 + s1;\n'
+        '    int a3_2 = 2*s0;\n'
+        '    int t  = fr;\n'
+        '    int t2 = (int)(((long long)t  * t ) >> 12);\n'
+        '    int t3 = (int)(((long long)t2 * t ) >> 12);\n'
+        '    int x2 = (int)(((long long)a0_2 * t3) >> 12)\n'
+        '          + (int)(((long long)a1_2 * t2) >> 12)\n'
+        '          + (int)(((long long)a2_2 * t ) >> 12)\n'
+        '          +  a3_2;\n'
+        '    int v = x2 >> 1;\n'
+        '    if (v < 0)   v = 0;\n'
+        '    if (v > 255) v = 255;\n'
+        '    return v;\n'
+        '}\n'
+        '#endif\n'
+    )
+
+    # Insert helpers right after the #include block at the top of soundmix.c.
+    # Use a unique anchor — the soundmix.h include should be present.
+    helper_anchor = '#include "soundmix.h"'
+    if helper_anchor in sm:
+        sm = sm.replace(helper_anchor, helper_anchor + hermite_helpers, 1)
+        print("  Hermite helpers injected (s16, s16_swap, u8).")
+    else:
+        print("  WARN: soundmix.h include anchor not found — Hermite helpers skipped")
+
+    # 10c — Site 1 (music ch 16-bit, ~line 483):
+    s1_old = ('            // Mix a sample\n'
+              '            lmusic = rmusic = sptr16[FIX_TO_INT(fp_pos)];')
+    s1_new = ('            // Mix a sample (MiSTer: cubic Hermite)\n'
+              '            lmusic = rmusic = _mister_hermite_s16(sptr16, (int)FIX_TO_INT(fp_pos), (int)(fp_pos & 0xFFF), (int)FIX_TO_INT(fp_playto));')
+    if s1_old in sm:
+        sm = sm.replace(s1_old, s1_new, 1)
+        print("  Site 1 (music 16-bit): Hermite call substituted.")
+    else:
+        print("  WARN: Site 1 music-channel anchor not found")
+
+    # 10d — Site 2 (voice ch 8-bit, ~line 527):
+    s2_old = '                    lmusic = rmusic = sptr8[FIX_TO_INT(fp_pos)];'
+    s2_new = '                    lmusic = rmusic = _mister_hermite_u8(sptr8, (int)FIX_TO_INT(fp_pos), (int)(fp_pos & 0xFFF), (int)modlen);'
+    if s2_old in sm:
+        sm = sm.replace(s2_old, s2_new, 1)
+        print("  Site 2 (voice 8-bit): Hermite call substituted.")
+    else:
+        print("  WARN: Site 2 voice 8-bit anchor not found")
+
+    # 10e — Site 3 (voice ch 16-bit with SwapLSB16, ~line 552):
+    s3_old = '                    lmusic = rmusic = (int)(short)SwapLSB16(sptr16[FIX_TO_INT(fp_pos)]);'
+    s3_new = '                    lmusic = rmusic = _mister_hermite_s16_swap((unsigned short *)sptr16, (int)FIX_TO_INT(fp_pos), (int)(fp_pos & 0xFFF), (int)modlen);'
+    if s3_old in sm:
+        sm = sm.replace(s3_old, s3_new, 1)
+        print("  Site 3 (voice 16-bit + SwapLSB16): Hermite call substituted.")
+    else:
+        print("  WARN: Site 3 voice 16-bit anchor not found")
+
+    write(sm_path, sm)
+    print("  soundmix.c patched (48kHz native + cubic Hermite resample).")
+
     print("\nAll patches applied successfully.")
 
 if __name__ == '__main__':
