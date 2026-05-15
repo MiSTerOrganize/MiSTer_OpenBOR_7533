@@ -6,7 +6,7 @@
  * consumption rate. No SDL_OpenAudio, no ALSA.
  *
  * Upstream renders at its native 44.1 kHz (Red Book audio rate — matches
- * the Sega CD reference architecture OpenBOR PAKs are designed around).
+ * the MegaCD reference architecture OpenBOR PAKs are designed around).
  * This file resamples 44.1 → 48 kHz via cubic Hermite (4-tap Catmull-Rom)
  * before submitting to the DDR3 ring. PAK samples authored at exactly
  * 44.1 kHz (CDDA tracks, Red-Book music) pass through the engine mixer
@@ -119,8 +119,12 @@ static void *audio_thread_fn(void *arg) {
     static int16_t out_buf[MISTER_AUDIO_CHUNK * 2];/* stereo S16 @ 48 kHz for DDR3 ring */
 
     /* 16.16 step per output sample: (ENGINE_AUDIO_RATE / MISTER_AUDIO_RATE) in fixed-point.
-     * (44100 << 16) / 48000 = 60293, i.e. ~0.91875 input samples per output sample. */
-    const int32_t STEP = ((int32_t)ENGINE_AUDIO_RATE << 16) / MISTER_AUDIO_RATE;
+     * (44100 << 16) / 48000 = 60211, i.e. ~0.91875 input samples per output sample.
+     * MUST cast to int64_t before the shift — (int32_t)44100 << 16 = 0xAC440000
+     * overflows int32_t (bit 31 set → negative when interpreted signed), producing
+     * STEP ≈ -29267. Then phase walks BACKWARD per output sample, ip goes negative,
+     * read_sample returns 0 / stale prev_tail → pops/clicks instead of audio. */
+    const int32_t STEP = (int32_t)(((int64_t)ENGINE_AUDIO_RATE << 16) / MISTER_AUDIO_RATE);
 
     while (audio_thread_run) {
         size_t free_frames = NativeAudioWriter_FreeFrames();
