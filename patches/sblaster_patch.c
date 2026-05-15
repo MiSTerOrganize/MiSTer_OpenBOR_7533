@@ -6,7 +6,7 @@
  * consumption rate. No SDL_OpenAudio, no ALSA.
  *
  * Upstream renders at its native 44.1 kHz (Red Book audio rate — matches
- * the MegaCD reference architecture OpenBOR PAKs are designed around).
+ * the Sega CD reference architecture OpenBOR PAKs are designed around).
  * This file resamples 44.1 → 48 kHz via cubic Hermite (4-tap Catmull-Rom)
  * before submitting to the DDR3 ring. PAK samples authored at exactly
  * 44.1 kHz (CDDA tracks, Red-Book music) pass through the engine mixer
@@ -117,6 +117,7 @@ static void *audio_thread_fn(void *arg) {
     (void)arg;
     static int16_t in_buf[IN_BUF_FRAMES * 2];      /* stereo S16 from engine @ 44.1 kHz */
     static int16_t out_buf[MISTER_AUDIO_CHUNK * 2];/* stereo S16 @ 48 kHz for DDR3 ring */
+    static int     diag_first_tick = 1;             /* one-shot startup diagnostic */
 
     /* 16.16 step per output sample: (ENGINE_AUDIO_RATE / MISTER_AUDIO_RATE) in fixed-point.
      * (44100 << 16) / 48000 = 60211, i.e. ~0.91875 input samples per output sample.
@@ -125,6 +126,9 @@ static void *audio_thread_fn(void *arg) {
      * STEP ≈ -29267. Then phase walks BACKWARD per output sample, ip goes negative,
      * read_sample returns 0 / stale prev_tail → pops/clicks instead of audio. */
     const int32_t STEP = (int32_t)(((int64_t)ENGINE_AUDIO_RATE << 16) / MISTER_AUDIO_RATE);
+
+    fprintf(stderr, "MiSTer audio: thread start. STEP=%d (expect ~60211) IN_FRAMES_PER_TICK=%d MISTER_AUDIO_CHUNK=%d\n",
+            (int)STEP, IN_FRAMES_PER_TICK, MISTER_AUDIO_CHUNK);
 
     while (audio_thread_run) {
         size_t free_frames = NativeAudioWriter_FreeFrames();
@@ -140,6 +144,12 @@ static void *audio_thread_fn(void *arg) {
          * extra slots in in_buf are unused this tick (kept as headroom in case
          * we ever need to dynamically request more for boundary handling). */
         update_sample((unsigned char *)in_buf, IN_FRAMES_PER_TICK * 4);
+
+        if (diag_first_tick) {
+            fprintf(stderr, "MiSTer audio: first tick in_buf[0..7]=%d %d %d %d %d %d %d %d resamp_phase=%d\n",
+                    in_buf[0], in_buf[1], in_buf[2], in_buf[3],
+                    in_buf[4], in_buf[5], in_buf[6], in_buf[7], (int)resamp_phase);
+        }
 
         /* Cubic Hermite 44.1 → 48 kHz resample. Phase is signed 16.16 and may
          * start slightly negative if the previous tick's phase ended past
@@ -181,12 +191,25 @@ static void *audio_thread_fn(void *arg) {
          * sample interpolates between prev_tail[2] and in_buf[0]". */
         resamp_phase = phase - ((int32_t)IN_FRAMES_PER_TICK << 16);
 
+        if (diag_first_tick) {
+            fprintf(stderr, "MiSTer audio: first tick out_buf[0..7]=%d %d %d %d %d %d %d %d  end_phase=%d new_resamp_phase=%d\n",
+                    out_buf[0], out_buf[1], out_buf[2], out_buf[3],
+                    out_buf[4], out_buf[5], out_buf[6], out_buf[7],
+                    (int)phase, (int)resamp_phase);
+            fprintf(stderr, "MiSTer audio: prev_tail_l[0..2]=%d %d %d prev_tail_r[0..2]=%d %d %d\n",
+                    prev_tail_l[0], prev_tail_l[1], prev_tail_l[2],
+                    prev_tail_r[0], prev_tail_r[1], prev_tail_r[2]);
+            diag_first_tick = 0;
+        }
+
         NativeAudioWriter_Submit(out_buf, MISTER_AUDIO_CHUNK);
     }
     return NULL;
 }
 
 int SB_playstart(int bits, int samplerate) {
+    fprintf(stderr, "MiSTer audio: SB_playstart(bits=%d, samplerate=%d) started=%d audio_writer_active=%d\n",
+            bits, samplerate, started, NativeAudioWriter_IsActive());
     (void)bits;
     (void)samplerate;
 
