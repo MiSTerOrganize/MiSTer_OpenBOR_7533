@@ -527,7 +527,11 @@ endif
         '        }\n'
     )
     NEW_CLIP = (
-        '        /* MiSTer Frontier: soft-clip replaces hard int16 saturation. */\n'
+        '        /* MiSTer Frontier: soft-clip replaces hard int16 saturation.\n'
+        '         * mixbuf-after-MIXSHIFT uses biased-unsigned encoding where\n'
+        '         * 0 = -32768 and 0xffff = +32767; convert to signed for the\n'
+        '         * quadratic taper, then back to the engine\\\'s bit pattern via\n'
+        '         * +0x8000 (re-bias) then ^0x8000 (final XOR matching upstream). */\n'
         '        unsigned short *dst = (unsigned short *)buf;\n'
         '        for(i = 0; i < todo; i++)\n'
         '        {\n'
@@ -543,6 +547,7 @@ endif
         '            if (_s > 32767)  _s = 32767;\n'
         '            if (_s < -32768) _s = -32768;\n'
         '            u = (unsigned int)(_s + 0x8000);\n'
+        '            u ^= 0x8000;\n'
         '            dst[i] = u;\n'
         '        }\n'
     )
