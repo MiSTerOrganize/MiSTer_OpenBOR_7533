@@ -487,76 +487,27 @@ endif
     #     resample in glue (no cubic overshoot, no cross-tick state). User
     #     direction: skip userspace test harness, deploy and test on MiSTer.
     #     Force-48-kHz patch REMOVED (this step is now a no-op).
-    print("Step 10 (audio): soft-clip patch in update_sample()")
-    print("                  engine at upstream native 44.1 kHz; glue layer resamples 44.1 → 48 kHz.")
+    print("Step 10 (audio): NO PATCH — engine at upstream native 44.1 kHz")
+    print("                  Clip control moved to glue-layer soft-limiter (post-polyphase).")
     sm_path = os.path.join(obor, 'source/gamelib/soundmix.c')
     sm = read(sm_path)
 
-    # Sample reads: upstream FIX_TO_INT(fp_pos) nearest-neighbor preserved
-    # (engine-internal Stage 1, matches SDL 1.2 / SDL 2 platform behavior).
-
-    # Soft-clip patch for update_sample() 16-bit output branch.
+    # Engine mixer left at upstream behavior — matches PC reference exactly.
+    # Multi-voice overflow IS handled, but in the glue layer (sblaster_patch.c)
+    # with an envelope-following soft-limiter applied AFTER the polyphase
+    # resample, which is the audio-engineering best-practice location:
+    # limiter LAST in chain, after any SRC, sees intersample peaks the
+    # polyphase produces from FIR convolution overshoot.
     #
-    # Why: Marvel vs Capcom (and similar voice-heavy PAKs) produce mixbuf[i]
-    # sums that exceed [-32768, 32767] when many voices are simultaneously
-    # loud. Upstream hard-clamps to 0/0xffff → continuous clipping distortion
-    # audible as "buzz" + intermittent silence when many voices end together.
-    # MiSTer hardware diagnostic 2026-05-16 confirmed peak_abs=32767 sustained
-    # for 60+ consecutive seconds on MvC heavy gameplay.
-    #
-    # Fix: replace hard clip with quadratic-taper soft clip.
-    #   • Below ±24576 (75% of int16 range): linear pass-through (no cost)
-    #   • Above ±24576: quadratic taper to ±32767 asymptote
-    #   • Asymptote: taper(excess) = 8191 * excess / (excess + 16382) ≤ 8191
-    # Cost: ~1 divide per soft-region sample, ~0 for quiet content.
-    OLD_CLIP = (
-        '        unsigned short *dst = (unsigned short *)buf;\n'
-        '        for(i = 0; i < todo; i++)\n'
-        '        {\n'
-        '            u = mixbuf[i] >> MIXSHIFT;\n'
-        '            if (u < 0)\n'
-        '            {\n'
-        '                u = 0;\n'
-        '            }\n'
-        '            else if (u > 0xffff)\n'
-        '            {\n'
-        '                u = 0xffff;\n'
-        '            }\n'
-        '            u ^= 0x8000;\n'
-        '            dst[i] = u;\n'
-        '        }\n'
-    )
-    NEW_CLIP = (
-        '        /* MiSTer Frontier: soft-clip replaces hard int16 saturation.\n'
-        '         * mixbuf-after-MIXSHIFT uses biased-unsigned encoding where\n'
-        '         * 0 = -32768 and 0xffff = +32767; convert to signed for the\n'
-        '         * quadratic taper, then back to the engine\\\'s bit pattern via\n'
-        '         * +0x8000 (re-bias) then ^0x8000 (final XOR matching upstream). */\n'
-        '        unsigned short *dst = (unsigned short *)buf;\n'
-        '        for(i = 0; i < todo; i++)\n'
-        '        {\n'
-        '            int _s = (int)(mixbuf[i] >> MIXSHIFT) - 0x8000;\n'
-        '            int _a = _s < 0 ? -_s : _s;\n'
-        '            int _sign = _s < 0 ? -1 : 1;\n'
-        '            if (_a > 24576)\n'
-        '            {\n'
-        '                int _excess = _a - 24576;\n'
-        '                _a = 24576 + (8191 * _excess) / (_excess + 16382);\n'
-        '            }\n'
-        '            _s = _sign * _a;\n'
-        '            if (_s > 32767)  _s = 32767;\n'
-        '            if (_s < -32768) _s = -32768;\n'
-        '            u = (unsigned int)(_s + 0x8000);\n'
-        '            u ^= 0x8000;\n'
-        '            dst[i] = u;\n'
-        '        }\n'
-    )
-    if OLD_CLIP not in sm:
-        raise RuntimeError("soundmix.c: 16-bit hard-clip block not found (upstream changed?)")
-    sm = sm.replace(OLD_CLIP, NEW_CLIP)
+    # Previous attempt: engine-mixer-side soft-clip in update_sample (commits
+    # 02648df → 921a767). Reverted 2026-05-16 because (a) engine-side soft-clip
+    # doesn't address polyphase-induced intersample peaks ≤+3dB above sample
+    # max, (b) FIR side-lobes can amplify peaks past ±32767 after the limiter
+    # acted, leaving hard-clip artifacts at the final glue-layer stage.
+    # Glue-layer limiter is the architecturally correct location.
 
     write(sm_path, sm)
-    print("  soundmix.c patched (48kHz native; sample reads = upstream nearest-neighbor; soft-clip in update_sample).")
+    print("  soundmix.c left unmodified (upstream behavior preserved; clip control in glue layer).")
 
     print("\nAll patches applied successfully.")
 

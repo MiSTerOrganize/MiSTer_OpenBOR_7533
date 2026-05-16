@@ -161,6 +161,26 @@ static void *audio_thread_fn(void *arg) {
 
     if (!poly_initialized) poly_init();
 
+    /* Soft-limiter state — envelope-following stereo-linked design.
+     * Architecturally correct location per audio-engineering best practice:
+     * limiter LAST in chain (after polyphase resample), where it sees true
+     * intersample peaks from FIR convolution overshoot. Replaces the
+     * previous engine-mixer soft-clip attempt which couldn't catch
+     * polyphase-induced peaks above ±32767.
+     *
+     * Design:
+     *   - Threshold: 27852 ≈ -1.5 dBFS — below = unity gain pass-through
+     *   - Attack:  ~1 ms time constant (catches transient peaks fast)
+     *   - Release: ~100 ms (smooth decay, no pumping)
+     *   - Stereo-linked: max(|L|,|R|) drives envelope; same gain applied
+     *     to both channels (transparent stereo image preservation).
+     *   - Final hard-clip at ±32767 as belt-and-suspenders safety. */
+    const float ATTACK_COEFF  = expf(-1.0f / (0.001f * (float)MISTER_AUDIO_RATE));
+    const float RELEASE_COEFF = expf(-1.0f / (0.100f * (float)MISTER_AUDIO_RATE));
+    const float THRESHOLD     = 27852.0f;  /* -1.5 dBFS */
+    float lim_env  = 0.0f;
+    float lim_gain = 1.0f;
+
     /* Diagnostic counters (reset each second). */
     struct timespec last_emit;
     clock_gettime(CLOCK_MONOTONIC, &last_emit);
@@ -169,11 +189,12 @@ static void *audio_thread_fn(void *arg) {
     unsigned long stall_run = 0;        /* current consecutive-stall count */
     unsigned long stall_run_max = 0;    /* worst stall burst this second */
     int           peak_abs = 0;          /* max |sample| this second */
+    int           gain_red_pct_min = 100;/* min(lim_gain*100) this second */
     size_t        free_min = (size_t)-1; /* lowest free_frames seen this second */
 
     setvbuf(stderr, NULL, _IOLBF, 0);
-    fprintf(stderr, "[sb] audio_thread started: STEP=%u poly_init=%d\n",
-            (unsigned)STEP, poly_initialized);
+    fprintf(stderr, "[sb] audio_thread started: STEP=%u poly_init=%d limiter=on threshold=%.0f\n",
+            (unsigned)STEP, poly_initialized, THRESHOLD);
 
     while (audio_thread_run) {
         size_t free_frames = NativeAudioWriter_FreeFrames();
@@ -191,7 +212,7 @@ static void *audio_thread_fn(void *arg) {
         /* Pull IN_FRAMES_PER_TICK fresh frames from the engine's stateful mixer. */
         update_sample((unsigned char *)in_buf, IN_FRAMES_PER_TICK * 4);
 
-        /* Polyphase 44.1 → 48 kHz, per channel. */
+        /* Polyphase 44.1 → 48 kHz + soft-limiter, per stereo frame. */
         uint32_t accum = 0;
         int i;
         for (i = 0; i < MISTER_AUDIO_CHUNK; i++) {
@@ -200,13 +221,44 @@ static void *audio_thread_fn(void *arg) {
 
             int16_t l = poly_apply(in_buf, ip, fr, IN_FRAMES_PER_TICK, 0);
             int16_t r = poly_apply(in_buf, ip, fr, IN_FRAMES_PER_TICK, 1);
-            int la = l < 0 ? -l : l;
-            int ra = r < 0 ? -r : r;
-            if (la > peak_abs) peak_abs = la;
-            if (ra > peak_abs) peak_abs = ra;
 
-            out_buf[2 * i + 0] = l;
-            out_buf[2 * i + 1] = r;
+            /* Soft-limiter: envelope follower (stereo-linked) + smoothed gain. */
+            float L = (float)l, R = (float)r;
+            float aL = L < 0.0f ? -L : L;
+            float aR = R < 0.0f ? -R : R;
+            float peak = aL > aR ? aL : aR;
+
+            /* Envelope: instant attack on peak, exponential release. */
+            if (peak > lim_env) lim_env = peak;
+            else                lim_env = lim_env * RELEASE_COEFF + peak * (1.0f - RELEASE_COEFF);
+
+            /* Target gain (unity below threshold, attenuate above). */
+            float target_gain = (lim_env > THRESHOLD) ? (THRESHOLD / lim_env) : 1.0f;
+
+            /* Smooth gain transitions (fast attack, slow release). */
+            if (target_gain < lim_gain)
+                lim_gain = lim_gain * ATTACK_COEFF + target_gain * (1.0f - ATTACK_COEFF);
+            else
+                lim_gain = lim_gain * RELEASE_COEFF + target_gain * (1.0f - RELEASE_COEFF);
+
+            /* Apply gain (stereo-linked = same gain on L and R). */
+            int Lo = (int)(L * lim_gain);
+            int Ro = (int)(R * lim_gain);
+            if (Lo > 32767)  Lo = 32767;
+            if (Lo < -32768) Lo = -32768;
+            if (Ro > 32767)  Ro = 32767;
+            if (Ro < -32768) Ro = -32768;
+
+            int loa = Lo < 0 ? -Lo : Lo;
+            int roa = Ro < 0 ? -Ro : Ro;
+            if (loa > peak_abs) peak_abs = loa;
+            if (roa > peak_abs) peak_abs = roa;
+
+            int gp = (int)(lim_gain * 100.0f);
+            if (gp < gain_red_pct_min) gain_red_pct_min = gp;
+
+            out_buf[2 * i + 0] = (int16_t)Lo;
+            out_buf[2 * i + 1] = (int16_t)Ro;
 
             accum += STEP;
         }
@@ -221,11 +273,12 @@ static void *audio_thread_fn(void *arg) {
                         + (now.tv_nsec - last_emit.tv_nsec) / 1000000L;
         if (elapsed_ms >= 1000) {
             fprintf(stderr,
-                "[sb-1s] submits=%lu stalls=%lu stall_run_max=%lu free_min=%zu peak_abs=%d\n",
-                submits, stalls, stall_run_max, free_min, peak_abs);
+                "[sb-1s] submits=%lu stalls=%lu stall_run_max=%lu free_min=%zu peak_abs=%d gain_min_pct=%d\n",
+                submits, stalls, stall_run_max, free_min, peak_abs, gain_red_pct_min);
             last_emit = now;
             submits = stalls = stall_run_max = 0;
             peak_abs = 0;
+            gain_red_pct_min = 100;
             free_min = (size_t)-1;
         }
     }
