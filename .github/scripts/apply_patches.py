@@ -466,46 +466,31 @@ endif
     else:
         print("  WARN: pixelformat.c not found at expected path — may have moved in 7533")
 
-    # ── 10. Audio Stage 1: force 48kHz native (sample reads use UPSTREAM
-    #                       nearest-neighbor — no Hermite substitution).
+    # ── 10. Audio Stage 1: NO PATCH (Option C v2, 2026-05-15 evening).
     #
-    # Force playfrequency = 48000. Upstream hardcodes 44100; our
-    # sblaster_patch.c submits to the DDR3 ring at 48 kHz pace, so
-    # without this override every PAK plays +0.88 semitone sharp
-    # (~8.8% too fast). Force-override just before SB_playstart() so
-    # the upstream mixer's per-sample rate math uses 48000 too.
+    # Engine runs at UPSTREAM NATIVE 44.1 kHz (Sega CD Red Book CDDA rate).
+    # Sample reads use upstream FIX_TO_INT(fp_pos) nearest-neighbor.
+    # Our sblaster_patch.c glue layer handles 44.1 → 48 kHz conversion via
+    # linear interpolation before DDR3 submission — same architectural
+    # pattern as PICO-8 (zepto8 at 22050 native, mister_main.cpp resamples
+    # to 48 kHz). Matches the NTSC-region-match rule: engine produces at
+    # platform's native reference rate, glue layer converts at boundary.
     #
-    # HISTORY (2026-05-15): Earlier patches replaced the three sample-
-    # read sites with cubic Hermite / linear interpolation per the
-    # audio quality ladder. User A/B revealed that cubic Hermite
-    # OVERSHOOT amplified per-voice peak amplitude, causing mixbuf
-    # to clip at the engine's hard 0xffff ceiling when many voices
-    # played simultaneously (multi-enemy special-move scenarios).
-    # Audible result: crackles on multi-enemy specials that were
-    # NOT present in pre-cubic upstream behavior. Per user direction,
-    # reverted to upstream FIX_TO_INT(fp_pos) nearest-neighbor reads —
-    # the engine's native sample-reading behavior on every platform.
-    # See feedback_cubic_overshoot_8bit_crackle.md and the deferred
-    # Option C bug memory for the full diagnostic history.
-    print("Patching source/gamelib/soundmix.c (force 48kHz; sample reads = upstream nearest-neighbor)...")
+    # HISTORY:
+    #   2026-05-15 (morning): force-48-kHz patch added (Option A) to kill
+    #     the rate-mismatch pitch shift. Worked but engine output at 48 kHz
+    #     diverges from Sega CD's native 44.1 kHz Red Book rate.
+    #   2026-05-15 (afternoon): Option C v1 attempt — kept engine at 44.1k
+    #     native, cubic Hermite resampler in glue. Failed with "constant
+    #     per Stage 2 tick" 187 Hz buzz (implementation bug, not method).
+    #   2026-05-15 (evening): Option C v2 — engine at 44.1k native, LINEAR
+    #     resample in glue (no cubic overshoot, no cross-tick state). User
+    #     direction: skip userspace test harness, deploy and test on MiSTer.
+    #     Force-48-kHz patch REMOVED (this step is now a no-op).
+    print("Step 10 (audio): NO PATCH — engine at upstream native 44.1 kHz,")
+    print("                  glue layer (sblaster_patch.c) resamples 44.1 → 48 kHz.")
     sm_path = os.path.join(obor, 'source/gamelib/soundmix.c')
     sm = read(sm_path)
-
-    # 10a — force playfrequency = 48000, playbits = 16 right before
-    #       SB_playstart() so it overrides every prior code-path
-    #       assignment (default, savedata, WII path, etc.)
-    fr_old = '    if(!SB_playstart(playbits, playfrequency))'
-    fr_new = ('    /* MiSTer: force 48 kHz / 16-bit output to match FPGA audio rate.\n'
-              '     * Kills the +0.88 semitone pitch shift from rate mismatch with\n'
-              '     * sblaster_patch.c which submits the DDR3 ring at 48 kHz pace. */\n'
-              '    playfrequency = 48000;\n'
-              '    playbits = 16;\n'
-              '    if(!SB_playstart(playbits, playfrequency))')
-    if fr_old in sm:
-        sm = sm.replace(fr_old, fr_new, 1)
-        print("  Audio output rate forced to 48000 Hz / 16-bit.")
-    else:
-        print("  WARN: SB_playstart anchor not found — playfrequency override skipped")
 
     # NOTE: Stage 1 Hermite/linear sample-read substitutions REMOVED 2026-05-15.
     # Reverted to upstream FIX_TO_INT(fp_pos) nearest-neighbor reads after
