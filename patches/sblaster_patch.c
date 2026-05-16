@@ -141,6 +141,15 @@ static inline int16_t poly_apply(const int16_t *src, int ip, uint32_t fr,
     return (int16_t)sum;
 }
 
+/* Diagnostic: per-second audio-thread health stats. Once-per-second emission;
+ * no hotpath fprintf. Tracks ring-stall events (when free_frames is too low
+ * to submit a full chunk → thread sleeps 3ms instead of producing), submit
+ * count, max instantaneous peak amplitude, and longest stall burst (number
+ * of consecutive sleeps before next successful submit). Diagnostic for
+ * audio-thread starvation under heavy engine load (MvC stress hypothesis,
+ * 2026-05-16). Remove after bug isolated. */
+#include <stdio.h>
+
 static void *audio_thread_fn(void *arg) {
     (void)arg;
     static int16_t in_buf[IN_FRAMES_PER_TICK * 2];   /* stereo S16 @ 44.1 kHz from engine */
@@ -152,39 +161,73 @@ static void *audio_thread_fn(void *arg) {
 
     if (!poly_initialized) poly_init();
 
+    /* Diagnostic counters (reset each second). */
+    struct timespec last_emit;
+    clock_gettime(CLOCK_MONOTONIC, &last_emit);
+    unsigned long stalls = 0;
+    unsigned long submits = 0;
+    unsigned long stall_run = 0;        /* current consecutive-stall count */
+    unsigned long stall_run_max = 0;    /* worst stall burst this second */
+    int           peak_abs = 0;          /* max |sample| this second */
+    size_t        free_min = (size_t)-1; /* lowest free_frames seen this second */
+
+    setvbuf(stderr, NULL, _IOLBF, 0);
+    fprintf(stderr, "[sb] audio_thread started: STEP=%u poly_init=%d\n",
+            (unsigned)STEP, poly_initialized);
+
     while (audio_thread_run) {
         size_t free_frames = NativeAudioWriter_FreeFrames();
+        if (free_frames < free_min) free_min = free_frames;
 
         if (free_frames < (size_t)MISTER_AUDIO_CHUNK) {
+            stalls++;
+            stall_run++;
+            if (stall_run > stall_run_max) stall_run_max = stall_run;
             audio_sleep_us(3000);
             continue;
         }
+        stall_run = 0;
 
         /* Pull IN_FRAMES_PER_TICK fresh frames from the engine's stateful mixer. */
         update_sample((unsigned char *)in_buf, IN_FRAMES_PER_TICK * 4);
 
-        /* Polyphase 44.1 → 48 kHz, per channel. No cross-tick state — each
-         * tick is self-contained. Mirrors PICO-8's upsample pattern.
-         *
-         * accum is uint32_t (always positive); 256 iters of STEP advance
-         * accum to 256*60211 = 15,414,016 = 235.16 in 16.16 fixed-point.
-         * src_idx (= accum>>16) reaches max ~235, within IN_FRAMES_PER_TICK.
-         *
-         * Drift per tick: ~0.84 input frame unused → 0.05% pitch downward
-         * (≈6 cents, below audible threshold). */
+        /* Polyphase 44.1 → 48 kHz, per channel. */
         uint32_t accum = 0;
         int i;
         for (i = 0; i < MISTER_AUDIO_CHUNK; i++) {
             int      ip = (int)(accum >> 16);
             uint32_t fr = accum & 0xFFFF;
 
-            out_buf[2 * i + 0] = poly_apply(in_buf, ip, fr, IN_FRAMES_PER_TICK, 0);
-            out_buf[2 * i + 1] = poly_apply(in_buf, ip, fr, IN_FRAMES_PER_TICK, 1);
+            int16_t l = poly_apply(in_buf, ip, fr, IN_FRAMES_PER_TICK, 0);
+            int16_t r = poly_apply(in_buf, ip, fr, IN_FRAMES_PER_TICK, 1);
+            int la = l < 0 ? -l : l;
+            int ra = r < 0 ? -r : r;
+            if (la > peak_abs) peak_abs = la;
+            if (ra > peak_abs) peak_abs = ra;
+
+            out_buf[2 * i + 0] = l;
+            out_buf[2 * i + 1] = r;
 
             accum += STEP;
         }
 
         NativeAudioWriter_Submit(out_buf, MISTER_AUDIO_CHUNK);
+        submits++;
+
+        /* Emit per-second health line. Cheap: only fires ~1×/sec. */
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long elapsed_ms = (now.tv_sec - last_emit.tv_sec) * 1000L
+                        + (now.tv_nsec - last_emit.tv_nsec) / 1000000L;
+        if (elapsed_ms >= 1000) {
+            fprintf(stderr,
+                "[sb-1s] submits=%lu stalls=%lu stall_run_max=%lu free_min=%zu peak_abs=%d\n",
+                submits, stalls, stall_run_max, free_min, peak_abs);
+            last_emit = now;
+            submits = stalls = stall_run_max = 0;
+            peak_abs = 0;
+            free_min = (size_t)-1;
+        }
     }
     return NULL;
 }
