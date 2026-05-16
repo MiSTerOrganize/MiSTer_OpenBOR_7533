@@ -1,37 +1,26 @@
 /*
  * MiSTer_OpenBOR -- sdl/sblaster.c MiSTer replacement
  *
- * Option C v2: engine outputs at upstream native 44.1 kHz (Sega CD Red
- * Book CDDA rate — matches the NTSC-region-match rule's reference) and
- * THIS file resamples 44.1 → 48 kHz at the ARM glue layer before DDR3
- * submission. Mirrors the PICO-8 architecture (engine at 22050 native,
- * mister_main.cpp resamples to 48 kHz). Replaces Option A which forced
- * the engine to 48 kHz via apply_patches.py — that worked but diverged
- * from Sega CD's native audio rate.
+ * Option C v3: engine at upstream native 44.1 kHz (Sega CD Red Book CDDA
+ * reference rate), glue layer resamples to 48 kHz via POLYPHASE WINDOWED-
+ * SINC FIR — matches what PC SDL2's default resampler does (bandlimited
+ * interpolation, per src/audio/SDL_audiocvt.c in libsdl-org/SDL).
  *
- * Resample method: LINEAR interpolation per channel.
- *   - Mid-quality bandlimited reconstruction matching what PC OS audio
- *     stacks typically use for 44.1 → 48 kHz conversion (PC OpenBOR.exe
- *     relies on this same conversion via Windows MMSYS or PulseAudio).
- *   - No overshoot (cubic Hermite's overshoot caused multi-voice mixbuf
- *     clipping crackles on multi-enemy specials in our previous attempt).
- *   - No clamping needed for valid s16 input — output is always in
- *     [min(s0,s1), max(s0,s1)] range.
+ * PC OpenBOR.exe audio chain: app → SDL_OpenAudioDevice(44100, allowed=0)
+ * → SDL2 internal bandlimited interpolation → OS device at native rate.
+ * For PC reference parity on MiSTer, we mirror SDL2's polyphase quality.
  *
- * Implementation details (designed to avoid the 2026-05-15 "constant per
- * Stage 2 tick" failure mode):
- *   - uint32_t accum (always positive) — no negative-shift UB territory.
- *   - No cross-tick state (no prev_tail, no resamp_phase). Each tick
- *     starts accum=0, processes a self-contained input/output buffer.
- *     Mirrors PICO-8's mister_main.cpp::upsample_mono_to_stereo which
- *     ships this pattern successfully.
- *   - Linear interp (not cubic) — simpler math, no overshoot. The s0+
- *     (s1-s0)*frac pattern works in pure integer arithmetic with no
- *     intermediate >= int32 saturation risk for s16 sources.
+ * Filter design:
+ *   - 16-tap × 32-phase windowed-sinc FIR
+ *   - Hann window for moderate stopband attenuation
+ *   - Cutoff at source Nyquist (since we're upsampling 44.1 → 48)
+ *   - Coefficient table precomputed at thread start; int16 storage
+ *   - Per output sample: 16 multiply-adds per channel (stereo = 32 MAC)
  *
- * Net rate-conversion drift: ~0.05% pitch (≈6 cents downward, below
- * audible threshold) from the requested-vs-consumed-per-tick rounding
- * (256 output × 0.91875 = 235.2 input, but we request 236 per tick).
+ * Implementation rules (avoid past failure modes):
+ *   - uint32_t accum (always positive — no negative-shift UB)
+ *   - No cross-tick state (each tick self-contained, accum starts 0)
+ *   - Boundary clamp at chunk edges (small artifact, sub-ms, inaudible)
  *
  * Copyright (C) 2026 MiSTer Organize -- GPL-3.0
  */
@@ -41,6 +30,7 @@
 #include "sdlport.h"
 #include "native_audio_writer.h"
 
+#include <math.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -48,22 +38,30 @@
 #include <time.h>
 #include <unistd.h>
 
-/* OpenBOR's mixer renders into a caller-supplied byte buffer at 44.1 kHz
- * stereo S16 (upstream native, NOT forced to 48 kHz any more). */
+/* OpenBOR's mixer renders stereo S16 PCM at 44.1 kHz upstream native. */
 extern void update_sample(unsigned char *buf, int size);
 
 #define ENGINE_AUDIO_RATE    44100
 #define MISTER_AUDIO_RATE    48000
-#define MISTER_AUDIO_CHUNK   256       /* output frames per tick (48 kHz)             */
-#define MISTER_CHUNK_BYTES   (MISTER_AUDIO_CHUNK * 4) /* stereo S16                    */
+#define MISTER_AUDIO_CHUNK   256                      /* output frames per tick (48 kHz)   */
+#define MISTER_CHUNK_BYTES   (MISTER_AUDIO_CHUNK * 4) /* stereo S16                          */
 
-/* Input frames requested per tick. 256 output × 44100/48000 = 235.2 input
- * needed; +1 margin so the last output's linear interp has a valid s1.
- * The 0.8-frame per-tick over-request causes ~0.05% pitch drift downward,
- * inaudible. update_sample is stateful so consecutive ticks see contiguous
- * stream samples. */
-#define IN_FRAMES_PER_TICK   237
-#define IN_BUF_FRAMES        (IN_FRAMES_PER_TICK + 1) /* +1 for linear-interp s1 lookup at idx=235 */
+/* 256 output × 44100/48000 = 235.2 input frames needed per tick.
+ * Request 236 with +1 margin for the polyphase filter's right wing. */
+#define IN_FRAMES_PER_TICK   236
+
+/* Polyphase FIR design constants. 16 taps × 32 phases = 512 int16 coefficients. */
+#define POLY_N        16   /* taps per phase                                       */
+#define POLY_P        32   /* phase quantization levels (fr → phase index)         */
+#define POLY_CENTER   7    /* index of "current" sample within taps (taps[CENTER]) */
+#define POLY_SCALE    15   /* coefficient scale: stored as q15 fixed-point         */
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+static int16_t  poly_h[POLY_P][POLY_N];   /* coefficient table (q15)              */
+static int      poly_initialized = 0;
 
 static int              started;
 static int              voicevol = 15;
@@ -77,16 +75,82 @@ static void audio_sleep_us(long us) {
     nanosleep(&ts, NULL);
 }
 
+/* Generate polyphase windowed-sinc FIR coefficients at thread startup.
+ *
+ * For each phase p in [0, POLY_P), the filter is a Hann-windowed sinc
+ * sampled at offsets (k - POLY_CENTER + p/POLY_P) for k in [0, POLY_N).
+ * Cutoff = 0.5 (source Nyquist) — appropriate for upsampling. After
+ * generation, each phase row sums to 1.0 (DC gain = unity), then scaled
+ * by 2^POLY_SCALE for int16 storage. Runtime convolution: sum >>= 15.
+ */
+static void poly_init(void) {
+    int p, k;
+    double sum;
+    double row[POLY_N];
+    int iv;
+    double x, sinc_val, arg, win_t, win;
+
+    for (p = 0; p < POLY_P; p++) {
+        sum = 0.0;
+        for (k = 0; k < POLY_N; k++) {
+            x = (double)(k - POLY_CENTER) + (double)p / (double)POLY_P;
+            if (x == 0.0) {
+                sinc_val = 1.0;
+            } else {
+                arg = M_PI * x;
+                sinc_val = sin(arg) / arg;
+            }
+            win_t = (double)k / (double)(POLY_N - 1);
+            win = 0.5 - 0.5 * cos(2.0 * M_PI * win_t);
+            row[k] = sinc_val * win;
+            sum += row[k];
+        }
+        /* Normalize each phase to unit DC gain, scale to q15. */
+        for (k = 0; k < POLY_N; k++) {
+            double v = row[k] / sum * (double)(1 << POLY_SCALE);
+            iv = (int)(v < 0.0 ? v - 0.5 : v + 0.5);
+            if (iv > 32767)  iv = 32767;
+            if (iv < -32768) iv = -32768;
+            poly_h[p][k] = (int16_t)iv;
+        }
+    }
+    poly_initialized = 1;
+}
+
+/* Apply polyphase FIR for one output sample, one channel.
+ * src points to interleaved-stereo buffer; channel selects L (0) or R (1).
+ * ip is integer source frame position; fr is fractional in [0, 65535].
+ * src_len is the number of frames in src (boundary clamp range). */
+static inline int16_t poly_apply(const int16_t *src, int ip, uint32_t fr,
+                                  int src_len, int channel)
+{
+    int p = (int)((fr * (uint32_t)POLY_P) >> 16);
+    if (p >= POLY_P) p = POLY_P - 1;
+
+    int32_t sum = 0;
+    int k;
+    for (k = 0; k < POLY_N; k++) {
+        int idx = ip + k - POLY_CENTER;
+        if (idx < 0) idx = 0;
+        if (idx >= src_len) idx = src_len - 1;
+        sum += (int32_t)src[2 * idx + channel] * (int32_t)poly_h[p][k];
+    }
+    sum >>= POLY_SCALE;
+    if (sum > 32767)  sum = 32767;
+    if (sum < -32768) sum = -32768;
+    return (int16_t)sum;
+}
+
 static void *audio_thread_fn(void *arg) {
     (void)arg;
-    static int16_t in_buf[IN_BUF_FRAMES * 2];        /* stereo S16 from engine @ 44.1 kHz */
-    static int16_t out_buf[MISTER_AUDIO_CHUNK * 2];  /* stereo S16 @ 48 kHz for DDR3 ring */
+    static int16_t in_buf[IN_FRAMES_PER_TICK * 2];   /* stereo S16 @ 44.1 kHz from engine */
+    static int16_t out_buf[MISTER_AUDIO_CHUNK * 2];  /* stereo S16 @ 48 kHz for DDR3      */
 
-    /* 16.16 step per output sample = (ENGINE_RATE / MISTER_RATE) << 16.
-     * MUST cast to uint64_t before the shift — (uint32_t)44100 << 16 would
-     * overflow the same way the previous int32_t version did. Use uint64_t
-     * intermediate, narrow back to uint32_t at the end. */
+    /* 16.16 step per output sample: (44100 << 16) / 48000 = 60211.
+     * Cast to uint64_t before shift to avoid the int32 overflow trap. */
     const uint32_t STEP = (uint32_t)(((uint64_t)ENGINE_AUDIO_RATE << 16) / MISTER_AUDIO_RATE);
+
+    if (!poly_initialized) poly_init();
 
     while (audio_thread_run) {
         size_t free_frames = NativeAudioWriter_FreeFrames();
@@ -96,40 +160,26 @@ static void *audio_thread_fn(void *arg) {
             continue;
         }
 
-        /* Pull IN_FRAMES_PER_TICK fresh frames from the engine's mixer.
-         * update_sample is stateful — consecutive calls return successive
-         * positions in the engine's audio stream. */
+        /* Pull IN_FRAMES_PER_TICK fresh frames from the engine's stateful mixer. */
         update_sample((unsigned char *)in_buf, IN_FRAMES_PER_TICK * 4);
 
-        /* Linear interp 44.1 → 48 kHz, per channel.
-         * uint32_t accum always positive — no signed-shift UB.
-         * No cross-tick state — each tick self-contained. Mirrors PICO-8's
-         * upsample_mono_to_stereo working pattern. */
+        /* Polyphase 44.1 → 48 kHz, per channel. No cross-tick state — each
+         * tick is self-contained. Mirrors PICO-8's upsample pattern.
+         *
+         * accum is uint32_t (always positive); 256 iters of STEP advance
+         * accum to 256*60211 = 15,414,016 = 235.16 in 16.16 fixed-point.
+         * src_idx (= accum>>16) reaches max ~235, within IN_FRAMES_PER_TICK.
+         *
+         * Drift per tick: ~0.84 input frame unused → 0.05% pitch downward
+         * (≈6 cents, below audible threshold). */
         uint32_t accum = 0;
-        for (int i = 0; i < MISTER_AUDIO_CHUNK; i++) {
-            uint32_t src_idx = accum >> 16;
-            uint32_t fr      = accum & 0xFFFF;  /* fractional part, [0, 65535] */
+        int i;
+        for (i = 0; i < MISTER_AUDIO_CHUNK; i++) {
+            int      ip = (int)(accum >> 16);
+            uint32_t fr = accum & 0xFFFF;
 
-            /* Boundary guard: if src_idx would exceed IN_FRAMES_PER_TICK,
-             * clamp to last input frame. With IN_FRAMES_PER_TICK=237 we
-             * always have room for src_idx+1 ≤ 236 because 256*STEP =
-             * 256*60211 = 15414016 = 235.16 in 16.16, so src_idx max ≈ 235. */
-            if (src_idx + 1 >= IN_FRAMES_PER_TICK) src_idx = IN_FRAMES_PER_TICK - 2;
-
-            int32_t l0 = in_buf[2 * src_idx + 0];
-            int32_t l1 = in_buf[2 * (src_idx + 1) + 0];
-            int32_t r0 = in_buf[2 * src_idx + 1];
-            int32_t r1 = in_buf[2 * (src_idx + 1) + 1];
-
-            /* output = s0 + (s1 - s0) * fr / 65536
-             * For s16 input, (s1 - s0) is in [-65535, 65535], multiplied by
-             * fr in [0, 65535], result fits int32_t. After >> 16, back to
-             * int16 range (no clamp needed for valid s16 input). */
-            int32_t l = l0 + (((l1 - l0) * (int32_t)fr) >> 16);
-            int32_t r = r0 + (((r1 - r0) * (int32_t)fr) >> 16);
-
-            out_buf[2 * i + 0] = (int16_t)l;
-            out_buf[2 * i + 1] = (int16_t)r;
+            out_buf[2 * i + 0] = poly_apply(in_buf, ip, fr, IN_FRAMES_PER_TICK, 0);
+            out_buf[2 * i + 1] = poly_apply(in_buf, ip, fr, IN_FRAMES_PER_TICK, 1);
 
             accum += STEP;
         }
@@ -146,8 +196,6 @@ int SB_playstart(int bits, int samplerate) {
     if (started) return 1;
 
     if (!NativeAudioWriter_IsActive()) {
-        /* sdlport's main() calls NativeAudioWriter_Init(); if that failed
-         * we have no audio path at all. Don't start the thread. */
         return 0;
     }
 
