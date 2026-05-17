@@ -68,6 +68,17 @@ mv -f "$LOGDIR/ScriptLog.txt"    "$LOGDIR/ScriptLog.prev.txt"    2>/dev/null
 ls -t "$LOGDIR"/OpenBorLog.[0-9]*.txt 2>/dev/null | tail -n +11 | xargs -r rm -f
 ls -t "$LOGDIR"/ScriptLog.[0-9]*.txt  2>/dev/null | tail -n +11 | xargs -r rm -f
 
+# Belt-and-suspenders .s0 cleanup — Master_Daemon already clears .s0 on
+# core transitions, but sister-core swaps (4086 ↔ 7533 share setname
+# "OpenBOR") and MiSTer Main's auto-resume-last-file behavior can leave
+# OpenBOR.s0 populated when handler spawns. Clearing here at handler
+# start (before binary launches, before MGL's 2-second timer) gives
+# users a clean "go to OSD picker" experience on every entry, while
+# still allowing MGL to write .s0 in its window before binary polls.
+# User-reported 2026-05-17: cores auto-load previous PAK on swap/reboot
+# even after Master_Daemon "cleaned" .s0 — something rewrites it.
+rm -f /media/fat/config/OpenBOR.s0 2>/dev/null
+
 # Free kernel page cache — FC0 PAK streaming exhausts RAM otherwise.
 # OpenBOR segfaults on repeated PAK loads without this.
 echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
