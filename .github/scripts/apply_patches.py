@@ -487,10 +487,56 @@ endif
     #     resample in glue (no cubic overshoot, no cross-tick state). User
     #     direction: skip userspace test harness, deploy and test on MiSTer.
     #     Force-48-kHz patch REMOVED (this step is now a no-op).
-    print("Step 10 (audio): diagnostic-only patch in update_sample()")
-    print("                  Logs silent-window transitions to isolate task #10 cutout root cause.")
+    print("Step 10 (audio): soundcache-reload patch in mixaudio()")
+    print("                  Fixes heavy-scene silent cutout (regression vs Build 3366).")
     sm_path = os.path.join(obor, 'source/gamelib/soundmix.c')
     sm = read(sm_path)
+
+    # FIX for task #10 (heavy-scene silent cutout).
+    #
+    # Root cause: Build 7533's mixaudio() has a defensive NULL-check that
+    # PERMANENTLY DEACTIVATES any voice whose sample pointer is NULL:
+    #     if(!soundcache[snum].sample.sampleptr) {
+    #         vchannel[chan].active = 0;
+    #         continue;
+    #     }
+    # When heavy MvC gameplay triggers soundcache eviction, channels see
+    # NULL sampleptr and get deactivated. Once all voices deactivated →
+    # silent output until new audio events fire. Build 3366 doesn't have
+    # this null-check (samples stayed loaded forever) so audio always plays.
+    #
+    # User-confirmed 2026-05-17: PC OpenBOR 3366 plays MvC perfectly (no
+    # cutout); PC OpenBOR 7533 has the cutout. So the regression is in the
+    # engine itself, not platform-specific.
+    #
+    # Fix: when sampleptr is NULL, call sound_reload_sample() first to
+    # lazy-reload the evicted sample. Only deactivate if reload also fails.
+    OLD_NULL_CHECK = (
+        '            if(!soundcache[snum].sample.sampleptr)\n'
+        '            {\n'
+        '                vchannel[chan].active = 0;\n'
+        '                continue;\n'
+        '            }\n'
+    )
+    NEW_NULL_CHECK = (
+        '            if(!soundcache[snum].sample.sampleptr)\n'
+        '            {\n'
+        '                /* MiSTer Frontier task #10 fix: lazy-reload evicted\n'
+        '                 * samples before deactivating. Build 3366 didn\\\'t have\n'
+        '                 * this code path; eviction in 7533 caused MvC heavy-scene\n'
+        '                 * cutout where channels deactivated permanently on cache\n'
+        '                 * miss. sound_reload_sample reloads from packfile. */\n'
+        '                sound_reload_sample(snum);\n'
+        '                if(!soundcache[snum].sample.sampleptr)\n'
+        '                {\n'
+        '                    vchannel[chan].active = 0;\n'
+        '                    continue;\n'
+        '                }\n'
+        '            }\n'
+    )
+    if OLD_NULL_CHECK not in sm:
+        raise RuntimeError("soundmix.c: mixaudio() null-check block not found (upstream changed?)")
+    sm = sm.replace(OLD_NULL_CHECK, NEW_NULL_CHECK)
 
     # DIAGNOSTIC patch (NOT a fix yet) — task #10 investigation.
     #
