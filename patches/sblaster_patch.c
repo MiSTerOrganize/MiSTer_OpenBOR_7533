@@ -141,15 +141,6 @@ static inline int16_t poly_apply(const int16_t *src, int ip, uint32_t fr,
     return (int16_t)sum;
 }
 
-/* Diagnostic: per-second audio-thread health stats. Once-per-second emission;
- * no hotpath fprintf. Tracks ring-stall events (when free_frames is too low
- * to submit a full chunk → thread sleeps 3ms instead of producing), submit
- * count, max instantaneous peak amplitude, and longest stall burst (number
- * of consecutive sleeps before next successful submit). Diagnostic for
- * audio-thread starvation under heavy engine load (MvC stress hypothesis,
- * 2026-05-16). Remove after bug isolated. */
-#include <stdio.h>
-
 static void *audio_thread_fn(void *arg) {
     (void)arg;
     static int16_t in_buf[IN_FRAMES_PER_TICK * 2];   /* stereo S16 @ 44.1 kHz from engine */
@@ -164,9 +155,7 @@ static void *audio_thread_fn(void *arg) {
     /* Soft-limiter state — envelope-following stereo-linked design.
      * Architecturally correct location per audio-engineering best practice:
      * limiter LAST in chain (after polyphase resample), where it sees true
-     * intersample peaks from FIR convolution overshoot. Replaces the
-     * previous engine-mixer soft-clip attempt which couldn't catch
-     * polyphase-induced peaks above ±32767.
+     * intersample peaks from FIR convolution overshoot.
      *
      * Design:
      *   - Threshold: 27852 ≈ -1.5 dBFS — below = unity gain pass-through
@@ -181,33 +170,13 @@ static void *audio_thread_fn(void *arg) {
     float lim_env  = 0.0f;
     float lim_gain = 1.0f;
 
-    /* Diagnostic counters (reset each second). */
-    struct timespec last_emit;
-    clock_gettime(CLOCK_MONOTONIC, &last_emit);
-    unsigned long stalls = 0;
-    unsigned long submits = 0;
-    unsigned long stall_run = 0;        /* current consecutive-stall count */
-    unsigned long stall_run_max = 0;    /* worst stall burst this second */
-    int           peak_abs = 0;          /* max |sample| this second */
-    int           gain_red_pct_min = 100;/* min(lim_gain*100) this second */
-    size_t        free_min = (size_t)-1; /* lowest free_frames seen this second */
-
-    setvbuf(stderr, NULL, _IOLBF, 0);
-    fprintf(stderr, "[sb] audio_thread started: STEP=%u poly_init=%d limiter=on threshold=%.0f\n",
-            (unsigned)STEP, poly_initialized, THRESHOLD);
-
     while (audio_thread_run) {
         size_t free_frames = NativeAudioWriter_FreeFrames();
-        if (free_frames < free_min) free_min = free_frames;
 
         if (free_frames < (size_t)MISTER_AUDIO_CHUNK) {
-            stalls++;
-            stall_run++;
-            if (stall_run > stall_run_max) stall_run_max = stall_run;
             audio_sleep_us(3000);
             continue;
         }
-        stall_run = 0;
 
         /* Pull IN_FRAMES_PER_TICK fresh frames from the engine's stateful mixer. */
         update_sample((unsigned char *)in_buf, IN_FRAMES_PER_TICK * 4);
@@ -228,34 +197,22 @@ static void *audio_thread_fn(void *arg) {
             float aR = R < 0.0f ? -R : R;
             float peak = aL > aR ? aL : aR;
 
-            /* Envelope: instant attack on peak, exponential release. */
             if (peak > lim_env) lim_env = peak;
             else                lim_env = lim_env * RELEASE_COEFF + peak * (1.0f - RELEASE_COEFF);
 
-            /* Target gain (unity below threshold, attenuate above). */
             float target_gain = (lim_env > THRESHOLD) ? (THRESHOLD / lim_env) : 1.0f;
 
-            /* Smooth gain transitions (fast attack, slow release). */
             if (target_gain < lim_gain)
                 lim_gain = lim_gain * ATTACK_COEFF + target_gain * (1.0f - ATTACK_COEFF);
             else
                 lim_gain = lim_gain * RELEASE_COEFF + target_gain * (1.0f - RELEASE_COEFF);
 
-            /* Apply gain (stereo-linked = same gain on L and R). */
             int Lo = (int)(L * lim_gain);
             int Ro = (int)(R * lim_gain);
             if (Lo > 32767)  Lo = 32767;
             if (Lo < -32768) Lo = -32768;
             if (Ro > 32767)  Ro = 32767;
             if (Ro < -32768) Ro = -32768;
-
-            int loa = Lo < 0 ? -Lo : Lo;
-            int roa = Ro < 0 ? -Ro : Ro;
-            if (loa > peak_abs) peak_abs = loa;
-            if (roa > peak_abs) peak_abs = roa;
-
-            int gp = (int)(lim_gain * 100.0f);
-            if (gp < gain_red_pct_min) gain_red_pct_min = gp;
 
             out_buf[2 * i + 0] = (int16_t)Lo;
             out_buf[2 * i + 1] = (int16_t)Ro;
@@ -264,23 +221,6 @@ static void *audio_thread_fn(void *arg) {
         }
 
         NativeAudioWriter_Submit(out_buf, MISTER_AUDIO_CHUNK);
-        submits++;
-
-        /* Emit per-second health line. Cheap: only fires ~1×/sec. */
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        long elapsed_ms = (now.tv_sec - last_emit.tv_sec) * 1000L
-                        + (now.tv_nsec - last_emit.tv_nsec) / 1000000L;
-        if (elapsed_ms >= 1000) {
-            fprintf(stderr,
-                "[sb-1s] submits=%lu stalls=%lu stall_run_max=%lu free_min=%zu peak_abs=%d gain_min_pct=%d\n",
-                submits, stalls, stall_run_max, free_min, peak_abs, gain_red_pct_min);
-            last_emit = now;
-            submits = stalls = stall_run_max = 0;
-            peak_abs = 0;
-            gain_red_pct_min = 100;
-            free_min = (size_t)-1;
-        }
     }
     return NULL;
 }
