@@ -268,6 +268,18 @@ int main(int argc, char *argv[])
         else {
             char s0_path[256] = {0};
 
+            /* Clear DDR3 framebuffer so the screen goes black during the wait
+             * loop instead of showing the previous binary's last frame (which
+             * happens because the FPGA keepalive keeps reading the last
+             * written buffer). User-reported 2026-05-17: re-entering OpenBOR
+             * after a PAK quit shows stale gameplay frames until a new PAK
+             * picks. Writing one black frame fixes this. */
+            {
+                static unsigned char _black[NV_WIDTH * NV_HEIGHT * 2] = {0};
+                NativeVideoWriter_WriteFrame(_black, NV_WIDTH, NV_HEIGHT,
+                                              NV_WIDTH * 2, 16, NULL);
+            }
+
             fprintf(stderr, "MiSTer: waiting for OSD PAK selection (.s0)...\n");
             while (1) {
                 FILE *f = fopen(MISTER_S0_PATH, "r");
