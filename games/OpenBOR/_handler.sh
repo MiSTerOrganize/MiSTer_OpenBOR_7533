@@ -75,9 +75,18 @@ ls -t "$LOGDIR"/ScriptLog.[0-9]*.txt  2>/dev/null | tail -n +11 | xargs -r rm -f
 # start (before binary launches, before MGL's 2-second timer) gives
 # users a clean "go to OSD picker" experience on every entry, while
 # still allowing MGL to write .s0 in its window before binary polls.
-# User-reported 2026-05-17: cores auto-load previous PAK on swap/reboot
-# even after Master_Daemon "cleaned" .s0 — something rewrites it.
-rm -f /media/fat/config/OpenBOR.s0 2>/dev/null
+#
+# EXCEPTION: pause-menu Reset Pak path writes /tmp/openbor_reset_marker
+# before exit. Reset needs .s0 PRESERVED so the binary re-mounts the
+# same PAK fresh from .s0. If we see the marker, skip cleanup + delete
+# the marker. Without this exception, Reset → handler clears .s0 →
+# binary respawns → empty .s0 → black-screen OSD wait (user-reported
+# 2026-05-17 regression after we first added the handler cleanup).
+if [ -f /tmp/openbor_reset_marker ]; then
+    rm -f /tmp/openbor_reset_marker 2>/dev/null
+else
+    rm -f /media/fat/config/OpenBOR.s0 2>/dev/null
+fi
 
 # Free kernel page cache — FC0 PAK streaming exhausts RAM otherwise.
 # OpenBOR segfaults on repeated PAK loads without this.
