@@ -487,27 +487,94 @@ endif
     #     resample in glue (no cubic overshoot, no cross-tick state). User
     #     direction: skip userspace test harness, deploy and test on MiSTer.
     #     Force-48-kHz patch REMOVED (this step is now a no-op).
-    print("Step 10 (audio): NO PATCH — engine at upstream native 44.1 kHz")
-    print("                  Clip control moved to glue-layer soft-limiter (post-polyphase).")
+    print("Step 10 (audio): diagnostic-only patch in update_sample()")
+    print("                  Logs silent-window transitions to isolate task #10 cutout root cause.")
     sm_path = os.path.join(obor, 'source/gamelib/soundmix.c')
     sm = read(sm_path)
 
-    # Engine mixer left at upstream behavior — matches PC reference exactly.
-    # Multi-voice overflow IS handled, but in the glue layer (sblaster_patch.c)
-    # with an envelope-following soft-limiter applied AFTER the polyphase
-    # resample, which is the audio-engineering best-practice location:
-    # limiter LAST in chain, after any SRC, sees intersample peaks the
-    # polyphase produces from FIR convolution overshoot.
+    # DIAGNOSTIC patch (NOT a fix yet) — task #10 investigation.
     #
-    # Previous attempt: engine-mixer-side soft-clip in update_sample (commits
-    # 02648df → 921a767). Reverted 2026-05-16 because (a) engine-side soft-clip
-    # doesn't address polyphase-induced intersample peaks ≤+3dB above sample
-    # max, (b) FIR side-lobes can amplify peaks past ±32767 after the limiter
-    # acted, leaving hard-clip artifacts at the final glue-layer stage.
-    # Glue-layer limiter is the architecturally correct location.
+    # User reports audio cuts out entirely (music + SFX both silent) on
+    # heavy MvC scenes. Confirmed on both MiSTer AND PC OpenBOR.exe →
+    # engine-fundamental, not platform-specific. Our diagnostic shows
+    # update_sample() called 187/sec but returning zero-filled buffers
+    # for 20+ consecutive seconds. Engine mixer producing zeros.
+    #
+    # Engine review revealed: MAX_CHANNELS=256 already generous; music
+    # has its own struct (musicchannel) immune to SFX eviction; voice
+    # eviction already exists in sound_play_sample(). So the silent
+    # output has a different cause than voice overflow.
+    #
+    # This patch adds a transition-only logger inside update_sample:
+    # - Detects when mixbuf is all-zero after mixaudio() call
+    # - Logs ONCE at silence start + ONCE at silence end (not per call)
+    # - Captures musicchannel.active/paused + active SFX voice count
+    # → Tells us which of these is the failure mode:
+    #   • All voices active=0 → engine stopped voices (PAK script?)
+    #   • Voices active=1 but contribute nothing → playback state bug
+    #   • Music inactive/paused → music decode/dispatch failure
+    OLD_SETUP = (
+        '    clearmixbuffer((unsigned int *)mixbuf, todo);\n'
+        '    mixaudio(todo);\n'
+        '    samplesplayed += (todo >> 1);\n'
+    )
+    NEW_SETUP = (
+        '    clearmixbuffer((unsigned int *)mixbuf, todo);\n'
+        '    mixaudio(todo);\n'
+        '    samplesplayed += (todo >> 1);\n'
+        '\n'
+        '    /* MiSTer Frontier task #10 diagnostic — transition-only logger.\n'
+        '     * Fires at most twice per silent window (start + end). Remove\n'
+        '     * after root cause isolated. */\n'
+        '    {\n'
+        '        static int _mf_was_silent = 0;\n'
+        '        static int _mf_silent_ticks = 0;\n'
+        '        int _mf_any_nonzero = 0;\n'
+        '        int _mf_j;\n'
+        '        for (_mf_j = 0; _mf_j < (int)todo; _mf_j++) {\n'
+        '            if (mixbuf[_mf_j] != 0) { _mf_any_nonzero = 1; break; }\n'
+        '        }\n'
+        '        if (!_mf_any_nonzero) {\n'
+        '            _mf_silent_ticks++;\n'
+        '            if (!_mf_was_silent) {\n'
+        '                int _mf_active = 0, _mf_kk;\n'
+        '                for (_mf_kk = 0; _mf_kk < max_channels; _mf_kk++)\n'
+        '                    if (vchannel[_mf_kk].active) _mf_active++;\n'
+        '                fprintf(stderr,\n'
+        '                    "[sm-silent] START music.active=%d music.paused=%d active_sfx=%d max_ch=%d\\n",\n'
+        '                    musicchannel.active, musicchannel.paused,\n'
+        '                    _mf_active, max_channels);\n'
+        '                fflush(stderr);\n'
+        '                _mf_was_silent = 1;\n'
+        '            }\n'
+        '        } else if (_mf_was_silent) {\n'
+        '            int _mf_active = 0, _mf_kk;\n'
+        '            for (_mf_kk = 0; _mf_kk < max_channels; _mf_kk++)\n'
+        '                if (vchannel[_mf_kk].active) _mf_active++;\n'
+        '            fprintf(stderr,\n'
+        '                "[sm-silent] END   music.active=%d music.paused=%d active_sfx=%d ticks=%d\\n",\n'
+        '                musicchannel.active, musicchannel.paused,\n'
+        '                _mf_active, _mf_silent_ticks);\n'
+        '            fflush(stderr);\n'
+        '            _mf_was_silent = 0;\n'
+        '            _mf_silent_ticks = 0;\n'
+        '        }\n'
+        '    }\n'
+    )
+    if OLD_SETUP not in sm:
+        raise RuntimeError("soundmix.c: update_sample() setup block not found (upstream changed?)")
+    sm = sm.replace(OLD_SETUP, NEW_SETUP)
+
+    # Ensure stdio.h is included for fprintf (engine already prints; should be present, but be safe).
+    if '#include <stdio.h>' not in sm:
+        # Insert at the top of the file after the first #include line.
+        first_inc = sm.find('#include')
+        if first_inc != -1:
+            line_end = sm.find('\n', first_inc) + 1
+            sm = sm[:line_end] + '#include <stdio.h>\n' + sm[line_end:]
 
     write(sm_path, sm)
-    print("  soundmix.c left unmodified (upstream behavior preserved; clip control in glue layer).")
+    print("  soundmix.c patched (diagnostic transition logger in update_sample).")
 
     print("\nAll patches applied successfully.")
 
