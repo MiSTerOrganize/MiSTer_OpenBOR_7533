@@ -76,14 +76,18 @@ ls -t "$LOGDIR"/ScriptLog.[0-9]*.txt  2>/dev/null | tail -n +11 | xargs -r rm -f
 # users a clean "go to OSD picker" experience on every entry, while
 # still allowing MGL to write .s0 in its window before binary polls.
 #
-# EXCEPTION: pause-menu Reset Pak path writes /tmp/openbor_reset_marker
-# before exit. Reset needs .s0 PRESERVED so the binary re-mounts the
-# same PAK fresh from .s0. If we see the marker, skip cleanup + delete
-# the marker. Without this exception, Reset → handler clears .s0 →
-# binary respawns → empty .s0 → black-screen OSD wait (user-reported
-# 2026-05-17 regression after we first added the handler cleanup).
-if [ -f /tmp/openbor_reset_marker ]; then
-    rm -f /tmp/openbor_reset_marker 2>/dev/null
+# EXCEPTIONS — preserve .s0 when either marker is present:
+#   /tmp/openbor_reset_marker — pause-menu Reset Pak (engine wrote it
+#       in pausemenu_patch.c case 2). Reset needs .s0 PRESERVED so the
+#       binary re-mounts the same PAK fresh from .s0. (2026-05-17 fix.)
+#   /tmp/openbor_hotswap_marker — mid-gameplay PAK hot-swap from OSD
+#       (engine wrote it in sdlport_patch.c::mister_swap_thread). The
+#       freshly-written .s0 holds the NEW PAK path the user just picked;
+#       deleting it would force a second OSD pick. (2026-05-18 fix.)
+# Without these exceptions, the else-branch wipes .s0 → binary respawns
+# into wait-for-OSD-pick → black screen until user picks again.
+if [ -f /tmp/openbor_reset_marker ] || [ -f /tmp/openbor_hotswap_marker ]; then
+    rm -f /tmp/openbor_reset_marker /tmp/openbor_hotswap_marker 2>/dev/null
 else
     rm -f /media/fat/config/OpenBOR.s0 2>/dev/null
 fi

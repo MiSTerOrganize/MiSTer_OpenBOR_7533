@@ -112,9 +112,19 @@ static void *mister_swap_thread(void *arg)
             else
                 snprintf(full, sizeof(full), "/media/fat/%s", check_path);
             if (strcmp(full, mister_loaded_path) != 0) {
+                FILE *mf;
                 fprintf(stderr, "MiSTer: PAK swap detected: %s\n", full);
                 fflush(stderr);
                 mister_swap_requested = 1;
+                /* Hot-swap marker: tell _handler.sh to PRESERVE the
+                 * freshly-written .s0 (which MiSTer Main just populated
+                 * with the new PAK path the user picked). Without this,
+                 * handler's else-branch wipes the new path → binary
+                 * respawns into wait-for-OSD-pick → black screen until
+                 * user picks the same PAK a second time. Same shape as
+                 * the Reset-Pak marker (pausemenu_patch.c case 2). */
+                mf = fopen("/tmp/openbor_hotswap_marker", "w");
+                if (mf) fclose(mf);
                 /* Use _exit instead of borExit. borExit() calls SDL_Quit()
                  * which is not safe from a non-main thread (we crashed
                  * with SIGSEGV under our keepalive + SDL teardown). The
