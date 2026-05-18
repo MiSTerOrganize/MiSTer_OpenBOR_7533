@@ -575,6 +575,66 @@ endif
     write(sm_path, sm)
     print("  soundmix.c patched (cache-reload + multiplier revert in mixaudio).")
 
+    # -- 11. Restore 4086-era palette load for older PAKs (A Tale of Vengeance, etc.)
+    #
+    # OpenBOR 7533 dropped support for the `colourdepth` PAK command and
+    # forced all modules to 32-bit screen mode. That broke the palette-
+    # load path for older PAKs that use the `remap` command to declare
+    # character palettes — `remap A.gif B.gif` only loads A's palette as
+    # the character's base palette when pixelformat == PIXEL_x8 (line
+    # 14439 of upstream openbor.c). In 32-bit mode the guard fails,
+    # newchar->palette stays NULL, and at draw time the engine falls
+    # back to colourmap[0] (the first remap target) — rendering the
+    # character in their FIRST ALT palette instead of canonical base.
+    #
+    # User-visible symptom: A Tale of Vengeance Hugo character renders
+    # in BLUE (his alt palette) instead of GREEN (canonical). Reproduces
+    # on PC OpenBOR 7533 too — confirmed upstream engine regression, not
+    # MiSTer-port bug.
+    #
+    # Fix: remove the `pixelformat == PIXEL_x8` guard from three sites
+    # in engine/openbor.c that load palettes during character file parse:
+    #   - line ~14439: CMD_MODEL_REMAP palette load
+    #   - line ~16799: auto-palette from first-frame image (fallback)
+    #   - line ~17506: convert_map_to_palette() call (converts 8-bit
+    #                  colourmaps to 32-bit RGB palettes at post-load)
+    #
+    # Safe for 32-bit-native PAKs: they don't use remap, so palette
+    # never gets allocated, convert_map_to_palette no-ops.
+    print("Step 11 (palette): restore 4086-era REMAP palette load for older PAKs")
+    print("                   Fixes wrong enemy colors in A Tale of Vengeance et al.")
+    obor_c = os.path.join(obor, 'openbor.c')
+    ob = read(obor_c)
+
+    palette_guard_replacements = [
+        # CMD_MODEL_REMAP palette load — was: only in 8-bit mode + NULL
+        (
+            "if(pixelformat == PIXEL_x8 && newchar->palette == NULL)\n                    {\n                        newchar->palette = malloc(PAL_BYTES);\n                        if(loadimagepalette(value, packfile, newchar->palette) == 0)",
+            "if(newchar->palette == NULL)\n                    {\n                        newchar->palette = malloc(PAL_BYTES);\n                        if(loadimagepalette(value, packfile, newchar->palette) == 0)"
+        ),
+        # Auto-palette from first frame — was: only in 8-bit mode + !nopalette
+        (
+            "if(pixelformat == PIXEL_x8 && !nopalette)",
+            "if(!nopalette)"
+        ),
+        # convert_map_to_palette() — was: only in 8-bit mode
+        (
+            "// we need to convert 8bit colourmap into 32bit palette\n    if(pixelformat == PIXEL_x8)\n    {\n        convert_map_to_palette(newchar, mapflag);\n    }",
+            "// Always convert 8bit colourmap into 32bit palette (no-op if\n    // model->palette is NULL — safe for 32-bit-native PAKs). Required\n    // for older PAKs (A Tale of Vengeance etc.) that use `remap` to\n    // declare character palettes — palette is loaded unconditionally\n    // now, and this converts the remap colourmaps to renderable RGB.\n    convert_map_to_palette(newchar, mapflag);"
+        ),
+    ]
+    applied_palette = 0
+    for old, new in palette_guard_replacements:
+        if old in ob:
+            ob = ob.replace(old, new)
+            applied_palette += 1
+        else:
+            print(f"  WARN: palette guard pattern not found:\n    {old[:80]}...")
+    if applied_palette != len(palette_guard_replacements):
+        raise RuntimeError(f"openbor.c: palette guard patches incomplete ({applied_palette}/{len(palette_guard_replacements)})")
+    write(obor_c, ob)
+    print(f"  openbor.c patched ({applied_palette}/3 palette guards removed).")
+
     print("\nAll patches applied successfully.")
 
 if __name__ == '__main__':
