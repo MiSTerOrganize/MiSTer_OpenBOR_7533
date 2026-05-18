@@ -6,10 +6,10 @@
 //  interface for integration into OpenBOR.sv.
 //
 //  Runs on CLK_VIDEO (53.693 MHz) with variable CE_PIXEL for exact
-//  MegaCD timing — 47.68 µs active, 15,700 Hz H rate.
+//  Sega CD timing — 47.68 µs active, 15,700 Hz H rate.
 //
 //  Differences from pico8_video_top:
-//    - 320x240 instead of 256x256
+//    - 320x224 (Sega CD V28 NTSC) instead of 256x256
 //    - 1:1 pixel mapping instead of 2x doubling
 //
 //  Cart loading via ioctl is preserved exactly as in PICO-8.

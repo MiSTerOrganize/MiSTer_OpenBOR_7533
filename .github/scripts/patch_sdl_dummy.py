@@ -33,7 +33,7 @@ INJECT_INCLUDES = """
 #define MISTER_BUF0_OFFSET     0x00000040u
 #define MISTER_BUF1_OFFSET     0x00040040u
 #define MISTER_FRAME_W         320
-#define MISTER_FRAME_H         240
+#define MISTER_FRAME_H         224  /* Sega CD V28 NTSC */
 #define MISTER_FRAME_BYTES     (MISTER_FRAME_W * MISTER_FRAME_H * 2)
 
 static int                 mister_fd        = -1;
@@ -107,7 +107,6 @@ static void mister_present(SDL_Surface *screen) {
     int w, h, bpp, pitch;
     int Rshift, Gshift, Bshift, Rloss, Gloss, Bloss;
     SDL_Palette *pal;
-    int scale256;
     int sx256, sy256;
     int out_w, out_h, dst_y0;
     uint32_t buf_off;
@@ -130,23 +129,22 @@ static void mister_present(SDL_Surface *screen) {
     Bloss  = screen->format->Bloss;
     pal    = screen->format->palette;
 
-    /* Scale to fit entirely within 320x240, no cropping. */
-    scale256 = 256;
-    if (w > MISTER_FRAME_W || h > MISTER_FRAME_H) {
-        sx256 = (w * 256 + MISTER_FRAME_W - 1) / MISTER_FRAME_W;
-        sy256 = (h * 256 + MISTER_FRAME_H - 1) / MISTER_FRAME_H;
-        scale256 = sx256 > sy256 ? sx256 : sy256;
-    }
-    out_w = (w * 256) / scale256;
-    out_h = (h * 256) / scale256;
-    if (out_w > MISTER_FRAME_W) out_w = MISTER_FRAME_W;
-    if (out_h > MISTER_FRAME_H) out_h = MISTER_FRAME_H;
-    dst_y0 = (MISTER_FRAME_H - out_h) / 2;
+    /* Anisotropic squish: fill entire 320x224 dest, X and Y scaled
+     * independently. PAK content authored at non-224 native heights
+     * (320x240 ~7% Y compress, 480x272 X+Y compress, 960x480 huge
+     * downscale) maps to fill the Sega CD V28 NTSC active area
+     * exactly. Aspect distortion is intentional — matches Sega CD
+     * displayed area edge-to-edge, no letterbox. */
+    sx256 = (w * 256) / MISTER_FRAME_W;
+    sy256 = (h * 256) / MISTER_FRAME_H;
+    out_w = MISTER_FRAME_W;
+    out_h = MISTER_FRAME_H;
+    dst_y0 = 0;
 
     if (!mister_logged) {
         fprintf(stderr, "MiSTer SDL2: first present %dx%d bpp=%d pitch=%d "
-                "scale256=%d -> %dx%d dst_y0=%d palette=%p\\n",
-                w, h, bpp, pitch, scale256, out_w, out_h, dst_y0, pal);
+                "sx256=%d sy256=%d -> %dx%d palette=%p\\n",
+                w, h, bpp, pitch, sx256, sy256, out_w, out_h, pal);
         mister_logged = 1;
     }
 
@@ -164,43 +162,21 @@ static void mister_present(SDL_Surface *screen) {
     }
 
     if (bpp == 32) {
-        /* Use bilinear interpolation when downscaling (scale256 > 256)
-         * to avoid the blocky / dropped-pixel artifacts of nearest-
-         * neighbor on non-integer ratios (e.g. 480x272 -> 320x181 is
-         * a 1.5x downscale that drops every 3rd source pixel under NN
-         * — text and sprite outlines lose pixels unevenly). For 1x
-         * native (scale256 == 256), fall back to nearest since bilinear
-         * with zero fractional weights is just slower nearest. */
+        /* Anisotropic bilinear: X and Y scaled independently via sx256
+         * and sy256. Bilinear unconditionally — for the rare case where
+         * source already matches 320x224 exactly (sx256==sy256==256),
+         * fractional weights are zero so it degenerates to nearest. */
         uint32_t Rmask = screen->format->Rmask;
         uint32_t Gmask = screen->format->Gmask;
         uint32_t Bmask = screen->format->Bmask;
-        if (scale256 == 256) {
-            /* Native — fast nearest path */
-            for (y = 0; y < out_h; y++) {
-                const uint32_t *row;
-                volatile uint16_t *out_row;
-                src_y = y;
-                row = (const uint32_t *)(rows + src_y * pitch);
-                out_row = dst + (dst_y0 + y) * MISTER_FRAME_W;
-                for (x = 0; x < out_w; x++) {
-                    uint32_t px;
-                    uint8_t r, g, b;
-                    px = row[x];
-                    r = ((px & Rmask) >> Rshift) << Rloss;
-                    g = ((px & Gmask) >> Gshift) << Gloss;
-                    b = ((px & Bmask) >> Bshift) << Bloss;
-                    out_row[x] = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
-                }
-            }
-        } else {
-            /* Bilinear path for non-1x scale */
+        {
             for (y = 0; y < out_h; y++) {
                 int sy_fp, sy_int, sy_frac, sy_next;
                 int sy_w0, sy_w1;
                 const uint32_t *row0;
                 const uint32_t *row1;
                 volatile uint16_t *out_row;
-                sy_fp   = y * scale256;
+                sy_fp   = y * sy256;
                 sy_int  = sy_fp >> 8;
                 sy_frac = sy_fp & 0xFF;
                 sy_next = sy_int + 1;
@@ -217,7 +193,7 @@ static void mister_present(SDL_Surface *screen) {
                     int r00, r01, r10, r11, g00, g01, g10, g11, b00, b01, b10, b11;
                     int top_r, top_g, top_b, bot_r, bot_g, bot_b;
                     int out_r, out_g, out_b;
-                    sx_fp   = x * scale256;
+                    sx_fp   = x * sx256;
                     sx_int  = sx_fp >> 8;
                     sx_frac = sx_fp & 0xFF;
                     sx_next = sx_int + 1;
@@ -257,16 +233,19 @@ static void mister_present(SDL_Surface *screen) {
         }
     }
     else if (bpp == 16) {
+        /* Nearest-neighbor anisotropic — sx256/sy256 independently */
         for (y = 0; y < out_h; y++) {
             const uint16_t *row;
             volatile uint16_t *out_row;
-            src_y = (y * scale256) / 256;
+            src_y = (y * sy256) / 256;
+            if (src_y >= h) src_y = h - 1;
             row = (const uint16_t *)(rows + src_y * pitch);
             out_row = dst + (dst_y0 + y) * MISTER_FRAME_W;
             for (x = 0; x < out_w; x++) {
                 uint16_t px;
                 uint8_t r, g, b;
-                src_x = (x * scale256) / 256;
+                src_x = (x * sx256) / 256;
+                if (src_x >= w) src_x = w - 1;
                 px = row[src_x];
                 r = ((px & screen->format->Rmask) >> Rshift) << Rloss;
                 g = ((px & screen->format->Gmask) >> Gshift) << Gloss;
@@ -276,15 +255,22 @@ static void mister_present(SDL_Surface *screen) {
         }
     }
     else if (bpp == 8 && pal) {
+        /* 8bpp palette path — nearest-neighbor anisotropic. Bilinear
+         * in palette space would mix adjacent palette indices that map
+         * to wildly different RGBs; not worth the artifacts for a small
+         * (320x240 -> 320x224, ~7%) Y scrunch on the most common PAK
+         * native dimensions. */
         for (y = 0; y < out_h; y++) {
             const uint8_t *row;
             volatile uint16_t *out_row;
-            src_y = (y * scale256) / 256;
+            src_y = (y * sy256) / 256;
+            if (src_y >= h) src_y = h - 1;
             row = rows + src_y * pitch;
             out_row = dst + (dst_y0 + y) * MISTER_FRAME_W;
             for (x = 0; x < out_w; x++) {
                 SDL_Color c;
-                src_x = (x * scale256) / 256;
+                src_x = (x * sx256) / 256;
+                if (src_x >= w) src_x = w - 1;
                 c = pal->colors[row[src_x]];
                 out_row[x] = ((c.r >> 3) << 11) | ((c.g >> 2) << 5) | (c.b >> 3);
             }

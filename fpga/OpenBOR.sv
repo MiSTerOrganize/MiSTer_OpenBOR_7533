@@ -228,7 +228,7 @@ assign CE_PIXEL = ce_pix_gen;
 
 assign VGA_SL = 0;
 assign VGA_F1 = 0;
-// OpenBOR renders at 320x240. 4:3 aspect ratio.
+// OpenBOR renders at 320x224 (Sega CD V28 NTSC). 4:3 displayed aspect.
 assign VIDEO_ARX = 13'd4;
 assign VIDEO_ARY = 13'd3;
 assign VGA_SCALER= 0;

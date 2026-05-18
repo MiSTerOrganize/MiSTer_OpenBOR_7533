@@ -137,8 +137,8 @@ localparam [9:0]  AUDIO_REFILL_THRESHOLD = 10'd384;
 localparam [7:0]  LINE_BURST   = 8'd80;
 // Each scanline takes 80 qword addresses
 localparam [28:0] LINE_STRIDE  = 29'd80;
-// Display lines (no doubling — source = display)
-localparam [8:0]  V_ACTIVE     = 9'd240;
+// Display lines (no doubling — source = display, Sega CD V28 NTSC)
+localparam [8:0]  V_ACTIVE     = 9'd224;
 
 localparam [19:0] TIMEOUT_MAX = 20'hF_FFFF;
 

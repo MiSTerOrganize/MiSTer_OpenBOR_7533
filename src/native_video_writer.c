@@ -1,7 +1,7 @@
 //
 //  Native Video DDR3 Writer — OpenBOR MiSTer
 //
-//  Writes 320x240 RGB565 frames to DDR3 at 0x3A000000 for FPGA native
+//  Writes 320x224 RGB565 frames to DDR3 at 0x3A000000 for FPGA native
 //  video output. Double-buffered with control word handshake.
 //
 //  DDR3 Memory Map (must match openbor_video_reader.sv):
@@ -11,7 +11,7 @@
 //    0x3A000000 + 0x018     : Joystick P2 (32 bits)
 //    0x3A000000 + 0x020     : Joystick P3 (32 bits)
 //    0x3A000000 + 0x028     : Joystick P4 (32 bits)
-//    0x3A000000 + 0x040     : Buffer 0 (320*240*2 = 153,600 bytes)
+//    0x3A000000 + 0x040     : Buffer 0 (320*224*2 = 143,360 bytes)
 //    0x3A000000 + 0x40040   : Buffer 1 (153,600 bytes)
 //    0x3A000000 + 0x80000   : Cart data (PAK file from OSD)
 //
@@ -40,8 +40,8 @@
 #define NV_CART_DATA_OFFSET  0x00080000u
 #define NV_CART_MAX_SIZE     0x00040000u  /* 256KB max PAK size via OSD */
 #define NV_FRAME_WIDTH      320
-#define NV_FRAME_HEIGHT     240
-#define NV_FRAME_BYTES      (NV_FRAME_WIDTH * NV_FRAME_HEIGHT * 2)  /* 153,600 */
+#define NV_FRAME_HEIGHT     224   /* Sega CD V28 NTSC */
+#define NV_FRAME_BYTES      (NV_FRAME_WIDTH * NV_FRAME_HEIGHT * 2)  /* 143,360 */
 
 static const uint32_t joy_offsets[4] = {
     NV_JOY0_OFFSET, NV_JOY1_OFFSET, NV_JOY2_OFFSET, NV_JOY3_OFFSET

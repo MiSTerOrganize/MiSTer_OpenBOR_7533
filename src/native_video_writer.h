@@ -14,7 +14,7 @@
 #include <stdint.h>
 
 #define NV_WIDTH   320
-#define NV_HEIGHT  240
+#define NV_HEIGHT  224   /* Sega CD V28 NTSC active area */
 
 /// Initialize DDR3 native video writer. Maps /dev/mem at 0x3A000000.
 bool NativeVideoWriter_Init(void);
@@ -25,7 +25,7 @@ void NativeVideoWriter_Shutdown(void);
 /// Write one frame to DDR3 double-buffer, converting to RGB565.
 /// @param pixels   Source pixel data from SDL_Surface->pixels
 /// @param width    Surface width (must be <= 320)
-/// @param height   Surface height (must be <= 240)
+/// @param height   Surface height (must be <= 224)
 /// @param pitch    Source row stride in BYTES (SDL_Surface->pitch)
 /// @param bpp      Bits per pixel (8, 16, or 32)
 /// @param palette  Palette data for 8bpp (SDL_Color array), NULL otherwise

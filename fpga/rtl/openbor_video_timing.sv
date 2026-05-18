@@ -2,16 +2,19 @@
 //
 //  OpenBOR Native Video Timing Generator
 //
-//  320x240 active area @ 59.92 Hz (420x262 total)
-//  Exact MegaCD timing — NTSC-derived MCLK from colorburst crystal.
-//  CLK_VIDEO: 53.693 MHz (exact Genesis MCLK), variable CE_PIXEL for H_TOTAL=420.
+//  320x224 active area @ 59.92 Hz (420x262 total)
+//  Exact Sega CD NTSC (H40+V28 mode) timing — NTSC-derived MCLK from
+//  colorburst crystal. CLK_VIDEO: 53.693 MHz, variable CE_PIXEL for H_TOTAL=420.
 //
-//  H: 320 active + 100 blanking = 420 total (exact MegaCD)
-//  V: 240 active +   2 FP + 3 sync + 17 BP = 262 total (exact Genesis NTSC)
+//  H: 320 active + 100 blanking = 420 total (exact Sega CD H40)
+//  V: 224 active +  2 FP + 3 sync + 33 BP = 262 total (exact Sega CD V28 NTSC)
 //
-//  Refresh: 15,700 / 262 = 59.92 Hz (exact Genesis)
-//  H freq:  53,693,182 / 3420 = 15,700 Hz (exact Genesis)
-//  H active time: 320 × 8 / 53.693MHz = 47.68 µs (exact NES/SNES/Genesis)
+//  Refresh: 15,700 / 262 = 59.92 Hz (exact Sega CD)
+//  H freq:  53,693,182 / 3420 = 15,700 Hz (exact Sega CD)
+//  H active time: 320 × 8 / 53.693MHz = 47.68 µs (exact NES/SNES/Sega CD)
+//
+//  PAK content authored at non-224 native heights (320x240, 480x272, etc.)
+//  is anisotropic-bilinear-squished to 320x224 in ARM mister_present().
 //
 //  Adapted from MiSTer_PICO-8 by MiSTer Organize
 //  Copyright (C) 2026 MiSTer Organize -- GPL-3.0
@@ -39,19 +42,19 @@ module openbor_video_timing (
 );
 
 // -- Timing constants --------------------------------------------------
-// 320x240 active, centered for 15kHz CRT, NTSC-compatible H rate.
+// 320x224 active, centered for 15kHz CRT, NTSC-compatible H rate.
 // CRT-compatible blanking with balanced porches.
 localparam H_ACTIVE = 320;
 localparam H_FP     = 17;
 localparam H_SYNC   = 38;
 localparam H_BP     = 45;
-localparam H_TOTAL  = 420;   // 320+17+38+45 (exact MegaCD)
+localparam H_TOTAL  = 420;   // 320+17+38+45 (exact Sega CD H40)
 
-localparam V_ACTIVE = 240;
+localparam V_ACTIVE = 224;
 localparam V_FP     = 2;
 localparam V_SYNC   = 3;
-localparam V_BP     = 17;
-localparam V_TOTAL  = 262;   // 240+2+3+17 (exact Genesis NTSC)
+localparam V_BP     = 33;
+localparam V_TOTAL  = 262;   // 224+2+3+33 (exact Sega CD V28 NTSC)
 
 // Derived boundaries — adjusted by OSD H/V position offset.
 wire [9:0] h_sync_start = H_ACTIVE + H_FP + {{5{h_adj[4]}}, h_adj};
