@@ -45,7 +45,12 @@ esac
 
 # Per-build log directory (matches per-build saves/savestates pattern).
 LOGDIR="/media/fat/logs/$BINARY"
-mkdir -p "$LOGDIR"
+mkdir -p "$LOGDIR" "$LOGDIR/captures"
+
+# Wipe stale captures from previous diagnostic runs so each session
+# starts with a fresh set. Per user request 2026-05-18 — palette-debug
+# diagnostic; remove this line + binary capture code after fix lands.
+rm -f "$LOGDIR/captures"/*.ppm 2>/dev/null
 
 # Rotate ARM-binary log
 mv -f "$LOGDIR/OpenBOR.log" "$LOGDIR/OpenBOR.prev.log" 2>/dev/null
