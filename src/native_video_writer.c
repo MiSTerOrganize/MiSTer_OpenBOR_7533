@@ -75,13 +75,20 @@ bool NativeVideoWriter_Init(void) {
         return false;
     }
 
-    /* Clear both buffers and control words */
+    /* Clear both buffers, control words, AND all per-player joystick
+     * offsets. Cart's frame-0 reads stale DDR3 from previous core if
+     * Init doesn't zero everything the engine polls. OpenBOR currently
+     * uses btn() (held state) more than btn_pressed() so the symptom
+     * doesn't surface, but matches the universal hybrid-core rule. */
     memset((void*)(ddr_base + NV_BUF0_OFFSET), 0, NV_FRAME_BYTES);
     memset((void*)(ddr_base + NV_BUF1_OFFSET), 0, NV_FRAME_BYTES);
     volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
     *ctrl = 0;
     volatile uint32_t* cart_ctrl = (volatile uint32_t*)(ddr_base + NV_CART_CTRL_OFFSET);
     *cart_ctrl = 0;
+    for (int i = 0; i < 4; i++) {
+        *(volatile uint32_t*)(ddr_base + joy_offsets[i]) = 0;
+    }
     frame_counter = 0;
     active_buf = 0;
     first_frame = 3;   /* sample the first three frames */
