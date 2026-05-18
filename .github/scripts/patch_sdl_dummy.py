@@ -143,12 +143,8 @@ static void mister_present(SDL_Surface *screen) {
 
     if (!mister_logged) {
         fprintf(stderr, "MiSTer SDL2: first present %dx%d bpp=%d pitch=%d "
-                "sx256=%d sy256=%d -> %dx%d Rmask=0x%08X Gmask=0x%08X Bmask=0x%08X "
-                "Rshift=%d Gshift=%d Bshift=%d palette=%p\\n",
-                w, h, bpp, pitch, sx256, sy256, out_w, out_h,
-                (unsigned)screen->format->Rmask, (unsigned)screen->format->Gmask,
-                (unsigned)screen->format->Bmask,
-                Rshift, Gshift, Bshift, pal);
+                "sx256=%d sy256=%d -> %dx%d palette=%p\\n",
+                w, h, bpp, pitch, sx256, sy256, out_w, out_h, pal);
         mister_logged = 1;
     }
 
@@ -231,21 +227,13 @@ static void mister_present(SDL_Surface *screen) {
                     out_r = (top_r * sy_w0 + bot_r * sy_w1) >> 16;
                     out_g = (top_g * sy_w0 + bot_g * sy_w1) >> 16;
                     out_b = (top_b * sy_w0 + bot_b * sy_w1) >> 16;
-                    /* R/B swap fix: engine writes ABGR8888 (B at bit 16) but
-                     * SDL2 dummy surface is ARGB8888 (R at bit 16), so the
-                     * mask-extracted "r" actually holds engine's B. Swap on
-                     * output. Wii build sets -DREVERSE_COLOR which packs
-                     * 0xRRGGBB, matching SDL2; our Linux/SDL2 build does not. */
-                    out_row[x] = ((out_b >> 3) << 11) | ((out_g >> 2) << 5) | (out_r >> 3);
+                    out_row[x] = ((out_r >> 3) << 11) | ((out_g >> 2) << 5) | (out_b >> 3);
                 }
             }
         }
     }
     else if (bpp == 16) {
-        /* Nearest-neighbor anisotropic — sx256/sy256 independently.
-         * Same R/B swap fix as 32bpp: engine writes BGR565 (B at bit 11)
-         * but SDL2 surface mask is standard RGB565 (R at bit 11) — swap
-         * on output pack. See 32bpp comment above. */
+        /* Nearest-neighbor anisotropic — sx256/sy256 independently */
         for (y = 0; y < out_h; y++) {
             const uint16_t *row;
             volatile uint16_t *out_row;
@@ -262,7 +250,7 @@ static void mister_present(SDL_Surface *screen) {
                 r = ((px & screen->format->Rmask) >> Rshift) << Rloss;
                 g = ((px & screen->format->Gmask) >> Gshift) << Gloss;
                 b = ((px & screen->format->Bmask) >> Bshift) << Bloss;
-                out_row[x] = ((b >> 3) << 11) | ((g >> 2) << 5) | (r >> 3);
+                out_row[x] = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
             }
         }
     }
