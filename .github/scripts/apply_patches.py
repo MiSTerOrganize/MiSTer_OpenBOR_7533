@@ -423,9 +423,21 @@ endif
     # pixelformat.c's blend_screen32 / blend_multiply32 / blend_half32
     # pass arguments to _color() in swapped (B, G, R) order. Same bug
     # carried over from 4086 — verify and fix if still present.
+    #
+    # 2026-05-18: DISABLED. 4086 has the SAME blend code and renders
+    # A Tale of Vengeance correctly, while our patched 7533 renders
+    # alpha-blended girls in wrong green-purple palette. Testing the
+    # hypothesis that step 8's "fix" actually introduced the girls bug
+    # (R/B interpretation was wrong — the blend functions are part of
+    # the engine's BGR-LE pipeline and produce BGR-LE output that
+    # matches input convention; our patch broke this). Toggle to True
+    # to re-enable if the test refutes the hypothesis.
+    STEP_8_ENABLED = False
     print("Patching source/gamelib/pixelformat.c (32-bit blend R/B fix)...")
     pf_path = os.path.join(obor, 'source/gamelib/pixelformat.c')
-    if os.path.exists(pf_path):
+    if not STEP_8_ENABLED:
+        print("  SKIPPED (step 8 disabled — testing if it caused green-purple girls)")
+    elif os.path.exists(pf_path):
         pf = read(pf_path)
         fixes = [
             (
