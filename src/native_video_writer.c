@@ -115,6 +115,78 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                   int pitch, int bpp, const void* palette) {
     if (!ddr_base || !pixels) return;
 
+    /* DIAG: Continuous frame capture for palette debug. Writes engine's
+     * native frame as RGB888 PPM every 120 frames (2s @ 60fps), up to
+     * 600 captures = 20 min coverage. Engine bypasses SDL during
+     * gameplay (per openbor_source_patches.c) so this is THE hook
+     * point. Per user request 2026-05-18 for A Tale of Vengeance
+     * palette bug. TEMPORARY — revert after fix lands. */
+    {
+        static int dbg_frame = 0;
+        static int dbg_cap_idx = 0;
+        if ((dbg_frame % 120) == 0 && dbg_cap_idx < 600) {
+            char path[128];
+            FILE *fp;
+            snprintf(path, sizeof(path),
+                     "/media/fat/logs/OpenBOR_7533/captures/cap_%03d.ppm",
+                     dbg_cap_idx);
+            fp = fopen(path, "wb");
+            if (fp) {
+                int xi, yi;
+                fprintf(fp, "P6\n%d %d\n255\n", width, height);
+                if (bpp == 32) {
+                    /* Engine 0xBBGGRR; LE memory bytes R, G, B, A. */
+                    const uint8_t *src = (const uint8_t*)pixels;
+                    for (yi = 0; yi < height; yi++) {
+                        const uint8_t *row = src + yi * pitch;
+                        for (xi = 0; xi < width; xi++) {
+                            const uint8_t *p = row + xi * 4;
+                            uint8_t rgb[3] = { p[0], p[1], p[2] };
+                            fwrite(rgb, 1, 3, fp);
+                        }
+                    }
+                } else if (bpp == 16) {
+                    /* BGR565: B at bit 11, G at bit 5, R at bit 0. */
+                    const uint8_t *src = (const uint8_t*)pixels;
+                    for (yi = 0; yi < height; yi++) {
+                        const uint16_t *row = (const uint16_t*)(src + yi * pitch);
+                        for (xi = 0; xi < width; xi++) {
+                            uint16_t px = row[xi];
+                            uint8_t r5 = px & 0x001F;
+                            uint8_t g6 = (px & 0x07E0) >> 5;
+                            uint8_t b5 = (px & 0xF800) >> 11;
+                            uint8_t rgb[3] = {
+                                (uint8_t)((r5 << 3) | (r5 >> 2)),
+                                (uint8_t)((g6 << 2) | (g6 >> 4)),
+                                (uint8_t)((b5 << 3) | (b5 >> 2))
+                            };
+                            fwrite(rgb, 1, 3, fp);
+                        }
+                    }
+                } else if (bpp == 8 && palette) {
+                    /* Indexed: palette is 3-byte R/G/B per entry, 256 entries. */
+                    const uint8_t *src = (const uint8_t*)pixels;
+                    const uint8_t *pal = (const uint8_t*)palette;
+                    for (yi = 0; yi < height; yi++) {
+                        const uint8_t *row = src + yi * pitch;
+                        for (xi = 0; xi < width; xi++) {
+                            uint8_t idx = row[xi];
+                            uint8_t rgb[3] = {
+                                pal[idx * 3 + 0],
+                                pal[idx * 3 + 1],
+                                pal[idx * 3 + 2]
+                            };
+                            fwrite(rgb, 1, 3, fp);
+                        }
+                    }
+                }
+                fclose(fp);
+                dbg_cap_idx++;
+            }
+        }
+        dbg_frame++;
+    }
+
     /* Debug: dump format + raw byte samples from a handful of pixels for
      * the first 3 frames. Gives us enough signal to tell whether colors
      * look wrong because of byte-order (we extract wrong channels), a
