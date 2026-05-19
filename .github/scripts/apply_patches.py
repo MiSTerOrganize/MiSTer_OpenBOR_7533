@@ -577,6 +577,40 @@ endif
     # in putsprite_x8p32 because nopalette path leaves sprite->palette NULL).
     # This per-sprite fix avoids the crash by ensuring sprite->palette is
     # always populated from the GIF.
+    # Add `has_legacy_remaps` flag to s_model struct in openbor.h.
+    # Set when CMD_MODEL_REMAP fires (step 3); gates the line-29499
+    # model->palette fallback (step 4) so the bypass scopes to legacy-
+    # remap PAKs only — modern PAKs (no `remap` declarations) keep
+    # drawmethod->table flow normal (KO flash, level palette, globalmap,
+    # per-frame remap effects all preserved).
+    #
+    # Why: original step 4 v2 unconditionally bypassed drawmethod->table
+    # whenever frame->palette was populated (always after step 1). That
+    # broke Avengers UBF Captain America rendering (sprite GIFs use
+    # placeholder palette; canonical red/white/blue comes from a colourmap
+    # the engine applies via drawmethod->table — bypass = pink Captain
+    # America). User-reported regression 2026-05-19.
+    #
+    # New design: flag legacy-remap PAKs at character load time, then
+    # condition the model->palette fallback at line 29499 on
+    # !has_legacy_remaps. ATOV (has_legacy_remaps=1) gets drawmethod->table
+    # NULL → sprite->palette wins → canonical Hugo green. Avengers
+    # (has_legacy_remaps=0) keeps the fallback → drawmethod->table set →
+    # canonical Captain America rendering preserved. KO flash etc. set
+    # drawmethod->table BEFORE the fallback check, so they always work
+    # regardless of the flag.
+    print("Adding has_legacy_remaps field to s_model struct in openbor.h...")
+    obh_path = os.path.join(obor, 'openbor.h')
+    obh = read(obh_path)
+    obh = strict_replace(
+        obh,
+        "    int maps_loaded; // Used for player colourmap selecting",
+        "    int maps_loaded; // Used for player colourmap selecting\n    int has_legacy_remaps; // MiSTer 2026-05-19: set when CMD_MODEL_REMAP fires (ATOV-style PAK); gates line-29499 model->palette fallback so modern PAKs keep drawmethod->table effects",
+        'add has_legacy_remaps field to s_model struct'
+    )
+    write(obh_path, obh)
+    print("  s_model.has_legacy_remaps field added")
+
     print("Patching openbor.c (per-sprite palette: PIXEL_x8 loadsprite + skip force-assign)...")
     ob_path = os.path.join(obor, 'openbor.c')
     ob = read(ob_path)
@@ -622,85 +656,75 @@ endif
                             goto lCleanup;
                         }
                     }"""
-    remap_load_new = """// PALETTE FIX: skip inner palette load. Loading from `value` (first
-                    // remap arg, e.g. run2.gif for Hugo) makes that GIF's palette
-                    // the model's master palette → overrides every sprite via
-                    // drawmethod->table. Let auto-palette code at line ~16805
-                    // load from the first ANIM frame (idle00.gif) instead =
-                    // canonical color. Fixes A Tale of Vengeance Hugo/Vice/Playa."""
+    remap_load_new = """// PALETTE FIX: skip inner palette load + flag this model as legacy-remap.
+                    // Loading from `value` (first remap arg, e.g. run2.gif for Hugo)
+                    // makes that GIF's palette the model's master palette → overrides
+                    // every sprite via drawmethod->table. Skip it so auto-palette code
+                    // at line ~16895 loads from idle00.gif (canonical) instead.
+                    //
+                    // has_legacy_remaps gates the line-29499 model->palette fallback:
+                    // legacy-remap PAKs (ATOV) get drawmethod->table NULL → sprite->palette
+                    // wins → canonical render. Modern PAKs (no `remap` declarations,
+                    // flag stays 0) keep the fallback → drawmethod->table set normally
+                    // → preserves KO flash / level palette / globalmap / per-frame remap
+                    // effects. Fixes both ATOV Hugo green AND Avengers Cap red/white/blue.
+                    newchar->has_legacy_remaps = 1;"""
     if remap_load_old in ob:
         ob = ob.replace(remap_load_old, remap_load_new)
         print("  CMD_MODEL_REMAP inner palette load skipped (auto-loads from first anim frame)")
     else:
         raise RuntimeError("openbor.c: CMD_MODEL_REMAP palette load pattern not found — moved?")
 
-    write(ob_path, ob)
-    print("  openbor.c per-sprite palette patches applied (3 changes).")
+    # NOTE: do NOT write ob here yet — step 4 v3 below makes one more
+    # edit to openbor.c (the line-29499 fallback gate). One final write
+    # at the end captures all four edits (steps 1, 2, 3, 4 v3).
+    print("  openbor.c per-sprite palette patches: steps 1-3 staged in memory.")
 
-    # Step 4: force NULL drawmethod->table in PIXEL_32 sprite render path.
+    # Step 4 v3 (option 2, 2026-05-19): gate the line-29499 model->palette
+    # fallback on !has_legacy_remaps. Surgical fix that scopes the bypass
+    # to ATOV-style PAKs only — modern PAKs keep drawmethod->table flow
+    # entirely intact (KO flash, level palette, globalmap, per-frame remap,
+    # entity colourmap effects all preserved).
     #
-    # Even with steps 1-3, the engine FALLS BACK to model->palette at render
-    # time (engine/openbor.c line ~29499):
+    # History — why this is v3:
+    #   v1 (commit 234bc6f): unconditionally NULL drawmethod->table in sprite.c
+    #     PIXEL_32 case. Cancelled before deploy when I caught the side effect
+    #     would kill all drawmethod-based effects globally.
+    #   v2 (commit a728671): conditional `(frame && frame->palette) ? NULL
+    #     : drawmethod->table` in sprite.c. Shipped — fixed ATOV but BROKE
+    #     Avengers UBF Captain America (rendered pink instead of canonical
+    #     red/white/blue). Step 1 forces all sprites to have frame->palette,
+    #     so the condition was always true → bypass was effectively
+    #     unconditional → all modern PAKs lost drawmethod->table effects.
+    #   v3 (this): move the gate from sprite.c to openbor.c, scoped to
+    #     the buggy line 29499 specifically. Use has_legacy_remaps flag
+    #     (set in step 3 above when CMD_MODEL_REMAP fires). NO sprite.c
+    #     modification needed — drawmethod->table flows naturally and is
+    #     ignored only when it would be polluted (legacy PAKs) or kept
+    #     when it's legitimate (modern PAKs + KO flash etc.).
     #
-    #   if(!drawmethod->table)
-    #       drawmethod->table = e->modeldata.palette;
+    # User-reported 2026-05-19 (verbatim): "i noticed in avengers captain
+    # america has pink, his correct colors are blue, red, and white."
+    # Confirmed the v2 side effect was real, requested v3 (option 2).
     #
-    # So drawmethod->table != NULL by the time it reaches putsprite_x8p32.
-    # The renderer then uses drawmethod->table (= model->palette) instead of
-    # per-sprite palette. For 4086-era PAKs where model->palette ≠ canonical
-    # sprite palette, this overrides everything we set up.
-    #
-    # 7533's stripped-down sprite renderer (no putsprite_remap) doesn't
-    # handle the "I want sprite-native palette" case cleanly. So patch the
-    # call site in sprite.c to pass NULL — forces putsprite_x8p32 to fall
-    # back to sprite->palette which is now correct per step 1.
-    #
-    # Side effect: drawmethod-based KO flash / dying flash won't apply for
-    # PIXEL_32 sprites — they'd need the table. Mitigation: for ATOV-era
-    # PAKs the dying flashes are colourmap-based and the engine still
-    # builds those colourmaps; we just can't apply them at render time
-    # without a more invasive engine change. Accept the regression for now.
-    # Modern PAKs that work on 7533 don't depend on this code path (they
-    # set up palette differently).
-    print("Patching sprite.c (conditional NULL drawmethod->table for PIXEL_32)...")
-    sprite_path = os.path.join(obor, 'source/gamelib/sprite.c')
-    sp = read(sprite_path)
-    # NOTE: upstream v7533 uses `drawmethod->flipx` (field), not the
-    # renamed `(drawmethod->config & DRAWMETHOD_CONFIG_FLIP_X)` form.
-    # The previous v2 of this patch matched the renamed form and silently
-    # failed (CI's set +e swallowed the RuntimeError, build proceeded with
-    # the unpatched source). Re-verified against
-    # https://raw.githubusercontent.com/DCurrent/openbor/v7533/engine/source/gamelib/sprite.c
-    # — line ~15129: `putsprite_x8p32(x, y, drawmethod->flipx, ...)`.
-    sp_old = "        case PIXEL_32:\n            putsprite_x8p32(x, y, drawmethod->flipx, frame, screen, (unsigned *)drawmethod->table, getblendfunction32(drawmethod->alpha));\n            break;"
-    sp_new = (
-        "        case PIXEL_32:\n"
-        "        {\n"
-        "            /* MiSTer palette fix step 4 v2 (option 1): conditional on per-sprite palette validity.\n"
-        "             *\n"
-        "             * If frame->palette is populated (PIXEL_x8 sprite carries its canonical GIF\n"
-        "             * palette per step 1), pass NULL → putsprite_x8p32 falls back to sprite->palette\n"
-        "             * → canonical per-sprite colors. Fixes A Tale of Vengeance Hugo/Vice/Playa whose\n"
-        "             * model->palette gets polluted with the first remap arg's GIF palette.\n"
-        "             *\n"
-        "             * If frame->palette is NULL (RGB sprite, or sprite loaded without palette space),\n"
-        "             * fall through to drawmethod->table — preserves KO flash / level palette / global\n"
-        "             * palette effects on non-PIXEL_x8 content paths for modern PAKs.\n"
-        "             *\n"
-        "             * The check narrows the bypass to PIXEL_x8 sprites specifically (where the bug\n"
-        "             * manifests). Modern PAKs using 32-bit RGB sprites don't carry frame->palette,\n"
-        "             * so drawmethod->table flow is preserved for them. */\n"
-        "            unsigned *table_arg = (frame && frame->palette) ? NULL : (unsigned *)drawmethod->table;\n"
-        "            putsprite_x8p32(x, y, drawmethod->flipx, frame, screen, table_arg, getblendfunction32(drawmethod->alpha));\n"
-        "            break;\n"
-        "        }"
-    )
-    if sp_old in sp:
-        sp = sp.replace(sp_old, sp_new)
-        write(sprite_path, sp)
-        print("  sprite.c PIXEL_32 dispatch: NULL if frame->palette else drawmethod->table")
-    else:
-        raise RuntimeError("sprite.c: PIXEL_32 putsprite call pattern not found — moved?")
+    # Pristine v7533 source location (verified via raw.githubusercontent.com):
+    #   engine/openbor.c lines 29511-29514:
+    #     if(!drawmethod->table)
+    #     {
+    #         drawmethod->table = e->modeldata.palette;
+    #     }
+    # (inside an outer `if(!drawmethod->table)` block at line 29480 — the
+    # outer block runs only when no explicit setter has fired yet, so KO
+    # flash / level palette / globalmap setters at lines 29473/29491/29515
+    # /29538-29547 all run BEFORE this fallback and bypass it naturally.)
+    print("Gating line-29499 model->palette fallback on !has_legacy_remaps (option 2)...")
+    fallback_old = "                        if(!drawmethod->table)\n                        {\n                            drawmethod->table = e->modeldata.palette;\n                        }"
+    fallback_new = "                        if(!drawmethod->table && !e->modeldata.has_legacy_remaps)\n                        {\n                            // MiSTer palette fix (option 2, 2026-05-19): skip model->palette\n                            // fallback for legacy-remap PAKs (ATOV — has_legacy_remaps=1).\n                            // Their model->palette was polluted with first-remap-arg's GIF;\n                            // letting drawmethod->table stay NULL means putsprite_x8p32 falls\n                            // back to sprite->palette (canonical per-GIF) → Hugo renders green.\n                            // Modern PAKs (has_legacy_remaps=0) DO take the fallback → model->\n                            // palette feeds drawmethod->table → canonical render via colourmap\n                            // application (Captain America red/white/blue preserved). KO flash,\n                            // level palette, globalmap, per-frame remap all set drawmethod->table\n                            // BEFORE this block and are unaffected by either branch.\n                            drawmethod->table = e->modeldata.palette;\n                        }"
+    ob = strict_replace(ob, fallback_old, fallback_new, 'gate line-29499 model->palette fallback on !has_legacy_remaps')
+    print("  line 29499 fallback gated: skipped for legacy-remap PAKs (ATOV); preserved for modern PAKs")
+
+    write(ob_path, ob)
+    print("  openbor.c: all 4 palette patches (steps 1, 2, 3, 4 v3) written to disk.")
 
     # ── 10. Audio Stage 1: NO PATCH (Option C v2, 2026-05-15 evening).
     #
