@@ -606,15 +606,36 @@ endif
     # without a more invasive engine change. Accept the regression for now.
     # Modern PAKs that work on 7533 don't depend on this code path (they
     # set up palette differently).
-    print("Patching sprite.c (force NULL drawmethod->table for PIXEL_32)...")
+    print("Patching sprite.c (conditional NULL drawmethod->table for PIXEL_32)...")
     sprite_path = os.path.join(obor, 'source/gamelib/sprite.c')
     sp = read(sprite_path)
     sp_old = "        case PIXEL_32:\n            putsprite_x8p32(x, y, (drawmethod->config & DRAWMETHOD_CONFIG_FLIP_X), frame, screen, (unsigned *)drawmethod->table, getblendfunction32(drawmethod->alpha));\n            break;"
-    sp_new = "        case PIXEL_32:\n            /* MiSTer palette fix step 4: pass NULL for table.\n             * Forces putsprite_x8p32 to use sprite->palette (per-sprite, set\n             * by steps 1-2). Fixes A Tale of Vengeance Hugo/Vice/Playa whose\n             * model->palette ends up as the FIRST remap arg's GIF palette\n             * (e.g. run2.gif = blue) instead of each sprite's own GIF palette.\n             * Trade-off: drawmethod-based flash effects won't apply, but\n             * base sprite rendering uses canonical per-GIF colors. */\n            putsprite_x8p32(x, y, (drawmethod->config & DRAWMETHOD_CONFIG_FLIP_X), frame, screen, NULL, getblendfunction32(drawmethod->alpha));\n            break;"
+    sp_new = (
+        "        case PIXEL_32:\n"
+        "        {\n"
+        "            /* MiSTer palette fix step 4 v2 (option 1): conditional on per-sprite palette validity.\n"
+        "             *\n"
+        "             * If frame->palette is populated (PIXEL_x8 sprite carries its canonical GIF\n"
+        "             * palette per step 1), pass NULL → putsprite_x8p32 falls back to sprite->palette\n"
+        "             * → canonical per-sprite colors. Fixes A Tale of Vengeance Hugo/Vice/Playa whose\n"
+        "             * model->palette gets polluted with the first remap arg's GIF palette.\n"
+        "             *\n"
+        "             * If frame->palette is NULL (RGB sprite, or sprite loaded without palette space),\n"
+        "             * fall through to drawmethod->table — preserves KO flash / level palette / global\n"
+        "             * palette effects on non-PIXEL_x8 content paths for modern PAKs.\n"
+        "             *\n"
+        "             * The check narrows the bypass to PIXEL_x8 sprites specifically (where the bug\n"
+        "             * manifests). Modern PAKs using 32-bit RGB sprites don't carry frame->palette,\n"
+        "             * so drawmethod->table flow is preserved for them. */\n"
+        "            unsigned *table_arg = (frame && frame->palette) ? NULL : (unsigned *)drawmethod->table;\n"
+        "            putsprite_x8p32(x, y, (drawmethod->config & DRAWMETHOD_CONFIG_FLIP_X), frame, screen, table_arg, getblendfunction32(drawmethod->alpha));\n"
+        "            break;\n"
+        "        }"
+    )
     if sp_old in sp:
         sp = sp.replace(sp_old, sp_new)
         write(sprite_path, sp)
-        print("  sprite.c PIXEL_32 putsprite call now passes NULL → per-sprite palette wins")
+        print("  sprite.c PIXEL_32 dispatch: NULL if frame->palette else drawmethod->table")
     else:
         raise RuntimeError("sprite.c: PIXEL_32 putsprite call pattern not found — moved?")
 
