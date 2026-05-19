@@ -17,11 +17,14 @@ import sys
 import os
 
 def read(path):
-    with open(path, 'r') as f:
+    # Explicit UTF-8 — Linux CI defaults to UTF-8 but Windows defaults to
+    # cp1252 which fails on Unicode arrows etc. in patched comments.
+    # Making it explicit lets local dry-runs validate before push.
+    with open(path, 'r', encoding='utf-8') as f:
         return f.read()
 
 def write(path, content):
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(content)
 
 def extract_function(source, func_sig):
@@ -609,7 +612,14 @@ endif
     print("Patching sprite.c (conditional NULL drawmethod->table for PIXEL_32)...")
     sprite_path = os.path.join(obor, 'source/gamelib/sprite.c')
     sp = read(sprite_path)
-    sp_old = "        case PIXEL_32:\n            putsprite_x8p32(x, y, (drawmethod->config & DRAWMETHOD_CONFIG_FLIP_X), frame, screen, (unsigned *)drawmethod->table, getblendfunction32(drawmethod->alpha));\n            break;"
+    # NOTE: upstream v7533 uses `drawmethod->flipx` (field), not the
+    # renamed `(drawmethod->config & DRAWMETHOD_CONFIG_FLIP_X)` form.
+    # The previous v2 of this patch matched the renamed form and silently
+    # failed (CI's set +e swallowed the RuntimeError, build proceeded with
+    # the unpatched source). Re-verified against
+    # https://raw.githubusercontent.com/DCurrent/openbor/v7533/engine/source/gamelib/sprite.c
+    # — line ~15129: `putsprite_x8p32(x, y, drawmethod->flipx, ...)`.
+    sp_old = "        case PIXEL_32:\n            putsprite_x8p32(x, y, drawmethod->flipx, frame, screen, (unsigned *)drawmethod->table, getblendfunction32(drawmethod->alpha));\n            break;"
     sp_new = (
         "        case PIXEL_32:\n"
         "        {\n"
@@ -628,7 +638,7 @@ endif
         "             * manifests). Modern PAKs using 32-bit RGB sprites don't carry frame->palette,\n"
         "             * so drawmethod->table flow is preserved for them. */\n"
         "            unsigned *table_arg = (frame && frame->palette) ? NULL : (unsigned *)drawmethod->table;\n"
-        "            putsprite_x8p32(x, y, (drawmethod->config & DRAWMETHOD_CONFIG_FLIP_X), frame, screen, table_arg, getblendfunction32(drawmethod->alpha));\n"
+        "            putsprite_x8p32(x, y, drawmethod->flipx, frame, screen, table_arg, getblendfunction32(drawmethod->alpha));\n"
         "            break;\n"
         "        }"
     )
@@ -748,65 +758,37 @@ endif
     write(sm_path, sm)
     print("  soundmix.c patched (cache-reload + multiplier revert in mixaudio).")
 
-    # -- 11. Restore 4086-era palette load for older PAKs (A Tale of Vengeance, etc.)
+    # -- 11. DISABLED — contradicts step 3 (and was never running in CI).
     #
-    # OpenBOR 7533 dropped support for the `colourdepth` PAK command and
-    # forced all modules to 32-bit screen mode. That broke the palette-
-    # load path for older PAKs that use the `remap` command to declare
-    # character palettes — `remap A.gif B.gif` only loads A's palette as
-    # the character's base palette when pixelformat == PIXEL_x8 (line
-    # 14439 of upstream openbor.c). In 32-bit mode the guard fails,
-    # newchar->palette stays NULL, and at draw time the engine falls
-    # back to colourmap[0] (the first remap target) — rendering the
-    # character in their FIRST ALT palette instead of canonical base.
+    # Original intent: relax `pixelformat == PIXEL_x8` guards in openbor.c
+    # so palette loads happen for older PAKs that use `remap` to declare
+    # character palettes (4086-era convention). Three guards to relax:
+    #   - line ~14467: CMD_MODEL_REMAP inner palette load
+    #   - line ~16895: auto-palette from first-frame image (fallback)
+    #   - line ~17506: convert_map_to_palette() call
     #
-    # User-visible symptom: A Tale of Vengeance Hugo character renders
-    # in BLUE (his alt palette) instead of GREEN (canonical). Reproduces
-    # on PC OpenBOR 7533 too — confirmed upstream engine regression, not
-    # MiSTer-port bug.
+    # WHY DISABLED (2026-05-19):
+    #   - Step 3 above DELETES the CMD_MODEL_REMAP inner palette load
+    #     entirely. Step 11's pattern 1 expects that block to exist and
+    #     just wants to relax its guard — but after step 3 runs, the
+    #     pattern doesn't match. Both target line ~14467 with conflicting
+    #     intent. Step 3 wins (runs first), step 11 has been dead code
+    #     in CI since both were added.
+    #   - apply_patches.py raised RuntimeError on step 11's pattern-1 miss,
+    #     but the build script's `set +e` swallowed it. The shipped binary
+    #     had steps 1-3 applied AND step 11 silently failed — neither
+    #     approach was fully realized.
+    #   - The two approaches are MUTUALLY EXCLUSIVE: either skip the
+    #     palette load (step 3, current) OR relax its guard (step 11,
+    #     historical). Pick one, comment out the other so the script's
+    #     intent is clear.
     #
-    # Fix: remove the `pixelformat == PIXEL_x8` guard from three sites
-    # in engine/openbor.c that load palettes during character file parse:
-    #   - line ~14439: CMD_MODEL_REMAP palette load
-    #   - line ~16799: auto-palette from first-frame image (fallback)
-    #   - line ~17506: convert_map_to_palette() call (converts 8-bit
-    #                  colourmaps to 32-bit RGB palettes at post-load)
-    #
-    # Safe for 32-bit-native PAKs: they don't use remap, so palette
-    # never gets allocated, convert_map_to_palette no-ops.
-    print("Step 11 (palette): restore 4086-era REMAP palette load for older PAKs")
-    print("                   Fixes wrong enemy colors in A Tale of Vengeance et al.")
-    obor_c = os.path.join(obor, 'openbor.c')
-    ob = read(obor_c)
-
-    palette_guard_replacements = [
-        # CMD_MODEL_REMAP palette load — was: only in 8-bit mode + NULL
-        (
-            "if(pixelformat == PIXEL_x8 && newchar->palette == NULL)\n                    {\n                        newchar->palette = malloc(PAL_BYTES);\n                        if(loadimagepalette(value, packfile, newchar->palette) == 0)",
-            "if(newchar->palette == NULL)\n                    {\n                        newchar->palette = malloc(PAL_BYTES);\n                        if(loadimagepalette(value, packfile, newchar->palette) == 0)"
-        ),
-        # Auto-palette from first frame — was: only in 8-bit mode + !nopalette
-        (
-            "if(pixelformat == PIXEL_x8 && !nopalette)",
-            "if(!nopalette)"
-        ),
-        # convert_map_to_palette() — was: only in 8-bit mode
-        (
-            "// we need to convert 8bit colourmap into 32bit palette\n    if(pixelformat == PIXEL_x8)\n    {\n        convert_map_to_palette(newchar, mapflag);\n    }",
-            "// Always convert 8bit colourmap into 32bit palette (no-op if\n    // model->palette is NULL — safe for 32-bit-native PAKs). Required\n    // for older PAKs (A Tale of Vengeance etc.) that use `remap` to\n    // declare character palettes — palette is loaded unconditionally\n    // now, and this converts the remap colourmaps to renderable RGB.\n    convert_map_to_palette(newchar, mapflag);"
-        ),
-    ]
-    applied_palette = 0
-    for old, new in palette_guard_replacements:
-        if old in ob:
-            ob = ob.replace(old, new)
-            applied_palette += 1
-        else:
-            print(f"  WARN: palette guard pattern not found:\n    {old[:80]}...")
-    if applied_palette != len(palette_guard_replacements):
-        raise RuntimeError(f"openbor.c: palette guard patches incomplete ({applied_palette}/{len(palette_guard_replacements)})")
-    write(obor_c, ob)
-    print(f"  openbor.c patched ({applied_palette}/3 palette guards removed).")
+    # Step 3 is the current active strategy. If step 11's approach turns
+    # out to be the correct fix for ATOV, the fix is:
+    #   1. Comment out step 3 (lines ~563-582)
+    #   2. Re-enable this block
+    #   3. Verify pattern 1 matches pristine upstream `case CMD_MODEL_REMAP:`
+    #      at line ~14467 with `if(pixelformat == PIXEL_x8 && newchar->palette == NULL)`
 
     print("\nAll patches applied successfully.")
 

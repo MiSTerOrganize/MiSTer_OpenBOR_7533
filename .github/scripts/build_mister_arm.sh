@@ -168,7 +168,20 @@ cp /build/src/native_audio_writer.c .
 cp /build/src/native_audio_writer.h .
 
 # ── Apply Makefile + source patches ──────────────────────────────
+# CRITICAL: hard-fail if apply_patches.py errors. Previously `set +e`
+# at the top let silent patch failures through — CI claimed "success"
+# but shipped a partially-patched binary (steps 1-3 applied, step 4+
+# silently skipped on a RuntimeError). Bit us hard during the ATOV
+# palette fix when v2's sprite.c pattern didn't match upstream's
+# `drawmethod->flipx` field (it expected the renamed `config & FLIP_X`
+# form). Diagnosing that took an extra deploy+test cycle that wouldn't
+# have happened if CI had failed loudly. Make CI loud about it.
 python3 /build/.github/scripts/apply_patches.py /tmp/openbor/engine /build/patches
+PATCHES_RC=$?
+if [ $PATCHES_RC -ne 0 ]; then
+    echo "ERROR: apply_patches.py failed with exit code $PATCHES_RC — refusing to ship a partially-patched binary"
+    exit 1
+fi
 
 # ── Build ────────────────────────────────────────────────────────
 echo "=== Building OpenBOR for MiSTer ==="
