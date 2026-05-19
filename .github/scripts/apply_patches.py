@@ -27,6 +27,27 @@ def write(path, content):
     with open(path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(content)
 
+def strict_replace(content, old, new, label):
+    """Replace `old` with `new` in content; RAISE if `old` not found.
+
+    Use this instead of `content.replace(old, new)` for patches where a
+    silent no-op would corrupt the build. The 2026-05-19 ATOV palette
+    session uncovered that the original `source/utils.c` COPY_ROOT_PATH
+    macro replacement had been silently failing since the patch was written
+    — pattern expected `strncpy(buf, "./", 2)` but pristine upstream v7533
+    has `strcpy(buf, "./")`. Saves/Config/SaveStates redirect had been
+    broken without anyone noticing because plain `.replace()` returns the
+    source unchanged when the pattern doesn't match.
+    """
+    if old not in content:
+        raise RuntimeError(
+            f"strict_replace failed for '{label}': pattern not found.\n"
+            f"  First 80 chars of expected: {old[:80]!r}\n"
+            f"  Verify the pattern matches PRISTINE upstream at "
+            f"https://raw.githubusercontent.com/DCurrent/openbor/v7533/engine/..."
+        )
+    return content.replace(old, new)
+
 def extract_function(source, func_sig):
     """Extract a C function body starting from its signature."""
     start = source.find(func_sig)
@@ -115,9 +136,11 @@ endif
     # Add MISTER_NATIVE_VIDEO CFLAGS. v7533 uses SDL2 natively; no
     # -DSDL2 needed (no codepaths gate on it). Keep -O1 to dodge the
     # GCC aggressive-loop UB that bit us at openbor.c in 4086.
-    mf = mf.replace(
+    mf = strict_replace(
+        mf,
         "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif",
-        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O1 -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nendif"
+        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O1 -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nendif",
+        'Makefile MISTER_NATIVE_VIDEO CFLAGS injection'
     )
 
     # Add native_video_writer.o and native_audio_writer.o to objects.
@@ -151,9 +174,11 @@ endif
 
     # Force SDL2 link libs for MiSTer (-lSDL2 instead of -lSDL),
     # plus -ldl for dlopen, -lpthread for native writer threads.
-    mf = mf.replace(
+    mf = strict_replace(
+        mf,
         "LIBS           += -lpng -lz -lm",
-        "LIBS           += -lpng -lz -lm\n\n\nifdef BUILD_MISTER\nLIBS           += -lSDL2 -lSDL2_gfx -ldl -lpthread\nendif"
+        "LIBS           += -lpng -lz -lm\n\n\nifdef BUILD_MISTER\nLIBS           += -lSDL2 -lSDL2_gfx -ldl -lpthread\nendif",
+        'Makefile SDL2 link libs injection'
     )
 
     write(os.path.join(obor, 'Makefile'), mf)
@@ -180,9 +205,11 @@ endif
     src = read(os.path.join(obor, 'sdl/control.c'))
 
     # Add include
-    src = src.replace(
+    src = strict_replace(
+        src,
         '#include "openbor.h"',
-        '#include "openbor.h"\n#ifdef MISTER_NATIVE_VIDEO\n#include "native_video_writer.h"\n#endif'
+        '#include "openbor.h"\n#ifdef MISTER_NATIVE_VIDEO\n#include "native_video_writer.h"\n#endif',
+        'sdl/control.c #include injection'
     )
 
     src = replace_function(src, "void control_update(s_playercontrols ** playercontrols, int numplayers)", "control_patch.c", patches)
@@ -194,9 +221,11 @@ endif
     src = read(os.path.join(obor, 'sdl/sdlport.c'))
 
     # Add includes
-    src = src.replace(
+    src = strict_replace(
+        src,
         '#include "menu.h"',
-        '#include "menu.h"\n#ifdef MISTER_NATIVE_VIDEO\n#include "native_video_writer.h"\n#include "native_audio_writer.h"\n#include <sys/stat.h>\n#include <stdlib.h>\n#include <time.h>\n#include <unistd.h>\n#include <pthread.h>\n#include <signal.h>\n#include <execinfo.h>\n#endif'
+        '#include "menu.h"\n#ifdef MISTER_NATIVE_VIDEO\n#include "native_video_writer.h"\n#include "native_audio_writer.h"\n#include <sys/stat.h>\n#include <stdlib.h>\n#include <time.h>\n#include <unistd.h>\n#include <pthread.h>\n#include <signal.h>\n#include <execinfo.h>\n#endif',
+        'sdl/sdlport.c #include injection'
     )
 
     # Replace main() and inject any code above it (swap thread, etc.)
@@ -222,7 +251,17 @@ endif
     print("Patching source/utils.c (save path redirect + log path absolute)...")
     src = read(os.path.join(obor, 'source/utils.c'))
 
-    old_macro = '#define COPY_ROOT_PATH(buf, name) strncpy(buf, "./", 2); strncat(buf, name, strlen(name)); strncat(buf, "/", 1);'
+    # Pristine v7533 source/utils.c line ~102 (LINUX target — the #else
+    # branch after WII/VITA/ANDROID variants) uses strcpy/strcat, NOT
+    # strncpy/strncat. The previous pattern's strncpy form was silently
+    # failing — saves/config/savestates redirect to /media/fat/... never
+    # took effect since the macro was never replaced. Caught by audit
+    # 2026-05-19 (see feedback_ci_set_minus_e_hides_patch_failures.md +
+    # the new strict_replace helper above which now RAISES instead of
+    # silently no-op on pattern miss).
+    # Verified upstream verbatim:
+    # https://raw.githubusercontent.com/DCurrent/openbor/v7533/engine/source/utils.c L102
+    old_macro = '#define COPY_ROOT_PATH(buf, name) strcpy(buf, "./"); strcat(buf, name); strcat(buf, "/");'
 
     # Note: Logs path is /media/fat/logs/OpenBOR_7533/ — per-build, matching
     # the saves/savestates per-build pattern (sister cores share PAK content
@@ -241,14 +280,14 @@ endif
         } else if (strcmp(name, "Logs") == 0) { \\
             strcpy(buf, "/media/fat/logs/OpenBOR_7533/"); \\
         } else { \\
-            strncpy(buf, "./", 2); strncat(buf, name, strlen(name)); strncat(buf, "/", 1); \\
+            strcpy(buf, "./"); strcat(buf, name); strcat(buf, "/"); \\
         } \\
     } while(0)
 #else
-#define COPY_ROOT_PATH(buf, name) strncpy(buf, "./", 2); strncat(buf, name, strlen(name)); strncat(buf, "/", 1);
+#define COPY_ROOT_PATH(buf, name) strcpy(buf, "./"); strcat(buf, name); strcat(buf, "/");
 #endif"""
 
-    src = src.replace(old_macro, new_macro)
+    src = strict_replace(src, old_macro, new_macro, 'COPY_ROOT_PATH macro in source/utils.c')
 
     # Patch the four LOGFILE macros that hardcode "./Logs/OpenBorLog.txt"
     # and "./Logs/ScriptLog.txt" relative paths. These are used by the
@@ -256,13 +295,17 @@ endif
     # so they need their own replacement. Writing to cwd's Logs/ directory
     # violates the canonical single-location log rule
     # (/media/fat/logs/{CoreName}/) — patch to absolute paths.
-    src = src.replace(
+    src = strict_replace(
+        src,
         '"./Logs/OpenBorLog.txt"',
-        '"/media/fat/logs/OpenBOR_7533/OpenBorLog.txt"'
+        '"/media/fat/logs/OpenBOR_7533/OpenBorLog.txt"',
+        'source/utils.c OpenBorLog absolute path'
     )
-    src = src.replace(
+    src = strict_replace(
+        src,
         '"./Logs/ScriptLog.txt"',
-        '"/media/fat/logs/OpenBOR_7533/ScriptLog.txt"'
+        '"/media/fat/logs/OpenBOR_7533/ScriptLog.txt"',
+        'source/utils.c ScriptLog absolute path'
     )
 
     write(os.path.join(obor, 'source/utils.c'), src)
@@ -273,32 +316,42 @@ endif
     obor_c = read(os.path.join(obor, 'openbor.c'))
 
     # .cfg files: savesettings/loadsettings → "Config"
-    obor_c = obor_c.replace(
+    obor_c = strict_replace(
+        obor_c,
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpname, 4);',
-        '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 4);'
+        '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 4);',
+        '.cfg path -> Config (savesettings/loadsettings)'
     )
 
     # default.cfg — v7533 uses strcat instead of strncat with size limit
-    obor_c = obor_c.replace(
+    obor_c = strict_replace(
+        obor_c,
         'getBasePath(path, "Saves", 0);\n    strcat(path, "default.cfg");',
         '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    strcat(path, "default.cfg");',
+        'default.cfg path -> Config'
     )
 
     # .hi files
-    obor_c = obor_c.replace(
+    obor_c = strict_replace(
+        obor_c,
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpname, 1);',
-        '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 1);'
+        '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 1);',
+        '.hi (high score) path -> Config'
     )
 
     # .s00 save states (saveScriptFile uses tmpvalue)
-    obor_c = obor_c.replace(
+    obor_c = strict_replace(
+        obor_c,
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpvalue, 2);//.scr',
-        '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "SaveStates", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpvalue, 2);//.scr'
+        '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "SaveStates", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpvalue, 2);//.scr',
+        '.s00 saveScriptFile path -> SaveStates'
     )
     # loadScriptFile uses tmpname
-    obor_c = obor_c.replace(
+    obor_c = strict_replace(
+        obor_c,
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpname, 2);//.scr',
-        '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "SaveStates", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 2);//.scr'
+        '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "SaveStates", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 2);//.scr',
+        '.s00 loadScriptFile path -> SaveStates'
     )
 
     write(os.path.join(obor, 'openbor.c'), obor_c)
@@ -758,37 +811,61 @@ endif
     write(sm_path, sm)
     print("  soundmix.c patched (cache-reload + multiplier revert in mixaudio).")
 
-    # -- 11. DISABLED — contradicts step 3 (and was never running in CI).
+    # -- 11. Restore 4086-era palette infrastructure for 32-bit screen mode.
     #
-    # Original intent: relax `pixelformat == PIXEL_x8` guards in openbor.c
-    # so palette loads happen for older PAKs that use `remap` to declare
-    # character palettes (4086-era convention). Three guards to relax:
-    #   - line ~14467: CMD_MODEL_REMAP inner palette load
-    #   - line ~16895: auto-palette from first-frame image (fallback)
-    #   - line ~17506: convert_map_to_palette() call
+    # 7533 added `pixelformat == PIXEL_x8` guards around palette/colourmap
+    # processing that gate the work off entirely when the screen runs at
+    # 32-bit (forced in our build). For 4086-era PAKs that rely on the
+    # `remap` command + colourmap infrastructure, these guards silence
+    # the whole palette pipeline.
     #
-    # WHY DISABLED (2026-05-19):
-    #   - Step 3 above DELETES the CMD_MODEL_REMAP inner palette load
-    #     entirely. Step 11's pattern 1 expects that block to exist and
-    #     just wants to relax its guard — but after step 3 runs, the
-    #     pattern doesn't match. Both target line ~14467 with conflicting
-    #     intent. Step 3 wins (runs first), step 11 has been dead code
-    #     in CI since both were added.
-    #   - apply_patches.py raised RuntimeError on step 11's pattern-1 miss,
-    #     but the build script's `set +e` swallowed it. The shipped binary
-    #     had steps 1-3 applied AND step 11 silently failed — neither
-    #     approach was fully realized.
-    #   - The two approaches are MUTUALLY EXCLUSIVE: either skip the
-    #     palette load (step 3, current) OR relax its guard (step 11,
-    #     historical). Pick one, comment out the other so the script's
-    #     intent is clear.
+    # Three guards exist in pristine openbor.c:
+    #   - line ~14467: CMD_MODEL_REMAP inner palette load (`pixelformat == PIXEL_x8 && newchar->palette == NULL`)
+    #   - line ~16895: auto-palette-from-first-frame (`pixelformat == PIXEL_x8 && !nopalette`)
+    #   - line ~17506: convert_map_to_palette() wrap (`if(pixelformat == PIXEL_x8) { convert_map_to_palette(...); }`)
     #
-    # Step 3 is the current active strategy. If step 11's approach turns
-    # out to be the correct fix for ATOV, the fix is:
-    #   1. Comment out step 3 (lines ~563-582)
-    #   2. Re-enable this block
-    #   3. Verify pattern 1 matches pristine upstream `case CMD_MODEL_REMAP:`
-    #      at line ~14467 with `if(pixelformat == PIXEL_x8 && newchar->palette == NULL)`
+    # Step 3 above DELETES the entire line-14467 block (it loaded the
+    # WRONG palette — first-remap-arg's GIF — and we don't want it).
+    # So pattern 1 (which tried to RELAX the same block's guard) is
+    # dead code in CI's run order. Skip it.
+    #
+    # BUT patterns 2 and 3 target DIFFERENT lines (auto-palette + convert
+    # call) and are compatible with step 3. They unlock model->palette
+    # loading from the canonical first-animation frame (idle00.gif) and
+    # let convert_map_to_palette produce 32-bit RGB tables from the
+    # cart's colourmaps. Re-enabled 2026-05-19 after audit caught that
+    # my prior "disable step 11 entirely" dropped two working patches
+    # along with the dead one.
+    #
+    # Each pattern verified verbatim against pristine upstream v7533:
+    #   https://raw.githubusercontent.com/DCurrent/openbor/v7533/engine/openbor.c
+    print("Step 11 (palette guards): relax PIXEL_x8 gating on auto-palette + convert_map_to_palette")
+    print("                          (Step 11 pattern 1 deliberately skipped — collides with step 3.)")
+    obor_c = os.path.join(obor, 'openbor.c')
+    ob = read(obor_c)
+
+    # Pattern 2: auto-palette-from-first-frame guard
+    # Pristine v7533 has exactly ONE occurrence at line ~16895; verified
+    # via Python `src.count(...)` against pristine fetched 2026-05-19.
+    ob = strict_replace(
+        ob,
+        "if(pixelformat == PIXEL_x8 && !nopalette)",
+        "if(!nopalette)",
+        'auto-palette PIXEL_x8 guard relaxation (step 11 pattern 2)'
+    )
+
+    # Pattern 3: convert_map_to_palette() guard
+    # Removes the `if(pixelformat == PIXEL_x8) { ... }` wrap so colourmap
+    # → 32-bit RGB conversion always happens (no-op when palette is NULL).
+    ob = strict_replace(
+        ob,
+        "// we need to convert 8bit colourmap into 32bit palette\n    if(pixelformat == PIXEL_x8)\n    {\n        convert_map_to_palette(newchar, mapflag);\n    }",
+        "// Always convert 8bit colourmap into 32bit palette (no-op when\n    // model->palette is NULL — safe for 32-bit-native PAKs). Required\n    // for 4086-era PAKs that use `remap` to declare character palettes:\n    // palette/colourmap loading happens unconditionally, this converts\n    // the colourmaps to renderable 32-bit RGB tables. Step 11 pattern 3.\n    convert_map_to_palette(newchar, mapflag);",
+        'convert_map_to_palette PIXEL_x8 guard removal (step 11 pattern 3)'
+    )
+
+    write(obor_c, ob)
+    print("  openbor.c: 2/2 palette guards relaxed (pattern 1 intentionally skipped).")
 
     print("\nAll patches applied successfully.")
 
