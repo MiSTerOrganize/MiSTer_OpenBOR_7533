@@ -615,23 +615,39 @@ endif
     ob_path = os.path.join(obor, 'openbor.c')
     ob = read(ob_path)
 
-    # Step 1: loadsprite always with PIXEL_x8 (keeps bitmap palette in sprite)
+    # Step 1: loadsprite uses PIXEL_x8 ONLY for legacy-remap PAKs (ATOV-style).
+    # Modern PAKs keep upstream behavior: `nopalette ? PIXEL_x8 : PIXEL_8`.
+    #
+    # NOTE on ordering: `newchar->has_legacy_remaps` is set by step 3 inside
+    # the CMD_MODEL_REMAP case during character.txt parse. Well-formatted
+    # OpenBOR character files put `remap` declarations near the top of the
+    # file, BEFORE animation `anim`/`frame` blocks. So by the time loadsprite
+    # fires for the first anim frame, has_legacy_remaps is already set if
+    # the PAK uses remap. Modern PAKs that don't use remap → flag stays 0
+    # → loadsprite uses upstream PIXEL_x8/PIXEL_8 conditional → stock
+    # rendering path preserved → no regression.
     loadsprite_old = "loadsprite(value, offset.x, offset.y, nopalette ? PIXEL_x8 : PIXEL_8); //don't use palette for the sprite since it will one palette from the entity's remap list in 24bit mode"
-    loadsprite_new = "loadsprite(value, offset.x, offset.y, PIXEL_x8); // ALWAYS keep per-sprite palette — fixes A Tale of Vengeance (4086-era PAK) Hugo/Vice/Playa wrong colors"
-    if loadsprite_old in ob:
-        ob = ob.replace(loadsprite_old, loadsprite_new)
-        print("  loadsprite → PIXEL_x8 (was conditional PIXEL_8)")
-    else:
-        raise RuntimeError("openbor.c: loadsprite call site not found — pattern moved?")
+    loadsprite_new = "loadsprite(value, offset.x, offset.y, (newchar->has_legacy_remaps || nopalette) ? PIXEL_x8 : PIXEL_8); // MiSTer 2026-05-19: force PIXEL_x8 for legacy-remap PAKs (ATOV) so sprite->palette is populated for the per-sprite-palette path; modern PAKs keep upstream PIXEL_8 (sprite has embedded palette) for stock rendering parity"
+    ob = strict_replace(ob, loadsprite_old, loadsprite_new, 'step 1: loadsprite PIXEL_x8 gated on has_legacy_remaps')
+    print("  loadsprite → PIXEL_x8 ONLY for legacy-remap PAKs (modern PAKs unchanged)")
 
-    # Step 2: skip the force-assign of sprite->palette = newchar->palette
+    # Step 2: skip force-assign ONLY for legacy-remap PAKs. Modern PAKs keep
+    # the force-assign so sprite->palette = model->palette consistently across
+    # all frames — same as stock 7533. ATOV-style PAKs skip the force-assign
+    # so each sprite keeps its own GIF palette (canonical per-frame).
+    #
+    # Why this matters: He-Man and other modern PAKs without `remap` use the
+    # auto-palette block to set model->palette = idle00.gif palette, then
+    # force-assign that to all sprites. Skipping the force-assign for modern
+    # PAKs leaves sprite->palette = each frame's own GIF palette (different
+    # per frame), and the renderer applies drawmethod->table = model->palette
+    # (= idle00) across frames — palette mismatch → visible flashing as
+    # character animates. User-reported 2026-05-19. Gating step 2 to legacy-
+    # only restores stock 7533 behavior for modern PAKs.
     force_assign_old = "                            sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
-    force_assign_new = "                            // Per-sprite palette fix: do NOT force-assign newchar->palette\n                            // to all sprites. Each sprite keeps its own GIF-embedded palette.\n                            // sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
-    if force_assign_old in ob:
-        ob = ob.replace(force_assign_old, force_assign_new)
-        print("  sprite->palette force-assign skipped (kept per-sprite palette)")
-    else:
-        raise RuntimeError("openbor.c: sprite->palette force-assign pattern not found — moved?")
+    force_assign_new = "                            // MiSTer 2026-05-19: skip force-assign for legacy-remap PAKs (ATOV-style)\n                            // so each sprite keeps its own GIF palette. Modern PAKs keep stock behavior\n                            // (force-assign newchar->palette to all sprites) to avoid per-frame palette mismatch flashing.\n                            if (!newchar->has_legacy_remaps) sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
+    ob = strict_replace(ob, force_assign_old, force_assign_new, 'step 2: skip force-assign gated on has_legacy_remaps')
+    print("  sprite->palette force-assign skipped ONLY for legacy PAKs (modern PAKs keep stock force-assign)")
 
     # Step 3: skip CMD_MODEL_REMAP's inner palette load.
     #
@@ -835,61 +851,37 @@ endif
     write(sm_path, sm)
     print("  soundmix.c patched (cache-reload + multiplier revert in mixaudio).")
 
-    # -- 11. Restore 4086-era palette infrastructure for 32-bit screen mode.
+    # -- 11. REMOVED (2026-05-19) — caused He-Man flashing regression.
     #
-    # 7533 added `pixelformat == PIXEL_x8` guards around palette/colourmap
-    # processing that gate the work off entirely when the screen runs at
-    # 32-bit (forced in our build). For 4086-era PAKs that rely on the
-    # `remap` command + colourmap infrastructure, these guards silence
-    # the whole palette pipeline.
+    # Step 11 originally relaxed `pixelformat == PIXEL_x8` guards on:
+    #   - auto-palette-from-first-frame block (line ~16895)
+    #   - convert_map_to_palette() wrap (line ~17506)
     #
-    # Three guards exist in pristine openbor.c:
-    #   - line ~14467: CMD_MODEL_REMAP inner palette load (`pixelformat == PIXEL_x8 && newchar->palette == NULL`)
-    #   - line ~16895: auto-palette-from-first-frame (`pixelformat == PIXEL_x8 && !nopalette`)
-    #   - line ~17506: convert_map_to_palette() wrap (`if(pixelformat == PIXEL_x8) { convert_map_to_palette(...); }`)
+    # Intent: unlock palette/colourmap infrastructure in 32-bit screen mode
+    # for ATOV-style PAKs.
     #
-    # Step 3 above DELETES the entire line-14467 block (it loaded the
-    # WRONG palette — first-remap-arg's GIF — and we don't want it).
-    # So pattern 1 (which tried to RELAX the same block's guard) is
-    # dead code in CI's run order. Skip it.
+    # PROBLEM: in our 7533 build the GLOBAL `pixelformat` stays at PIXEL_x8
+    # default, so the guards `pixelformat == PIXEL_x8` were ALREADY passing
+    # in stock 7533. The relaxation patterns were no-ops for the guard
+    # purpose, but combined with steps 1+2's universal application they
+    # altered modern-PAK rendering paths in ways that caused regressions.
     #
-    # BUT patterns 2 and 3 target DIFFERENT lines (auto-palette + convert
-    # call) and are compatible with step 3. They unlock model->palette
-    # loading from the canonical first-animation frame (idle00.gif) and
-    # let convert_map_to_palette produce 32-bit RGB tables from the
-    # cart's colourmaps. Re-enabled 2026-05-19 after audit caught that
-    # my prior "disable step 11 entirely" dropped two working patches
-    # along with the dead one.
+    # User-reported 2026-05-19: He-Man flashing on every character because
+    # step 2's universal skip-force-assign left sprite->palette = per-frame
+    # GIF palette, while drawmethod->table = model->palette (= idle00) was
+    # applied uniformly → per-frame palette mismatch → flashing.
     #
-    # Each pattern verified verbatim against pristine upstream v7533:
-    #   https://raw.githubusercontent.com/DCurrent/openbor/v7533/engine/openbor.c
-    print("Step 11 (palette guards): relax PIXEL_x8 gating on auto-palette + convert_map_to_palette")
-    print("                          (Step 11 pattern 1 deliberately skipped — collides with step 3.)")
-    obor_c = os.path.join(obor, 'openbor.c')
-    ob = read(obor_c)
-
-    # Pattern 2: auto-palette-from-first-frame guard
-    # Pristine v7533 has exactly ONE occurrence at line ~16895; verified
-    # via Python `src.count(...)` against pristine fetched 2026-05-19.
-    ob = strict_replace(
-        ob,
-        "if(pixelformat == PIXEL_x8 && !nopalette)",
-        "if(!nopalette)",
-        'auto-palette PIXEL_x8 guard relaxation (step 11 pattern 2)'
-    )
-
-    # Pattern 3: convert_map_to_palette() guard
-    # Removes the `if(pixelformat == PIXEL_x8) { ... }` wrap so colourmap
-    # → 32-bit RGB conversion always happens (no-op when palette is NULL).
-    ob = strict_replace(
-        ob,
-        "// we need to convert 8bit colourmap into 32bit palette\n    if(pixelformat == PIXEL_x8)\n    {\n        convert_map_to_palette(newchar, mapflag);\n    }",
-        "// Always convert 8bit colourmap into 32bit palette (no-op when\n    // model->palette is NULL — safe for 32-bit-native PAKs). Required\n    // for 4086-era PAKs that use `remap` to declare character palettes:\n    // palette/colourmap loading happens unconditionally, this converts\n    // the colourmaps to renderable 32-bit RGB tables. Step 11 pattern 3.\n    convert_map_to_palette(newchar, mapflag);",
-        'convert_map_to_palette PIXEL_x8 guard removal (step 11 pattern 3)'
-    )
-
-    write(obor_c, ob)
-    print("  openbor.c: 2/2 palette guards relaxed (pattern 1 intentionally skipped).")
+    # FIX (v3.1): step 1 and step 2 now gated on has_legacy_remaps so
+    # modern PAKs keep stock 7533 rendering paths entirely. Step 11 is
+    # removed entirely — the guards stay at upstream `pixelformat ==
+    # PIXEL_x8` which passes naturally for both legacy and modern PAKs
+    # in our build. The whole ATOV palette fix now lives in:
+    #   - Step 3: skip CMD_MODEL_REMAP inner palette load + set has_legacy_remaps
+    #   - Step 1 (gated): force PIXEL_x8 sprite load for legacy PAKs
+    #   - Step 2 (gated): skip force-assign for legacy PAKs
+    #   - Step 4 v3: gate line-29499 model->palette fallback on !has_legacy_remaps
+    # Modern PAKs: untouched (has_legacy_remaps=0, all gates skip).
+    # (no patches in this step — step 11 was removed; see comment block above)
 
     print("\nAll patches applied successfully.")
 
