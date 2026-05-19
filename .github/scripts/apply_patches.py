@@ -691,10 +691,40 @@ endif
     else:
         raise RuntimeError("openbor.c: CMD_MODEL_REMAP palette load pattern not found — moved?")
 
+    # Step 3b (2026-05-19 follow-up): pre-scan character.txt buffer for
+    # `remap` declaration BEFORE the line-by-line parse loop fires. Sets
+    # has_legacy_remaps early so loadsprite gating (step 1) sees the
+    # correct flag value, regardless of where `remap` appears in the file.
+    #
+    # WHY: step 3 sets has_legacy_remaps inside the CMD_MODEL_REMAP case,
+    # which only fires during the line-by-line parse. If `remap` declarations
+    # come AFTER `anim`/`frame` blocks in the character.txt (as ATOV
+    # character files do), then the first loadsprite calls (icon, early
+    # anim frames) fire with has_legacy_remaps still at 0 → step 1 gate
+    # uses upstream PIXEL_8 path → sprite->palette not populated → render
+    # falls back to wrong colors for ATOV.
+    #
+    # User-reported 2026-05-19 (verbatim): "atov all the colors regressed
+    # to wrong colors again. this is a legacy pak."
+    #
+    # FIX: scan the buffer once with strstr("\nremap ") + check buffer
+    # start with strncmp("remap ", 6) before the parse loop. If found,
+    # set newchar->has_legacy_remaps = 1 immediately. The step 3 in-parse
+    # set remains as defensive redundancy.
+    #
+    # Anchor: the line right before the main parse loop's while-loop
+    # `while(pos < size)`. Verified against pristine v7533 source/openbor.c
+    # line ~12950: `newchar->hitwalltype = -1; // init to -1` appears
+    # immediately before the parse loop starts.
+    pre_scan_old = "    newchar->hitwalltype = -1; // init to -1\n\n    //char* test = \"load   knife 0\";\n    //ParseArgs(&arglist,test,argbuf);\n\n    // Now interpret the contents of buf line by line\n    while(pos < size)"
+    pre_scan_new = "    newchar->hitwalltype = -1; // init to -1\n\n    /* MiSTer 2026-05-19 step 3b: pre-scan buf for `remap` declaration.\n     * Sets has_legacy_remaps BEFORE the parse loop so loadsprite gating\n     * works regardless of remap-vs-anim ordering in character.txt.\n     * ATOV character files put `anim`/`frame` blocks before `remap`\n     * declarations; without this pre-scan, early loadsprite calls fire\n     * with has_legacy_remaps=0 and miss the PIXEL_x8 path. */\n    if (buf != NULL && (strstr(buf, \"\\nremap \") != NULL || strncmp(buf, \"remap \", 6) == 0)) {\n        newchar->has_legacy_remaps = 1;\n    }\n\n    //char* test = \"load   knife 0\";\n    //ParseArgs(&arglist,test,argbuf);\n\n    // Now interpret the contents of buf line by line\n    while(pos < size)"
+    ob = strict_replace(ob, pre_scan_old, pre_scan_new, 'step 3b: pre-scan buf for remap declaration before parse loop')
+    print("  pre-scan inserted: has_legacy_remaps set BEFORE parse loop (handles remap-after-anim files like ATOV)")
+
     # NOTE: do NOT write ob here yet — step 4 v3 below makes one more
     # edit to openbor.c (the line-29499 fallback gate). One final write
-    # at the end captures all four edits (steps 1, 2, 3, 4 v3).
-    print("  openbor.c per-sprite palette patches: steps 1-3 staged in memory.")
+    # at the end captures all four edits (steps 1, 2, 3, 3b, 4 v3).
+    print("  openbor.c per-sprite palette patches: steps 1-3b staged in memory.")
 
     # Step 4 v3 (option 2, 2026-05-19): gate the line-29499 model->palette
     # fallback on !has_legacy_remaps. Surgical fix that scopes the bypass
