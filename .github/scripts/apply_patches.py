@@ -481,6 +481,46 @@ endif
 
         write(pf_path, pf)
         print(f"  {applied}/{len(fixes)} blend R/B fixes applied.")
+
+        # ── 8b. Restore 4086-era pixelformat default (PIXEL_8 not PIXEL_x8) ──
+        #
+        # 7533 changed the global `pixelformat` default from PIXEL_8 (4086) to
+        # PIXEL_x8. With colourdepth handler ALSO neutered in 7533 (no-op
+        # printf), PAKs that don't declare colourdepth get pixelformat=PIXEL_x8
+        # by default. This makes ALL the `if(pixelformat == PIXEL_x8)` gates
+        # run in character-load code:
+        #
+        #   - CMD_MODEL_REMAP loads newchar->palette from FIRST remap arg
+        #   - Auto-palette force-assigns sprite->palette = newchar->palette
+        #     for EVERY frame loaded after the first remap
+        #   - convert_map_to_palette runs
+        #
+        # For A Tale of Vengeance's Hugo: the first remap arg is `run2.gif`,
+        # whose palette is BLUE-tinted. Every Hugo sprite (idle, atk, hit,
+        # fall) gets force-assigned this blue palette → Hugo renders BLUE
+        # instead of GREEN canonical (per his idle00.gif palette).
+        #
+        # 4086 with default PIXEL_8 never enters this code path → each sprite
+        # uses its own embedded GIF palette → canonical colors.
+        #
+        # Fix: change the pixelformat.c default initializer to match 4086.
+        # PAKs that explicitly need PIXEL_x8 still get it (would set via
+        # colourdepth — though 7533's handler is no-op so this only matters
+        # if we later restore it).
+        #
+        # Verified empirically 2026-05-19 via cross-build pixel comparison:
+        # 4086 Hugo pants = green RGB family, 7533 Hugo region = different
+        # palette table entirely. Root cause = default pixelformat divergence.
+        print("Patching source/gamelib/pixelformat.c (default = PIXEL_8 to match 4086)...")
+        if "int pixelformat = PIXEL_x8;" in pf:
+            pf = pf.replace(
+                "int pixelformat = PIXEL_x8;",
+                "int pixelformat = PIXEL_8;  /* Match 4086 default — fixes A Tale of Vengeance Hugo blue */"
+            )
+            write(pf_path, pf)
+            print("  pixelformat default → PIXEL_8 (was PIXEL_x8).")
+        else:
+            print("  WARN: 'int pixelformat = PIXEL_x8;' not found — already changed?")
     else:
         print("  WARN: pixelformat.c not found at expected path — may have moved in 7533")
 
