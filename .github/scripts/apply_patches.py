@@ -769,8 +769,48 @@ endif
     ob = strict_replace(ob, fallback_old, fallback_new, 'gate line-29499 model->palette fallback on !has_legacy_remaps')
     print("  line 29499 fallback gated: skipped for legacy-remap PAKs (ATOV); preserved for modern PAKs")
 
+    # Step 4c v3.4: clear drawmethod->table for legacy PAKs AFTER all
+    # setters have fired. v3.3's line-29499 gate only blocked ONE of FIVE
+    # drawmethod->table setters (the model->palette fallback). Per-frame
+    # `remap N` (line 29473), entity colourmap (line 29491), globalmap
+    # (line 29515), and KO/dying flash (line 29524-29562) STILL set
+    # drawmethod->table for legacy PAKs.
+    #
+    # ATOV characters use per-frame `remap N` declarations in their
+    # animations, so drawmethod->table = model_get_colourmap(remap) on
+    # nearly every frame — overriding the canonical sprite->palette path
+    # that step 1 + step 2 set up.
+    #
+    # User-reported 2026-05-19 after v3.3 deploy:
+    #   "atov colors are still wrong."
+    #
+    # Match v2's sprite.c-bypass behavior at engine level: after ALL
+    # drawmethod->table setters fire (including dying flash), if the
+    # entity is a legacy-remap PAK, clear the table to NULL. putsprite
+    # then falls back to sprite->palette = each frame's GIF palette =
+    # canonical per-sprite rendering.
+    #
+    # Trade-off (matches v2): legacy PAKs lose ALL drawmethod-based
+    # effects (KO flash, level palette, globalmap, per-frame remaps,
+    # entity colourmap). Documented + accepted — ATOV-era PAKs were
+    # authored to look right with their own GIF palettes; the engine's
+    # colourmap infrastructure was for OTHER cart authoring patterns.
+    #
+    # Modern PAKs (has_legacy_remaps=0): this clear does nothing.
+    # Stock 7533 behavior preserved across the board.
+    #
+    # Anchor: insert AFTER the closing braces of the dying-flash block
+    # (line ~29566), BEFORE "// Draw the entity according to its facing."
+    # (line ~29567). Verified against pristine v7533.
+    print("Adding step 4c v3.4: clear drawmethod->table for legacy PAKs after all setters...")
+    ob = read(ob_path)  # re-read to pick up the line-29499 gate we just wrote
+    drawclear_old = "                            }\n                        }\n                    }\n\n\t\t\t\t\t// Draw the entity according to its facing."
+    drawclear_new = "                            }\n                        }\n                    }\n\n                    /* MiSTer palette fix v3.4 (2026-05-19): clear drawmethod->table for\n                     * legacy-remap PAKs to force putsprite to use sprite->palette per\n                     * frame (canonical per-GIF rendering). Matches v2 sprite.c bypass\n                     * but at engine level — covers all 5 setters: per-frame remap,\n                     * entity colourmap, model->palette fallback, globalmap, dying flash.\n                     * Trade-off: legacy PAKs lose drawmethod-based effects (KO flash etc.).\n                     * Modern PAKs (has_legacy_remaps=0): no-op, stock 7533 preserved. */\n                    if (e->modeldata.has_legacy_remaps) {\n                        drawmethod->table = NULL;\n                    }\n\n\t\t\t\t\t// Draw the entity according to its facing."
+    ob = strict_replace(ob, drawclear_old, drawclear_new, 'step 4c v3.4: clear drawmethod->table for legacy PAKs after all setters')
+    print("  drawmethod->table cleared post-setters for legacy PAKs (matches v2 sprite.c-bypass behavior)")
+
     write(ob_path, ob)
-    print("  openbor.c: all 4 palette patches (steps 1, 2, 3, 4 v3) written to disk.")
+    print("  openbor.c: all 5 palette patches (steps 1, 2, 3, 3b, 4 v3, 4c v3.4) written to disk.")
 
     # ── 10. Audio Stage 1: NO PATCH (Option C v2, 2026-05-15 evening).
     #
