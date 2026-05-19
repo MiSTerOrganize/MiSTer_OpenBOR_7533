@@ -432,7 +432,13 @@ endif
     # the engine's BGR-LE pipeline and produce BGR-LE output that
     # matches input convention; our patch broke this). Toggle to True
     # to re-enable if the test refutes the hypothesis.
-    STEP_8_ENABLED = False
+    # 2026-05-18 evening: tested STEP_8_ENABLED=False — girls still green-purple,
+    # so step 8 is NOT the girls bug cause. Re-enabled to restore pre-session
+    # state — step 8 was originally added to fix SOMETHING (likely a different
+    # bug not yet identified) and disabling it might silently reintroduce that.
+    # Default-safer position: leave it enabled until we have positive evidence
+    # it's wrong-shaped.
+    STEP_8_ENABLED = True
     print("Patching source/gamelib/pixelformat.c (32-bit blend R/B fix)...")
     pf_path = os.path.join(obor, 'source/gamelib/pixelformat.c')
     if not STEP_8_ENABLED:
