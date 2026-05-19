@@ -543,8 +543,43 @@ endif
     else:
         raise RuntimeError("openbor.c: sprite->palette force-assign pattern not found — moved?")
 
+    # Step 3: skip CMD_MODEL_REMAP's inner palette load.
+    #
+    # In 7533 default (pixelformat=PIXEL_x8), CMD_MODEL_REMAP loads
+    # newchar->palette = first-remap-arg's GIF palette (e.g. run2.gif for Hugo).
+    # This becomes the model's master palette, which feeds drawmethod->table via
+    # ent_set_colourmap → model_get_colourmap(model, 0) = model->palette.
+    # putsprite_x8p32 with drawmethod->table != NULL uses drawmethod->table
+    # OVERRIDING sprite->palette → all sprites render with run2's palette
+    # regardless of step 1/2 per-sprite palette fix.
+    #
+    # Fix: skip the inner load here. The engine's auto-palette code (line ~16805)
+    # then loads newchar->palette from the FIRST animation frame's GIF (idle00
+    # for Hugo, etc.) — the canonical color. drawmethod->table → idle00's
+    # palette → canonical render.
+    remap_load_old = """if(pixelformat == PIXEL_x8 && newchar->palette == NULL)
+                    {
+                        newchar->palette = malloc(PAL_BYTES);
+                        if(loadimagepalette(value, packfile, newchar->palette) == 0)
+                        {
+                            shutdownmessage = "Failed to load palette!";
+                            goto lCleanup;
+                        }
+                    }"""
+    remap_load_new = """// PALETTE FIX: skip inner palette load. Loading from `value` (first
+                    // remap arg, e.g. run2.gif for Hugo) makes that GIF's palette
+                    // the model's master palette → overrides every sprite via
+                    // drawmethod->table. Let auto-palette code at line ~16805
+                    // load from the first ANIM frame (idle00.gif) instead =
+                    // canonical color. Fixes A Tale of Vengeance Hugo/Vice/Playa."""
+    if remap_load_old in ob:
+        ob = ob.replace(remap_load_old, remap_load_new)
+        print("  CMD_MODEL_REMAP inner palette load skipped (auto-loads from first anim frame)")
+    else:
+        raise RuntimeError("openbor.c: CMD_MODEL_REMAP palette load pattern not found — moved?")
+
     write(ob_path, ob)
-    print("  openbor.c per-sprite palette patches applied.")
+    print("  openbor.c per-sprite palette patches applied (3 changes).")
 
     # ── 10. Audio Stage 1: NO PATCH (Option C v2, 2026-05-15 evening).
     #
