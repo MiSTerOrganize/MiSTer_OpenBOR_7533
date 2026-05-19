@@ -484,6 +484,68 @@ endif
     else:
         print("  WARN: pixelformat.c not found at expected path — may have moved in 7533")
 
+    # ── 8b. Per-sprite palette (fixes A Tale of Vengeance Hugo/Vice/Playa) ──
+    #
+    # 7533 keeps pixelformat=PIXEL_x8 default but hardcodes vscreen to PIXEL_32
+    # (engine/openbor.c:49037), forcing rendering through putsprite_x8p32. The
+    # engine then "helpfully" loads model->palette from the FIRST animation
+    # frame's GIF and FORCE-ASSIGNS that palette to EVERY subsequent sprite
+    # (line ~16821). For ATOV's `remap run2.gif map1.gif` declarations, the
+    # first arg is run2.gif which has a BLUE palette — so every Hugo sprite
+    # (idle, atk, hit, fall, walk) gets the blue palette, regardless of its
+    # OWN embedded palette.
+    #
+    # 4086 doesn't hit this because it runs in 8-bit screen mode end-to-end
+    # (vscreen allocated with `screenformat` which defaults to PIXEL_8, not
+    # hardcoded to PIXEL_32). The engine dispatches to putsprite_8 (different
+    # renderer) which works correctly with indexed sprites.
+    #
+    # 7533 can't run 8-bit screen anymore. But we can make each sprite KEEP
+    # its OWN GIF-embedded palette (instead of force-assigning newchar->palette
+    # to all of them). Two steps:
+    #
+    #   1. Change loadsprite() call to pass PIXEL_x8 (not PIXEL_8) so the
+    #      bitmap allocator keeps the GIF's palette intact in sprite->palette.
+    #      Cost: ~1KB extra per sprite = ~1.4 MB total for a 1400-sprite PAK.
+    #
+    #   2. Remove the `sprite_map[index].node->sprite->palette = newchar->palette;`
+    #      force-assign so each sprite renders with its own palette.
+    #
+    # Result: putsprite_x8p32 with drawmethod->table NULL falls back to
+    # sprite->palette = each sprite's OWN GIF palette = canonical colors.
+    # Entities with drawmethod-based remaps (KO flash, dying) still work
+    # via the model_get_colourmap path.
+    #
+    # Verified 2026-05-19: cross-build pixel comparison showed 4086 Hugo green
+    # vs 7533 Hugo blue. Tried changing pixelformat default to PIXEL_8 (crashed
+    # in putsprite_x8p32 because nopalette path leaves sprite->palette NULL).
+    # This per-sprite fix avoids the crash by ensuring sprite->palette is
+    # always populated from the GIF.
+    print("Patching openbor.c (per-sprite palette: PIXEL_x8 loadsprite + skip force-assign)...")
+    ob_path = os.path.join(obor, 'openbor.c')
+    ob = read(ob_path)
+
+    # Step 1: loadsprite always with PIXEL_x8 (keeps bitmap palette in sprite)
+    loadsprite_old = "loadsprite(value, offset.x, offset.y, nopalette ? PIXEL_x8 : PIXEL_8); //don't use palette for the sprite since it will one palette from the entity's remap list in 24bit mode"
+    loadsprite_new = "loadsprite(value, offset.x, offset.y, PIXEL_x8); // ALWAYS keep per-sprite palette — fixes A Tale of Vengeance (4086-era PAK) Hugo/Vice/Playa wrong colors"
+    if loadsprite_old in ob:
+        ob = ob.replace(loadsprite_old, loadsprite_new)
+        print("  loadsprite → PIXEL_x8 (was conditional PIXEL_8)")
+    else:
+        raise RuntimeError("openbor.c: loadsprite call site not found — pattern moved?")
+
+    # Step 2: skip the force-assign of sprite->palette = newchar->palette
+    force_assign_old = "                            sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
+    force_assign_new = "                            // Per-sprite palette fix: do NOT force-assign newchar->palette\n                            // to all sprites. Each sprite keeps its own GIF-embedded palette.\n                            // sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
+    if force_assign_old in ob:
+        ob = ob.replace(force_assign_old, force_assign_new)
+        print("  sprite->palette force-assign skipped (kept per-sprite palette)")
+    else:
+        raise RuntimeError("openbor.c: sprite->palette force-assign pattern not found — moved?")
+
+    write(ob_path, ob)
+    print("  openbor.c per-sprite palette patches applied.")
+
     # ── 10. Audio Stage 1: NO PATCH (Option C v2, 2026-05-15 evening).
     #
     # Engine runs at UPSTREAM NATIVE 44.1 kHz (Sega CD Red Book CDDA rate).
