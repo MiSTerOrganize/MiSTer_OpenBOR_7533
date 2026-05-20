@@ -38,11 +38,6 @@ bool NativeVideoWriter_IsActive(void);
 /// Read joystick state for player 0-3 from DDR3 (written by FPGA).
 uint32_t NativeVideoWriter_ReadJoystick(int player);
 
-/// Request the next WriteFrame call to dump per-pixel debug samples
-/// to stderr. Used by control_patch's Select-button trigger so the
-/// user can grab a snapshot of whatever frame is currently showing.
-void NativeVideoWriter_RequestDebugDump(void);
-
 /// Check if FPGA has loaded a cart file (returns file size, 0 if none).
 uint32_t NativeVideoWriter_CheckCart(void);
 

@@ -51,12 +51,6 @@ static int mem_fd = -1;
 static volatile uint8_t* ddr_base = NULL;
 static uint32_t frame_counter = 0;
 static int active_buf = 0;
-static int first_frame = 1;
-static volatile int debug_dump_request = 0;
-
-void NativeVideoWriter_RequestDebugDump(void) {
-    debug_dump_request = 1;
-}
 
 bool NativeVideoWriter_Init(void) {
     mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
@@ -91,7 +85,6 @@ bool NativeVideoWriter_Init(void) {
     }
     frame_counter = 0;
     active_buf = 0;
-    first_frame = 3;   /* sample the first three frames */
 
     fprintf(stderr, "NativeVideoWriter: mapped 0x%08X, %dx%d @ %d bytes/frame\n",
             NV_DDR_PHYS_BASE, NV_FRAME_WIDTH, NV_FRAME_HEIGHT, NV_FRAME_BYTES);
@@ -114,147 +107,6 @@ void NativeVideoWriter_Shutdown(void) {
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                   int pitch, int bpp, const void* palette) {
     if (!ddr_base || !pixels) return;
-
-    /* DIAG: Continuous frame capture for palette debug. Writes engine's
-     * native frame as RGB888 PPM every 120 frames (2s @ 60fps), up to
-     * 600 captures = 20 min coverage. Engine bypasses SDL during
-     * gameplay (per openbor_source_patches.c) so this is THE hook
-     * point. Per user request 2026-05-18 for A Tale of Vengeance
-     * palette bug. TEMPORARY — revert after fix lands. */
-    {
-        static int dbg_frame = 0;
-        static int dbg_cap_idx = 0;
-        if ((dbg_frame % 120) == 0 && dbg_cap_idx < 600) {
-            char path[128];
-            FILE *fp;
-            snprintf(path, sizeof(path),
-                     "/media/fat/logs/OpenBOR_7533/captures/cap_%03d.ppm",
-                     dbg_cap_idx);
-            fp = fopen(path, "wb");
-            if (fp) {
-                int xi, yi;
-                fprintf(fp, "P6\n%d %d\n255\n", width, height);
-                if (bpp == 32) {
-                    /* Engine 0xBBGGRR; LE memory bytes R, G, B, A. */
-                    const uint8_t *src = (const uint8_t*)pixels;
-                    for (yi = 0; yi < height; yi++) {
-                        const uint8_t *row = src + yi * pitch;
-                        for (xi = 0; xi < width; xi++) {
-                            const uint8_t *p = row + xi * 4;
-                            uint8_t rgb[3] = { p[0], p[1], p[2] };
-                            fwrite(rgb, 1, 3, fp);
-                        }
-                    }
-                } else if (bpp == 16) {
-                    /* BGR565: B at bit 11, G at bit 5, R at bit 0. */
-                    const uint8_t *src = (const uint8_t*)pixels;
-                    for (yi = 0; yi < height; yi++) {
-                        const uint16_t *row = (const uint16_t*)(src + yi * pitch);
-                        for (xi = 0; xi < width; xi++) {
-                            uint16_t px = row[xi];
-                            uint8_t r5 = px & 0x001F;
-                            uint8_t g6 = (px & 0x07E0) >> 5;
-                            uint8_t b5 = (px & 0xF800) >> 11;
-                            uint8_t rgb[3] = {
-                                (uint8_t)((r5 << 3) | (r5 >> 2)),
-                                (uint8_t)((g6 << 2) | (g6 >> 4)),
-                                (uint8_t)((b5 << 3) | (b5 >> 2))
-                            };
-                            fwrite(rgb, 1, 3, fp);
-                        }
-                    }
-                } else if (bpp == 8 && palette) {
-                    /* Indexed: palette is 3-byte R/G/B per entry, 256 entries. */
-                    const uint8_t *src = (const uint8_t*)pixels;
-                    const uint8_t *pal = (const uint8_t*)palette;
-                    for (yi = 0; yi < height; yi++) {
-                        const uint8_t *row = src + yi * pitch;
-                        for (xi = 0; xi < width; xi++) {
-                            uint8_t idx = row[xi];
-                            uint8_t rgb[3] = {
-                                pal[idx * 3 + 0],
-                                pal[idx * 3 + 1],
-                                pal[idx * 3 + 2]
-                            };
-                            fwrite(rgb, 1, 3, fp);
-                        }
-                    }
-                }
-                fclose(fp);
-                dbg_cap_idx++;
-            }
-        }
-        dbg_frame++;
-    }
-
-    /* Debug: dump format + raw byte samples from a handful of pixels for
-     * the first 3 frames. Gives us enough signal to tell whether colors
-     * look wrong because of byte-order (we extract wrong channels), a
-     * palette issue (8bpp path with bad palette), or because OpenBOR
-     * already produced wrong colors before reaching us. */
-    int do_dump = (first_frame > 0) || debug_dump_request;
-    if (do_dump) {
-        const char *why = debug_dump_request ? "SELECT" : "BOOT";
-        int frame_no = debug_dump_request ? 99 : (4 - first_frame);
-        const uint8_t *src = (const uint8_t *)pixels;
-        fprintf(stderr,
-            "NativeVideoWriter[%s F%d]: %dx%d pitch=%d bpp=%d palette=%p\n",
-            why, frame_no, width, height, pitch, bpp, palette);
-
-        /* SELECT dumps a 4x4 grid across the frame so enemy pixels
-         * (which rarely line up with the three fixed BOOT samples)
-         * have a chance to show up. BOOT dumps stay terse. */
-        int grid = debug_dump_request ? 4 : 3;
-        int samples[16][2];
-        int nsamples = 0;
-        if (debug_dump_request) {
-            for (int gy = 0; gy < 4; gy++)
-                for (int gx = 0; gx < 4; gx++) {
-                    samples[nsamples][0] = (width  * (gx * 2 + 1)) / 8;
-                    samples[nsamples][1] = (height * (gy * 2 + 1)) / 8;
-                    nsamples++;
-                }
-        } else {
-            samples[0][0]=0;          samples[0][1]=0;
-            samples[1][0]=width/2;    samples[1][1]=height/2;
-            samples[2][0]=width-1;    samples[2][1]=height-1;
-            nsamples = 3;
-        }
-        (void)grid;
-        int bypp = bpp / 8; if (bypp < 1) bypp = 1;
-        for (int i = 0; i < nsamples; i++) {
-            int sx = samples[i][0], sy = samples[i][1];
-            const uint8_t *p = src + sy * pitch + sx * bypp;
-            if (bpp == 32) {
-                fprintf(stderr,
-                    "  px(%3d,%3d) raw=%02X %02X %02X %02X "
-                    "-> assumed RGBA r=%02X g=%02X b=%02X\n",
-                    sx, sy, p[0], p[1], p[2], p[3], p[0], p[1], p[2]);
-            } else if (bpp == 16) {
-                uint16_t px = ((const uint16_t *)p)[0];
-                fprintf(stderr,
-                    "  px(%3d,%3d) raw=%04X (LE bytes %02X %02X)\n",
-                    sx, sy, px, p[0], p[1]);
-            } else if (bpp == 8) {
-                uint8_t idx = p[0];
-                if (palette) {
-                    const uint8_t *pal = (const uint8_t *)palette;
-                    fprintf(stderr,
-                        "  px(%3d,%3d) idx=%02X -> pal r=%02X g=%02X b=%02X\n",
-                        sx, sy, idx, pal[idx*3+0], pal[idx*3+1], pal[idx*3+2]);
-                } else {
-                    fprintf(stderr,
-                        "  px(%3d,%3d) idx=%02X (no palette!)\n",
-                        sx, sy, idx);
-                }
-            } else {
-                fprintf(stderr, "  px(%3d,%3d) bpp=%d unhandled\n", sx, sy, bpp);
-            }
-        }
-        fflush(stderr);
-        if (debug_dump_request) debug_dump_request = 0;
-        else if (first_frame > 0)  first_frame--;
-    }
 
     /* Clamp to frame dimensions */
     if (width > NV_FRAME_WIDTH) width = NV_FRAME_WIDTH;
