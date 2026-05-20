@@ -602,45 +602,67 @@ endif
     # NO STRUCT MODIFICATIONS in v3.6. No new fields. No offset shifts.
     # Modern PAKs render bit-identically to stock 7533. ATOV gets the
     # same path that worked in v2.
-    print("v3.6: using newchar->maps_loaded > 0 as legacy-remap discriminator (no struct field added)")
+    print("v3.8: has_remap_directive local (set ONLY by CMD_MODEL_REMAP, not CMD_MODEL_ALTERNATEPAL)")
+    print("       — distinguishes ATOV-style legacy `remap` from modern `alternatepal` (Cap/He-Man).")
+    print("       — Pure load_cached_model local int; no struct field added; no offset shifts.")
 
     print("Patching openbor.c (per-sprite palette: PIXEL_x8 loadsprite + skip force-assign)...")
     ob_path = os.path.join(obor, 'openbor.c')
     ob = read(ob_path)
 
+    # Step 0 (v3.8 new): add `int has_remap_directive = 0;` local in
+    # load_cached_model. Initialized fresh per character.txt parse. Set to 1
+    # ONLY when CMD_MODEL_REMAP fires — NOT when CMD_MODEL_ALTERNATEPAL fires
+    # (both increment newchar->maps_loaded, but only `remap` is the ATOV-era
+    # legacy directive we need to detect).
+    #
+    # WHY v3.7's maps_loaded gate broke Cap (2026-05-20 incident):
+    # Cap's captain.txt has `palette classic.gif` + 7 `alternatepal` directives.
+    # CMD_MODEL_ALTERNATEPAL increments newchar->maps_loaded just like
+    # CMD_MODEL_REMAP does. So v3.7's `maps_loaded > 0` gate MISCLASSIFIED Cap
+    # as legacy → step 1 forced PIXEL_x8 + step 2 skipped force-assign → step 4 v2
+    # bypassed drawmethod->table → render via per-frame GIF palette ≠ classic.gif
+    # → Cap pink. ATOV PAKs use `remap` (not alternatepal) so they were unaffected
+    # by the bug.
+    #
+    # FIX (v3.8): use a discriminator that ONLY counts `remap`. Cap with 7
+    # alternatepals → has_remap_directive = 0 → modern path. Hugo with 6 remaps
+    # → has_remap_directive = 1 → legacy path.
+    add_local_old = "    int nopalette = 0;\n    \n    size_t size = 0;"
+    add_local_new = "    int nopalette = 0;\n    int has_remap_directive = 0; /* MiSTer v3.8: set ONLY by CMD_MODEL_REMAP, distinguishes ATOV-style legacy from modern alternatepal */\n    \n    size_t size = 0;"
+    ob = strict_replace(ob, add_local_old, add_local_new, 'v3.8 step 0: add has_remap_directive local in load_cached_model')
+    print("  added local `int has_remap_directive = 0` in load_cached_model")
+
+    # Step 0b (v3.8 new): set has_remap_directive = 1 inside CMD_MODEL_REMAP case.
+    # Anchor on the unique `// This command should not be used under 24bit mode`
+    # comment that appears only in CMD_MODEL_REMAP.
+    set_flag_old = "            case CMD_MODEL_REMAP:\n            {\n                // This command should not be used under 24bit mode, but for old mods, just give it a default palette"
+    set_flag_new = "            case CMD_MODEL_REMAP:\n            {\n                has_remap_directive = 1; /* MiSTer v3.8: legacy-remap discriminator (NOT set by alternatepal) */\n                // This command should not be used under 24bit mode, but for old mods, just give it a default palette"
+    ob = strict_replace(ob, set_flag_old, set_flag_new, 'v3.8 step 0b: set has_remap_directive=1 in CMD_MODEL_REMAP')
+    print("  set has_remap_directive=1 inside CMD_MODEL_REMAP case")
+
     # Step 1: loadsprite uses PIXEL_x8 ONLY for legacy-remap PAKs (ATOV-style).
     # Modern PAKs keep upstream behavior: `nopalette ? PIXEL_x8 : PIXEL_8`.
     #
-    # GATE: `newchar->maps_loaded > 0` — set by load_colourmap() each time
-    # CMD_MODEL_REMAP fires. ATOV character.txt files put `remap` declarations
-    # BEFORE `anim`/`frame` blocks (verified by extracting Hugo's ANDORE.TXT,
-    # Vice's VICE.TXT, Playa's PLAYA.TXT directly from the .pak 2026-05-19/20).
-    # So maps_loaded > 0 by the time the first anim frame's loadsprite fires.
-    # Modern PAKs (Cap, He-Man) don't use `remap` → maps_loaded stays 0 →
-    # gate evaluates false → upstream PIXEL_x8/PIXEL_8 conditional → stock
-    # rendering path preserved.
+    # GATE v3.8: `has_remap_directive` — set by CMD_MODEL_REMAP only.
+    # ATOV chars have `remap` declarations BEFORE anim/frame blocks, so
+    # has_remap_directive=1 by the time the first frame's loadsprite fires.
+    # Cap/He-Man have `alternatepal` (not `remap`) → flag stays 0 → modern path.
     loadsprite_old = "loadsprite(value, offset.x, offset.y, nopalette ? PIXEL_x8 : PIXEL_8); //don't use palette for the sprite since it will one palette from the entity's remap list in 24bit mode"
-    loadsprite_new = "loadsprite(value, offset.x, offset.y, (newchar->maps_loaded > 0 || nopalette) ? PIXEL_x8 : PIXEL_8); // MiSTer 2026-05-20: force PIXEL_x8 for legacy-remap PAKs (ATOV; maps_loaded>0 after CMD_MODEL_REMAP fires) so sprite->palette is populated for the per-sprite-palette path; modern PAKs keep upstream PIXEL_8 (sprite has embedded palette) for stock rendering parity"
-    ob = strict_replace(ob, loadsprite_old, loadsprite_new, 'step 1: loadsprite PIXEL_x8 gated on maps_loaded')
-    print("  loadsprite → PIXEL_x8 ONLY for legacy-remap PAKs (modern PAKs unchanged)")
+    loadsprite_new = "loadsprite(value, offset.x, offset.y, (has_remap_directive || nopalette) ? PIXEL_x8 : PIXEL_8); // MiSTer v3.8 2026-05-20: force PIXEL_x8 for ATOV-style legacy `remap` PAKs (has_remap_directive=1 after CMD_MODEL_REMAP fires); modern PAKs using `alternatepal` (Cap/He-Man) keep stock PIXEL_8 path"
+    ob = strict_replace(ob, loadsprite_old, loadsprite_new, 'step 1: loadsprite PIXEL_x8 gated on has_remap_directive')
+    print("  loadsprite → PIXEL_x8 ONLY for ATOV-style legacy `remap` PAKs (alternatepal-only PAKs unchanged)")
 
     # Step 2: skip force-assign ONLY for legacy-remap PAKs. Modern PAKs keep
-    # the force-assign so sprite->palette = model->palette consistently across
-    # all frames — same as stock 7533. ATOV-style PAKs skip the force-assign
-    # so each sprite keeps its own GIF palette (canonical per-frame).
+    # the force-assign so sprite->palette = newchar->palette consistently
+    # across all frames — same as stock 7533.
     #
-    # Why this matters: He-Man and other modern PAKs without `remap` use the
-    # auto-palette block to set model->palette = idle00.gif palette, then
-    # force-assign that to all sprites. Skipping the force-assign for modern
-    # PAKs leaves sprite->palette = each frame's own GIF palette (different
-    # per frame), and the renderer applies drawmethod->table = model->palette
-    # (= idle00) across frames — palette mismatch → visible flashing as
-    # character animates. User-reported 2026-05-19. Gating step 2 to legacy-
-    # only restores stock 7533 behavior for modern PAKs.
+    # GATE v3.8: `!has_remap_directive` — modern PAKs without `remap` get
+    # the force-assign, ATOV-style with `remap` skip it.
     force_assign_old = "                            sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
-    force_assign_new = "                            // MiSTer 2026-05-20: skip force-assign for legacy-remap PAKs (ATOV-style, maps_loaded>0)\n                            // so each sprite keeps its own GIF palette. Modern PAKs keep stock behavior\n                            // (force-assign newchar->palette to all sprites) to avoid per-frame palette mismatch flashing.\n                            if (newchar->maps_loaded == 0) sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
-    ob = strict_replace(ob, force_assign_old, force_assign_new, 'step 2: skip force-assign gated on maps_loaded')
-    print("  sprite->palette force-assign skipped ONLY for legacy PAKs (modern PAKs keep stock force-assign)")
+    force_assign_new = "                            // MiSTer v3.8 2026-05-20: skip force-assign for ATOV-style legacy `remap` PAKs (has_remap_directive=1).\n                            // So each sprite keeps its own GIF palette = canonical per-frame for legacy.\n                            // Modern PAKs (alternatepal-only, Cap/He-Man) keep stock behavior: force-assign\n                            // newchar->palette to all sprites = canonical master across all frames.\n                            if (!has_remap_directive) sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
+    ob = strict_replace(ob, force_assign_old, force_assign_new, 'step 2: skip force-assign gated on has_remap_directive')
+    print("  sprite->palette force-assign skipped ONLY for ATOV-style legacy PAKs (modern PAKs keep stock force-assign)")
 
     # Step 3: skip CMD_MODEL_REMAP's inner palette load.
     #
