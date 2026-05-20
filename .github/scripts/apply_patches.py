@@ -577,39 +577,32 @@ endif
     # in putsprite_x8p32 because nopalette path leaves sprite->palette NULL).
     # This per-sprite fix avoids the crash by ensuring sprite->palette is
     # always populated from the GIF.
-    # Add `has_legacy_remaps` flag to s_model struct in openbor.h.
-    # Set when CMD_MODEL_REMAP fires (step 3); gates the line-29499
-    # model->palette fallback (step 4) so the bypass scopes to legacy-
-    # remap PAKs only — modern PAKs (no `remap` declarations) keep
-    # drawmethod->table flow normal (KO flash, level palette, globalmap,
-    # per-frame remap effects all preserved).
+    # v3.6 (2026-05-20): use existing `newchar->maps_loaded` field as the
+    # legacy-remap discriminator instead of adding a new s_model field.
     #
-    # Why: original step 4 v2 unconditionally bypassed drawmethod->table
-    # whenever frame->palette was populated (always after step 1). That
-    # broke Avengers UBF Captain America rendering (sprite GIFs use
-    # placeholder palette; canonical red/white/blue comes from a colourmap
-    # the engine applies via drawmethod->table — bypass = pink Captain
-    # America). User-reported regression 2026-05-19.
+    # WHY: v3.5 added `int has_legacy_remaps` to s_model right after
+    # `int maps_loaded`. This added 4 bytes to s_model and SHIFTED the
+    # offset of every subsequent field (globalmap, unload, and ~78 more
+    # fields). If any code in the engine accesses s_model fields via
+    # hardcoded offsets (scripting layer, assembly, memcpy with sizeof
+    # snapshot), the shifted offsets corrupt rendering subtly. ATOV
+    # characters in v3.5 rendered with WRONG palettes (Hugo blue instead
+    # of green, etc.) — suspected offset-shift corruption.
     #
-    # New design: flag legacy-remap PAKs at character load time, then
-    # condition the model->palette fallback at line 29499 on
-    # !has_legacy_remaps. ATOV (has_legacy_remaps=1) gets drawmethod->table
-    # NULL → sprite->palette wins → canonical Hugo green. Avengers
-    # (has_legacy_remaps=0) keeps the fallback → drawmethod->table set →
-    # canonical Captain America rendering preserved. KO flash etc. set
-    # drawmethod->table BEFORE the fallback check, so they always work
-    # regardless of the flag.
-    print("Adding has_legacy_remaps field to s_model struct in openbor.h...")
-    obh_path = os.path.join(obor, 'openbor.h')
-    obh = read(obh_path)
-    obh = strict_replace(
-        obh,
-        "    int maps_loaded; // Used for player colourmap selecting",
-        "    int maps_loaded; // Used for player colourmap selecting\n    int has_legacy_remaps; // MiSTer 2026-05-19: set when CMD_MODEL_REMAP fires (ATOV-style PAK); gates line-29499 model->palette fallback so modern PAKs keep drawmethod->table effects",
-        'add has_legacy_remaps field to s_model struct'
-    )
-    write(obh_path, obh)
-    print("  s_model.has_legacy_remaps field added")
+    # User-reported 2026-05-20: "atov wrong colors for hugo, vice, playa"
+    # on v3.5 build (md5 babf017daf173f8b8682c054e165ec62).
+    #
+    # FIX (v3.6): drop the struct field entirely. Use the EXISTING field
+    # `int maps_loaded` (already in s_model since stock 7533) as the
+    # discriminator. It's incremented by load_colourmap() each time
+    # CMD_MODEL_REMAP fires, so it naturally equals 0 for modern PAKs
+    # (no `remap` declarations → load_colourmap never called → stays 0)
+    # and > 0 for legacy PAKs (Hugo=6, Vice=6, Playa=4 remap declarations).
+    #
+    # NO STRUCT MODIFICATIONS in v3.6. No new fields. No offset shifts.
+    # Modern PAKs render bit-identically to stock 7533. ATOV gets the
+    # same path that worked in v2.
+    print("v3.6: using newchar->maps_loaded > 0 as legacy-remap discriminator (no struct field added)")
 
     print("Patching openbor.c (per-sprite palette: PIXEL_x8 loadsprite + skip force-assign)...")
     ob_path = os.path.join(obor, 'openbor.c')
@@ -618,17 +611,17 @@ endif
     # Step 1: loadsprite uses PIXEL_x8 ONLY for legacy-remap PAKs (ATOV-style).
     # Modern PAKs keep upstream behavior: `nopalette ? PIXEL_x8 : PIXEL_8`.
     #
-    # NOTE on ordering: `newchar->has_legacy_remaps` is set by step 3 inside
-    # the CMD_MODEL_REMAP case during character.txt parse. Well-formatted
-    # OpenBOR character files put `remap` declarations near the top of the
-    # file, BEFORE animation `anim`/`frame` blocks. So by the time loadsprite
-    # fires for the first anim frame, has_legacy_remaps is already set if
-    # the PAK uses remap. Modern PAKs that don't use remap → flag stays 0
-    # → loadsprite uses upstream PIXEL_x8/PIXEL_8 conditional → stock
-    # rendering path preserved → no regression.
+    # GATE: `newchar->maps_loaded > 0` — set by load_colourmap() each time
+    # CMD_MODEL_REMAP fires. ATOV character.txt files put `remap` declarations
+    # BEFORE `anim`/`frame` blocks (verified by extracting Hugo's ANDORE.TXT,
+    # Vice's VICE.TXT, Playa's PLAYA.TXT directly from the .pak 2026-05-19/20).
+    # So maps_loaded > 0 by the time the first anim frame's loadsprite fires.
+    # Modern PAKs (Cap, He-Man) don't use `remap` → maps_loaded stays 0 →
+    # gate evaluates false → upstream PIXEL_x8/PIXEL_8 conditional → stock
+    # rendering path preserved.
     loadsprite_old = "loadsprite(value, offset.x, offset.y, nopalette ? PIXEL_x8 : PIXEL_8); //don't use palette for the sprite since it will one palette from the entity's remap list in 24bit mode"
-    loadsprite_new = "loadsprite(value, offset.x, offset.y, (newchar->has_legacy_remaps || nopalette) ? PIXEL_x8 : PIXEL_8); // MiSTer 2026-05-19: force PIXEL_x8 for legacy-remap PAKs (ATOV) so sprite->palette is populated for the per-sprite-palette path; modern PAKs keep upstream PIXEL_8 (sprite has embedded palette) for stock rendering parity"
-    ob = strict_replace(ob, loadsprite_old, loadsprite_new, 'step 1: loadsprite PIXEL_x8 gated on has_legacy_remaps')
+    loadsprite_new = "loadsprite(value, offset.x, offset.y, (newchar->maps_loaded > 0 || nopalette) ? PIXEL_x8 : PIXEL_8); // MiSTer 2026-05-20: force PIXEL_x8 for legacy-remap PAKs (ATOV; maps_loaded>0 after CMD_MODEL_REMAP fires) so sprite->palette is populated for the per-sprite-palette path; modern PAKs keep upstream PIXEL_8 (sprite has embedded palette) for stock rendering parity"
+    ob = strict_replace(ob, loadsprite_old, loadsprite_new, 'step 1: loadsprite PIXEL_x8 gated on maps_loaded')
     print("  loadsprite → PIXEL_x8 ONLY for legacy-remap PAKs (modern PAKs unchanged)")
 
     # Step 2: skip force-assign ONLY for legacy-remap PAKs. Modern PAKs keep
@@ -645,8 +638,8 @@ endif
     # character animates. User-reported 2026-05-19. Gating step 2 to legacy-
     # only restores stock 7533 behavior for modern PAKs.
     force_assign_old = "                            sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
-    force_assign_new = "                            // MiSTer 2026-05-19: skip force-assign for legacy-remap PAKs (ATOV-style)\n                            // so each sprite keeps its own GIF palette. Modern PAKs keep stock behavior\n                            // (force-assign newchar->palette to all sprites) to avoid per-frame palette mismatch flashing.\n                            if (!newchar->has_legacy_remaps) sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
-    ob = strict_replace(ob, force_assign_old, force_assign_new, 'step 2: skip force-assign gated on has_legacy_remaps')
+    force_assign_new = "                            // MiSTer 2026-05-20: skip force-assign for legacy-remap PAKs (ATOV-style, maps_loaded>0)\n                            // so each sprite keeps its own GIF palette. Modern PAKs keep stock behavior\n                            // (force-assign newchar->palette to all sprites) to avoid per-frame palette mismatch flashing.\n                            if (newchar->maps_loaded == 0) sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
+    ob = strict_replace(ob, force_assign_old, force_assign_new, 'step 2: skip force-assign gated on maps_loaded')
     print("  sprite->palette force-assign skipped ONLY for legacy PAKs (modern PAKs keep stock force-assign)")
 
     # Step 3: skip CMD_MODEL_REMAP's inner palette load.
@@ -672,57 +665,35 @@ endif
                             goto lCleanup;
                         }
                     }"""
-    remap_load_new = """// PALETTE FIX: skip inner palette load + flag this model as legacy-remap.
-                    // Loading from `value` (first remap arg, e.g. run2.gif for Hugo)
-                    // makes that GIF's palette the model's master palette → overrides
-                    // every sprite via drawmethod->table. Skip it so auto-palette code
-                    // at line ~16895 loads from idle00.gif (canonical) instead.
+    remap_load_new = """// PALETTE FIX (v3.6): skip inner palette load. Loading from `value`
+                    // (first remap arg, e.g. run2.gif for Hugo) makes that GIF's
+                    // palette the model's master palette → overrides every sprite
+                    // via drawmethod->table. Skip it so auto-palette code at line
+                    // ~16895 loads from the first ANIM frame (idle01.gif for Hugo,
+                    // idle00.gif for Vice/Playa) = CANONICAL palette per character.
                     //
-                    // has_legacy_remaps gates the line-29499 model->palette fallback:
-                    // legacy-remap PAKs (ATOV) get drawmethod->table NULL → sprite->palette
-                    // wins → canonical render. Modern PAKs (no `remap` declarations,
-                    // flag stays 0) keep the fallback → drawmethod->table set normally
-                    // → preserves KO flash / level palette / globalmap / per-frame remap
-                    // effects. Fixes both ATOV Hugo green AND Avengers Cap red/white/blue.
-                    newchar->has_legacy_remaps = 1;"""
+                    // Step 1 + step 2 gating uses `newchar->maps_loaded > 0` (set
+                    // by load_colourmap() above for each remap declaration) to
+                    // detect legacy-remap PAKs at render-time without adding any
+                    // new struct fields. ATOV's character.txt files put remap
+                    // declarations BEFORE anim/frame blocks, so maps_loaded > 0
+                    // by the time the first frame's loadsprite fires."""
     if remap_load_old in ob:
         ob = ob.replace(remap_load_old, remap_load_new)
         print("  CMD_MODEL_REMAP inner palette load skipped (auto-loads from first anim frame)")
     else:
         raise RuntimeError("openbor.c: CMD_MODEL_REMAP palette load pattern not found — moved?")
 
-    # Step 3b (2026-05-19 follow-up): pre-scan character.txt buffer for
-    # `remap` declaration BEFORE the line-by-line parse loop fires. Sets
-    # has_legacy_remaps early so loadsprite gating (step 1) sees the
-    # correct flag value, regardless of where `remap` appears in the file.
-    #
-    # WHY: step 3 sets has_legacy_remaps inside the CMD_MODEL_REMAP case,
-    # which only fires during the line-by-line parse. If `remap` declarations
-    # come AFTER `anim`/`frame` blocks in the character.txt (as ATOV
-    # character files do), then the first loadsprite calls (icon, early
-    # anim frames) fire with has_legacy_remaps still at 0 → step 1 gate
-    # uses upstream PIXEL_8 path → sprite->palette not populated → render
-    # falls back to wrong colors for ATOV.
-    #
-    # User-reported 2026-05-19 (verbatim): "atov all the colors regressed
-    # to wrong colors again. this is a legacy pak."
-    #
-    # FIX: scan the buffer once with strstr("\nremap ") + check buffer
-    # start with strncmp("remap ", 6) before the parse loop. If found,
-    # set newchar->has_legacy_remaps = 1 immediately. The step 3 in-parse
-    # set remains as defensive redundancy.
-    #
-    # Anchor: the line right before the main parse loop's while-loop
-    # `while(pos < size)`. Verified against pristine v7533 source/openbor.c
-    # line ~12950: `newchar->hitwalltype = -1; // init to -1` appears
-    # immediately before the parse loop starts.
-    pre_scan_old = "    newchar->hitwalltype = -1; // init to -1\n\n    //char* test = \"load   knife 0\";\n    //ParseArgs(&arglist,test,argbuf);\n\n    // Now interpret the contents of buf line by line\n    while(pos < size)"
-    pre_scan_new = "    newchar->hitwalltype = -1; // init to -1\n\n    /* MiSTer 2026-05-19 step 3b: pre-scan buf for `remap` declaration.\n     * Sets has_legacy_remaps BEFORE the parse loop so loadsprite gating\n     * works regardless of remap-vs-anim ordering in character.txt.\n     * ATOV character files put `anim`/`frame` blocks before `remap`\n     * declarations; without this pre-scan, early loadsprite calls fire\n     * with has_legacy_remaps=0 and miss the PIXEL_x8 path.\n     *\n     * IMPORTANT: ATOV uses TAB separator (`remap\\tA.gif`) not space.\n     * Confirmed via grep on the .pak binary 2026-05-19. We must detect\n     * BOTH `remap ` (space) and `remap\\t` (tab) — OpenBOR ParseArgs\n     * accepts either. Comments like `// remap ...` won't match because\n     * the line starts with `//` not `remap`. */\n    if (buf != NULL && (\n            strstr(buf, \"\\nremap \") != NULL ||\n            strstr(buf, \"\\nremap\\t\") != NULL ||\n            strncmp(buf, \"remap \", 6) == 0 ||\n            strncmp(buf, \"remap\\t\", 6) == 0)) {\n        newchar->has_legacy_remaps = 1;\n    }\n\n    //char* test = \"load   knife 0\";\n    //ParseArgs(&arglist,test,argbuf);\n\n    // Now interpret the contents of buf line by line\n    while(pos < size)"
-    ob = strict_replace(ob, pre_scan_old, pre_scan_new, 'step 3b: pre-scan buf for remap declaration before parse loop')
-    print("  pre-scan inserted: has_legacy_remaps set BEFORE parse loop (handles remap-after-anim files like ATOV)")
+    # v3.6 (2026-05-20): Step 3b (pre-scan) REMOVED — no longer needed.
+    # The pre-scan was set has_legacy_remaps before the parse loop because
+    # the gate in steps 1+2 used `newchar->has_legacy_remaps`. v3.6 switches
+    # to `newchar->maps_loaded > 0` which is set NATURALLY by load_colourmap()
+    # during CMD_MODEL_REMAP parsing. ATOV character.txt files have all
+    # `remap` declarations before `anim`/`frame` blocks, so maps_loaded > 0
+    # by the time the first anim frame's loadsprite fires.
 
     write(ob_path, ob)
-    print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 3b — line-29499 fallback intact).")
+    print("  openbor.c: 3 palette patches written (steps 1, 2, 3 — line-29499 fallback intact, no struct mods).")
 
     # v3.5 (2026-05-19) — REMOVED step 4 v3 (line-29499 gate) AND step 4c
     # (post-setters clear). Both were intended to prevent model->palette
