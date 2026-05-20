@@ -695,56 +695,84 @@ endif
     write(ob_path, ob)
     print("  openbor.c: 3 palette patches written (steps 1, 2, 3 — line-29499 fallback intact, no struct mods).")
 
-    # v3.5 (2026-05-19) — REMOVED step 4 v3 (line-29499 gate) AND step 4c
-    # (post-setters clear). Both were intended to prevent model->palette
-    # pollution from reaching drawmethod->table for legacy PAKs, but step 3
-    # already prevents the pollution at source (skip CMD_MODEL_REMAP inner
-    # palette load). The line-29499 fallback is now the CANONICAL color
-    # source for ATOV: with step 3 active, newchar->palette gets loaded by
-    # the auto-palette block (idle01.gif for Hugo, idle00.gif for Vice +
-    # Playa — all CANONICAL palettes per character.txt analysis 2026-05-19),
-    # and line 29499 sets drawmethod->table = newchar->palette = canonical.
+    # ── 4. Step 4 v2 (sprite.c bypass) — RESTORED in v3.7 (2026-05-20).
     #
-    # Removing the gate + clear lets line 29499 fire for ALL PAKs (legacy
-    # and modern), which gives:
-    #   - ATOV Hugo: drawmethod->table = newchar->palette = idle01 canonical
-    #     green → putsprite renders green ✓
-    #   - ATOV Vice: drawmethod->table = newchar->palette = idle00 canonical
-    #     → render canonical ✓
-    #   - ATOV Playa: same as Vice → canonical ✓
-    #   - Modern PAKs (Cap, He-Man): unchanged from stock 7533 — line 29499
-    #     fired in stock too. The has_legacy_remaps gating on steps 1 + 2
-    #     (loadsprite + force-assign) is what keeps modern PAKs untouched. ✓
+    # WHY THIS WAS RESTORED:
+    # Empirical user testing 2026-05-20:
+    #   - Celebrated binary (afd4de1, with step 4 v2):    ATOV correct, Cap pink
+    #   - v3.6 binary (b12a94e, without step 4 v2):       ATOV WRONG,   Cap correct
     #
-    # The v3+v3.4 chain was misdiagnosed: I thought drawmethod->table needed
-    # to be bypassed for legacy PAKs (because step 4 v2's sprite.c bypass
-    # appeared to be in the celebrated v2 binary). It wasn't — step 4 v2
-    # had silently FAILED to apply in that build (drawmethod->flipx pattern
-    # mismatch), and the binary worked anyway because line 29499 fallback
-    # carried newchar->palette = canonical (the auto-palette had loaded
-    # idle01/idle00 correctly thanks to step 3 preventing pollution).
+    # Step 4 v2 is LOAD-BEARING for ATOV correctness. Earlier feedback memory
+    # claimed step 4 v2 "silently failed in celebrated" — that was wrong. The
+    # apply_patches.py at afd4de1 uses `drawmethod->flipx` which matches
+    # pristine v7533 verbatim. Step 4 v2 DID apply and IS what makes ATOV's
+    # Hugo/Vice/Playa render canonically (via sprite->palette = each frame's
+    # GIF palette = canonical per-character GIF data).
     #
-    # CHARACTER.TXT ANALYSIS (2026-05-19, extracted from PAK directly):
-    #   - Hugo (ANDORE.TXT): `remap data/chars/HUGO/run2.gif <map>.gif` (space-
-    #     separated; first arg run2.gif is BLUE costume palette → would
-    #     pollute model->palette without step 3)
-    #   - Vice (VICE.TXT): `remap\tdata/chars/VICE/idle00.gif <map>.gif` (TAB-
-    #     separated; first arg idle00.gif IS canonical → no pollution risk,
-    #     but step 3 still skips harmlessly + sets has_legacy_remaps for
-    #     gating steps 1 + 2)
-    #   - Playa (PLAYA.TXT): same pattern as Vice (tab-separated, first arg
-    #     idle00.gif = canonical)
+    # WHY THIS NO LONGER BREAKS MODERN PAKS:
+    # Step 4 v2 bypasses drawmethod->table when frame->palette is non-NULL.
+    # In celebrated (universal step 1+2), modern PAKs (Cap) had:
+    #   sprite->palette = each frame's INCIDENTAL GIF palette (NOT canonical)
+    # because step 1 universal forced PIXEL_x8 load AND step 2 universal
+    # removed the force-assign that would set sprite->palette to canonical.
+    # Step 4 v2's bypass then used those incidental palettes → Cap pink.
     #
-    # All three trigger CMD_MODEL_REMAP → has_legacy_remaps=1 (verified by
-    # pre-scan v3.3 detection of both space + tab separators). Steps 1 + 2
-    # gate ON for them (PIXEL_x8 sprite + skip force-assign), but render-time
-    # line 29499 fires normally and supplies canonical color via auto-palette.
+    # v3.7 = v3.6 gated step 1+2 + step 4 v2 restored:
+    #   - Hugo (legacy, maps_loaded > 0):
+    #       step 1 → PIXEL_x8 → sprite->palette = frame GIF palette
+    #       step 2 SKIPS force-assign → sprite->palette stays at GIF palette
+    #       step 4 v2 → frame->palette non-NULL → bypass drawmethod->table
+    #       → putsprite uses sprite->palette = canonical Hugo per frame ✓
     #
-    # KO flash, level palette, globalmap, per-frame remap effects are also
-    # preserved for legacy PAKs — drawmethod->table flows through naturally,
-    # and any of the 5 setters (lines 29473/29491/29499/29515/29524-29562)
-    # can populate it. ATOV gets the FULL engine pipeline, not a stripped
-    # version.
+    #   - Cap (modern, maps_loaded == 0):
+    #       step 1 → PIXEL_8 → sprite->palette = NULL after loadsprite
+    #       step 2 FORCE-ASSIGNS sprite->palette = newchar->palette
+    #         = classic.gif (canonical Cap master)
+    #       step 4 v2 → frame->palette non-NULL (= canonical) → bypass
+    #       → putsprite uses sprite->palette = canonical Cap ✓
+    #       (same palette across all frames → no flashing)
+    #
+    # WHY NO HE-MAN FLASHING:
+    # He-Man (modern) was reported flashing in v3 (option 2) which had
+    # universal step 1+2 + step 4 v3 line-29499 gate (no step 4 v2). v3.7
+    # uses GATED step 2 so He-Man's sprite->palette = newchar->palette
+    # uniformly across frames → no per-frame palette mismatch → no flashing.
+    print("Patching sprite.c (step 4 v2: conditional NULL drawmethod->table for PIXEL_32)...")
+    sprite_path = os.path.join(obor, 'source/gamelib/sprite.c')
+    sp = read(sprite_path)
+    # NOTE: upstream v7533 uses `drawmethod->flipx` (field), not the
+    # renamed `(drawmethod->config & DRAWMETHOD_CONFIG_FLIP_X)` form.
+    # Verified verbatim against
+    # https://raw.githubusercontent.com/DCurrent/openbor/v7533/engine/source/gamelib/sprite.c
+    # line ~603.
+    sp_old = "        case PIXEL_32:\n            putsprite_x8p32(x, y, drawmethod->flipx, frame, screen, (unsigned *)drawmethod->table, getblendfunction32(drawmethod->alpha));\n            break;"
+    sp_new = (
+        "        case PIXEL_32:\n"
+        "        {\n"
+        "            /* MiSTer palette fix step 4 v2 (v3.7 restored, 2026-05-20):\n"
+        "             * conditional on per-sprite palette validity.\n"
+        "             *\n"
+        "             * If frame->palette is populated, pass NULL → putsprite_x8p32\n"
+        "             * falls back to sprite->palette → uses each sprite's GIF palette\n"
+        "             * (legacy ATOV: canonical per-frame) or newchar->palette set by\n"
+        "             * step 2's force-assign (modern Cap/He-Man: canonical master).\n"
+        "             *\n"
+        "             * If frame->palette is NULL (RGB sprite, or PIXEL_8 sprite NOT\n"
+        "             * subsequently force-assigned), fall through to drawmethod->table\n"
+        "             * — preserves KO flash / level palette / globalmap effects.\n"
+        "             *\n"
+        "             * Combined with v3.7's gated step 1+2:\n"
+        "             *   - Hugo (legacy): sprite->palette = frame GIF (canonical)\n"
+        "             *   - Cap (modern):  sprite->palette = newchar->palette (= classic.gif)\n"
+        "             * Both paths render canonical. */\n"
+        "            unsigned *table_arg = (frame && frame->palette) ? NULL : (unsigned *)drawmethod->table;\n"
+        "            putsprite_x8p32(x, y, drawmethod->flipx, frame, screen, table_arg, getblendfunction32(drawmethod->alpha));\n"
+        "            break;\n"
+        "        }"
+    )
+    sp = strict_replace(sp, sp_old, sp_new, 'step 4 v2: sprite.c PIXEL_32 bypass on frame->palette')
+    write(sprite_path, sp)
+    print("  sprite.c PIXEL_32 dispatch: NULL if frame->palette else drawmethod->table")
 
     # ── 10. Audio Stage 1: NO PATCH (Option C v2, 2026-05-15 evening).
     #

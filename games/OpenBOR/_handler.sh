@@ -47,10 +47,12 @@ esac
 LOGDIR="/media/fat/logs/$BINARY"
 mkdir -p "$LOGDIR" "$LOGDIR/captures"
 
-# Wipe stale captures from previous diagnostic runs so each session
-# starts with a fresh set. Per user request 2026-05-18 — palette-debug
-# diagnostic; remove this line + binary capture code after fix lands.
-rm -f "$LOGDIR/captures"/*.ppm 2>/dev/null
+# NOTE: do NOT wipe captures on launch. Diagnostic-capture binary
+# writes cap_NNN.ppm there during gameplay; if handler wipes on
+# each launch, captures from a prior session disappear when user
+# re-enters the core. The dev pulls captures manually after tests.
+# 2026-05-18: re-testing showed the wipe killed all gameplay captures
+# from the first session when user launched again. Removed.
 
 # Rotate ARM-binary log
 mv -f "$LOGDIR/OpenBOR.log" "$LOGDIR/OpenBOR.prev.log" 2>/dev/null
