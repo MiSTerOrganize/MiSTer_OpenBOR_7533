@@ -86,19 +86,21 @@ Extract the release zip to the root of your MiSTer SD card (`/media/fat/`):
 
 Saves and savestates are kept separate between the two engine builds because the on-disk format isn't guaranteed compatible across the OpenBOR 3.x → 4.0 boundary.
 
-## Controls
+## Controls (Xbox wireless controller default mapping)
 
-| Button          | Action                  |
-|-----------------|-------------------------|
-| A               | Jump                    |
-| B               | Attack (primary)        |
-| X               | Special / pause back    |
-| Y               | Attack2                 |
-| D-pad / Analog  | Move                    |
-| Start           | Pause / add player      |
-| Menu button     | MiSTer OSD menu         |
+| Xbox wireless    | OpenBOR action          | Notes |
+|------------------|-------------------------|-------|
+| D-pad / Left stick | Movement (4-way)      | |
+| **A** button     | Jump                    | |
+| **B** button     | Attack (primary punch/kick) | |
+| **Y** button     | Special / grab          | |
+| **X** button     | Attack2 (secondary attack) | |
+| **Menu / Start** | Start (insert coin / pause / add player) | |
+| **View / Back**  | MiSTer OSD              | core's OSD overlay |
 
-All 4 players use the same button layout. Remap buttons from the MiSTer OSD (press F12 or the OSD button on your IO board).
+CONF_STR: `J1,Attack,Jump,Special,Attack2,Start;` / `jn,A,B,X,Y,Start;`. MiSTer's `jn` extension uses SNES naming (`jn A`=Xbox B, `jn B`=Xbox A, `jn X`=Xbox Y, `jn Y`=Xbox X), so the defaults above pair `jn A` (Xbox B) → Attack, `jn B` (Xbox A) → Jump, `jn X` (Xbox Y) → Special, `jn Y` (Xbox X) → Attack2.
+
+Both OpenBOR_4086 and OpenBOR_7533 use the IDENTICAL mapping — sister-core swap (4086 ↔ 7533) preserves your input config. All 4 players use the same button layout. Remap buttons from the MiSTer OSD (press F12 or the OSD button on your IO board).
 
 ## Pause Menu
 
