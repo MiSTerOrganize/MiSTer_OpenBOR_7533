@@ -96,7 +96,7 @@ Saves and savestates are kept separate between the two engine builds because the
 | **Y** button     | Special / grab          | |
 | **X** button     | Attack2 (secondary attack) | |
 | **Menu / Start** | Start (insert coin / pause / add player) | |
-| **View / Back**  | MiSTer OSD              | core's OSD overlay |
+| **Xbox Guide (center)** | MiSTer OSD       | core's OSD overlay — framework-level, not per-core |
 
 CONF_STR: `J1,Attack,Jump,Special,Attack2,Start;` / `jn,A,B,X,Y,Start;`. MiSTer's `jn` extension uses SNES naming (`jn A`=Xbox B, `jn B`=Xbox A, `jn X`=Xbox Y, `jn Y`=Xbox X), so the defaults above pair `jn A` (Xbox B) → Attack, `jn B` (Xbox A) → Jump, `jn X` (Xbox Y) → Special, `jn Y` (Xbox X) → Attack2.
 
