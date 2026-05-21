@@ -86,6 +86,24 @@ Extract the release zip to the root of your MiSTer SD card (`/media/fat/`):
 
 Saves and savestates are kept separate between the two engine builds because the on-disk format isn't guaranteed compatible across the OpenBOR 3.x → 4.0 boundary.
 
+## Supported Features
+
+Both `OpenBOR_4086` and `OpenBOR_7533` cores have identical support across these dimensions:
+
+| Feature | OpenBOR_4086 | OpenBOR_7533 |
+|---|---|---|
+| Saves (`<pak>.sav` engine progress) | ✅ `/media/fat/saves/OpenBOR_4086/` | ✅ `/media/fat/saves/OpenBOR_7533/` |
+| Savestates (`<pak>.scr` engine snapshot) | ✅ `/media/fat/savestates/OpenBOR_4086/` | ✅ `/media/fat/savestates/OpenBOR_7533/` |
+| Logs (with auto-prune N=10) | ✅ `/media/fat/logs/OpenBOR_4086/` | ✅ `/media/fat/logs/OpenBOR_7533/` |
+| Configs (`<pak>.cfg` + `default.cfg` + `<pak>.hi`) | ✅ `/media/fat/config/` (shared across sister cores) | ✅ shared with 4086 |
+| MGLs (`_Other/*.mgl` one-click launchers) | ⚠ architectural support, not user-tested yet | ⚠ same |
+| Gameplay Recordings / TAS (`<pak>.inp`) | ✅ engine-native Record Game / Play Recording | ✅ same |
+| Gamepad (up to 4P, Start adds player) | ✅ | ✅ |
+| Keyboard | ❌ no (SDL keyboard not wired through dummy driver) | ❌ no |
+| Mouse | ❌ no (no native engine mouse support) | ❌ no |
+| Screen Positioning (CRT) H ±3 / V ±3 | ✅ | ✅ |
+| Online Network Play | ❌ | ❌ |
+
 ## Controls (Xbox wireless controller default mapping)
 
 | Xbox wireless    | OpenBOR action          | Notes |
