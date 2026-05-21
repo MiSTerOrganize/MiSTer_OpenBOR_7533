@@ -103,6 +103,8 @@ Both `OpenBOR_4086` and `OpenBOR_7533` cores have identical support across these
 | Mouse | ❌ no (no native engine mouse support) | ❌ no |
 | Screen Positioning (CRT) H ±3 / V ±3 | ✅ | ✅ |
 | Online Network Play | ❌ | ❌ |
+| Multiplayer | ✅ up to **4 players** (Start adds player) | ✅ up to **4 players** |
+| Light Gun | ❌ | ❌ |
 
 ## Controls (Xbox wireless controller default mapping)
 
