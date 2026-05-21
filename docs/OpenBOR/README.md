@@ -105,7 +105,15 @@ Both `OpenBOR_4086` and `OpenBOR_7533` cores have identical support across these
 | Online Network Play | ❌ | ❌ |
 | Multiplayer | ✅ up to **4 players** (Start adds player) | ✅ up to **4 players** |
 | Light Gun | ❌ | ❌ |
-| Aspect Ratio (Original / Full Screen / Custom1 / Custom2) | ❌ no OSD option (fixed 4:3 — `VIDEO_ARX=4` / `VIDEO_ARY=3` in `fpga/OpenBOR.sv` lines 232-233; user can't override per-display via `aspect_ratio_1=` / `aspect_ratio_2=` in MiSTer.ini) | ❌ no OSD option (fixed 4:3 — same as 4086) |
+| Aspect Ratio (Original / Full Screen / Custom1 / Custom2) | ❌ planned (roadmap #1) — fixed 4:3 in `fpga/OpenBOR.sv` lines 232-233 | ❌ planned (roadmap #1) — same as 4086 |
+| Vertical Crop (216p 5x for clean 1080p integer scale) | ❌ planned (roadmap #2) — V_ACTIVE=224 already, 4-line trim each side | ❌ planned (roadmap #2) — same |
+| Crop Offset (±12, paired with V-Crop) | ❌ planned (roadmap #2 pair) | ❌ planned (roadmap #2 pair) |
+| Scale Mode (Normal / V-Int / HV-Int integer scaling) | ❌ planned (roadmap #3) | ❌ planned (roadmap #3) |
+| Swap Joysticks (P1↔P2) | ❌ planned (roadmap #4) — co-op QoL | ❌ planned (roadmap #4) |
+| Pause when OSD open | ❌ planned (roadmap #5) — universal QoL | ❌ planned (roadmap #5) |
+| Stereo Mix (None / 25 / 50 / 100% channel cross-bleed) | ❌ planned (roadmap #6) — engine is true stereo | ❌ planned (roadmap #6) — same |
+
+> **Roadmap note** — rows above marked "planned (roadmap #N)" are tracked in the mainstream-core parity roadmap: 6 LOW-difficulty OSD features common to ≥6 of 11 surveyed mainstream MiSTer cores (NES/Genesis/SNES/GB/GBA/SMS/NeoGeo/N64/PSX/Saturn/MegaCD). Ship order: Aspect Ratio → V-Crop+Offset → Scale → Swap Joysticks → Pause-when-OSD → Stereo Mix. Implementation is sys/-framework status-bit wiring only — no new RTL, no engine-side work.
 
 ## Controls (Xbox wireless controller default mapping)
 
