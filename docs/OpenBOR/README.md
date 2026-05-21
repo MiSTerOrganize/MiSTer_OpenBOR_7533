@@ -105,6 +105,7 @@ Both `OpenBOR_4086` and `OpenBOR_7533` cores have identical support across these
 | Online Network Play | ❌ | ❌ |
 | Multiplayer | ✅ up to **4 players** (Start adds player) | ✅ up to **4 players** |
 | Light Gun | ❌ | ❌ |
+| Aspect Ratio (Original / Full Screen / Custom1 / Custom2) | ❌ no OSD option (fixed 4:3 — `VIDEO_ARX=4` / `VIDEO_ARY=3` in `fpga/OpenBOR.sv` lines 232-233; user can't override per-display via `aspect_ratio_1=` / `aspect_ratio_2=` in MiSTer.ini) | ❌ no OSD option (fixed 4:3 — same as 4086) |
 
 ## Controls (Xbox wireless controller default mapping)
 
