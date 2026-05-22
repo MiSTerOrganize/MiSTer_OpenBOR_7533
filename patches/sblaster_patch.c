@@ -181,42 +181,20 @@ static void *audio_thread_fn(void *arg) {
         /* Pull IN_FRAMES_PER_TICK fresh frames from the engine's stateful mixer. */
         update_sample((unsigned char *)in_buf, IN_FRAMES_PER_TICK * 4);
 
-        /* Polyphase 44.1 → 48 kHz + soft-limiter, per stereo frame. */
+        /* TEMPORARY A/B TEST (2026-05-21) — isolate audio resampler CPU cost.
+         * Replaced polyphase windowed-sinc + envelope limiter with zero-order
+         * hold (same as 4086's audio path). If 7533's fps jumps significantly
+         * with this swap, the audio thread was the bottleneck and we need to
+         * NEON-optimize polyphase (or accept linear interp as the compromise).
+         * If fps stays at ~28, audio is NOT the bottleneck and the cost lives
+         * in the engine code instead. REVERT THIS AFTER MEASUREMENT. */
         uint32_t accum = 0;
         int i;
         for (i = 0; i < MISTER_AUDIO_CHUNK; i++) {
-            int      ip = (int)(accum >> 16);
-            uint32_t fr = accum & 0xFFFF;
-
-            int16_t l = poly_apply(in_buf, ip, fr, IN_FRAMES_PER_TICK, 0);
-            int16_t r = poly_apply(in_buf, ip, fr, IN_FRAMES_PER_TICK, 1);
-
-            /* Soft-limiter: envelope follower (stereo-linked) + smoothed gain. */
-            float L = (float)l, R = (float)r;
-            float aL = L < 0.0f ? -L : L;
-            float aR = R < 0.0f ? -R : R;
-            float peak = aL > aR ? aL : aR;
-
-            if (peak > lim_env) lim_env = peak;
-            else                lim_env = lim_env * RELEASE_COEFF + peak * (1.0f - RELEASE_COEFF);
-
-            float target_gain = (lim_env > THRESHOLD) ? (THRESHOLD / lim_env) : 1.0f;
-
-            if (target_gain < lim_gain)
-                lim_gain = lim_gain * ATTACK_COEFF + target_gain * (1.0f - ATTACK_COEFF);
-            else
-                lim_gain = lim_gain * RELEASE_COEFF + target_gain * (1.0f - RELEASE_COEFF);
-
-            int Lo = (int)(L * lim_gain);
-            int Ro = (int)(R * lim_gain);
-            if (Lo > 32767)  Lo = 32767;
-            if (Lo < -32768) Lo = -32768;
-            if (Ro > 32767)  Ro = 32767;
-            if (Ro < -32768) Ro = -32768;
-
-            out_buf[2 * i + 0] = (int16_t)Lo;
-            out_buf[2 * i + 1] = (int16_t)Ro;
-
+            int ip = (int)(accum >> 16);
+            if (ip >= IN_FRAMES_PER_TICK) ip = IN_FRAMES_PER_TICK - 1;
+            out_buf[2 * i + 0] = in_buf[2 * ip + 0];
+            out_buf[2 * i + 1] = in_buf[2 * ip + 1];
             accum += STEP;
         }
 
