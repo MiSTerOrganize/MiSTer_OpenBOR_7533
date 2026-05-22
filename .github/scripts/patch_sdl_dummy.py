@@ -58,20 +58,23 @@ static volatile int        mister_keepalive_run = 0;
  * image on screen (FPGA re-reads same active_buffer offset) but
  * keeps frame_ready_reg latched true. Same image, no flicker.
  *
- * IMPORTANT: mister_present writes buf X then TOGGLES mister_active_buf
- * to !X. So after a present, the LAST WRITTEN buffer is (!mister_active_buf).
- * Use that for the keepalive ctrl word — otherwise the FPGA flips to
- * the OTHER buffer (which holds the previous frame) and the loading
- * bar jitters between two positions. */
+ * IMPORTANT (2026-05-22 fix): keepalive must SHARE STATE with
+ * NativeVideoWriter_WriteFrame. Previously this thread maintained its
+ * own `mister_frame_cnt` and used `mister_active_buf` — but after the
+ * SDL renderer bypass landed (commit f1773f7), gameplay frames go
+ * through NativeVideoWriter_WriteFrame which has its OWN frame_counter
+ * and active_buf state. Two separate counters fighting over the same
+ * DDR3 ctrl word produced the loading-bar jitter (FPGA briefly flipped
+ * to a stale buffer between WriteFrame calls).
+ *
+ * Fix: keepalive calls NativeVideoWriter_KeepaliveTick() which uses the
+ * SAME state as WriteFrame. Single source of truth. */
+extern void NativeVideoWriter_KeepaliveTick(void);
 static void *mister_keepalive_fn(void *arg) {
     (void)arg;
     while (mister_keepalive_run) {
         usleep(150000); /* 150ms */
-        if (mister_ctrl) {
-            int last_written = !mister_active_buf & 1;
-            mister_frame_cnt++;
-            *mister_ctrl = (mister_frame_cnt << 2) | last_written;
-        }
+        NativeVideoWriter_KeepaliveTick();
     }
     return NULL;
 }

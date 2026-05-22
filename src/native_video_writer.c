@@ -198,6 +198,21 @@ bool NativeVideoWriter_IsActive(void) {
     return ddr_base != NULL;
 }
 
+void NativeVideoWriter_KeepaliveTick(void) {
+    /* Tick frame_counter pointing at the LAST-WRITTEN buffer (not next-
+     * to-write). After WriteFrame's active_buf toggle, the last-written
+     * buffer is (!active_buf). Pointing the FPGA at next-to-write would
+     * flip it to a stale/empty buffer, causing jitter between frames
+     * (verified 2026-05-22 — loading bar jitter root cause was a
+     * separate keepalive thread maintaining its own frame_counter +
+     * active_buf state, racing with WriteFrame's state). */
+    if (!ddr_base) return;
+    frame_counter++;
+    int last_written = (!active_buf) & 1;
+    volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
+    *ctrl = (frame_counter << 2) | last_written;
+}
+
 uint32_t NativeVideoWriter_CheckCart(void) {
     if (!ddr_base) return 0;
     volatile uint32_t *ctrl = (volatile uint32_t *)(ddr_base + NV_CART_CTRL_OFFSET);

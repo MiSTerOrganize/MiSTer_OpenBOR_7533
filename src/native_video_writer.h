@@ -35,6 +35,14 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
 /// True if DDR3 writer is initialized and ready.
 bool NativeVideoWriter_IsActive(void);
 
+/// Keepalive tick — increments frame counter pointing at the last-written
+/// buffer. Called by a 150ms-interval thread elsewhere (typically the SDL
+/// dummy driver's mister_keepalive_fn) to prevent the FPGA's 30-vblank
+/// staleness blank-out during idle (wait-for-PAK, pause menu, etc.).
+/// Shares state with NativeVideoWriter_WriteFrame — using a separate
+/// keepalive counter caused jitter (loading bar bug 2026-05-22).
+void NativeVideoWriter_KeepaliveTick(void);
+
 /// Read joystick state for player 0-3 from DDR3 (written by FPGA).
 uint32_t NativeVideoWriter_ReadJoystick(int player);
 
