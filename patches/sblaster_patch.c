@@ -181,13 +181,14 @@ static void *audio_thread_fn(void *arg) {
         /* Pull IN_FRAMES_PER_TICK fresh frames from the engine's stateful mixer. */
         update_sample((unsigned char *)in_buf, IN_FRAMES_PER_TICK * 4);
 
-        /* TEMPORARY A/B TEST (2026-05-21) — isolate audio resampler CPU cost.
-         * Replaced polyphase windowed-sinc + envelope limiter with zero-order
-         * hold (same as 4086's audio path). If 7533's fps jumps significantly
-         * with this swap, the audio thread was the bottleneck and we need to
-         * NEON-optimize polyphase (or accept linear interp as the compromise).
-         * If fps stays at ~28, audio is NOT the bottleneck and the cost lives
-         * in the engine code instead. REVERT THIS AFTER MEASUREMENT. */
+        /* Zero-order hold (nearest-neighbor) resample 44100 -> 48000 Hz.
+         * Mirrors engine character per feedback_audio_type_from_engine_source.md
+         * (engine/source/gamelib/soundmix.c at lines 483/527/552 uses
+         * sptr16[FIX_TO_INT(fp_pos)] = shift-truncation NN at all three
+         * sample-read sites). Polyphase windowed-sinc on top of NN-mixed
+         * engine output is pure CPU waste for marginal benefit; ZOH at
+         * wrapper preserves engine character at near-zero cost.
+         * Architectural parity with OpenBOR_4086 (same kernel). */
         uint32_t accum = 0;
         int i;
         for (i = 0; i < MISTER_AUDIO_CHUNK; i++) {
