@@ -16,7 +16,7 @@ If a PAK won't run on one build, reload the other RBF and try again — your `Pa
 ## Features
 
 - **Native FPGA video output** — 320×240 @ 59.92 Hz with exact MegaCD pixel clock (6.712 MHz from NTSC colorburst crystal). CRT image width matches NES/SNES/Genesis exactly (47.68 µs active time)
-- **Native FPGA audio output** — 48 kHz stereo via DDR3 ring buffer, no ALSA
+- **Native FPGA audio output** — 48 kHz stereo via DDR3 ring buffer, no ALSA. Audio kernel: **nearest-neighbor (zero-order hold)** at engine + wrapper (matches upstream OpenBOR `engine/source/gamelib/soundmix.c` FIX_TO_INT shift-truncation kernel at all three sample-read sites — music + 8-bit voice + 16-bit voice; wrapper at `patches/sblaster_patch.c::audio_thread_fn` mirrors the engine character — both stages NN. Corrected 2026-05-21 from polyphase windowed-sinc which had been mismatched against the engine's NN kernel and wasted Cortex-A9 CPU).
 - **CRT support** — scanlines, shadow masks, and analog video output for CRT displays
 - **MiSTer OSD integration** — load PAK files from the file browser
 - **4-player support** — connect up to 4 controllers, add players by pressing START
