@@ -75,7 +75,15 @@ void pausemenu()
         }
     }
 
-    /* v7533 renamed the pause-state global from `pause` to `_pause` */
+    /* v7533 renamed the pause-state global from `pause` to `_pause`.
+     * Pause music + samples explicitly — matches stock openbor.c:21625-27.
+     * Without this, the engine keeps mixing samples in the audio thread
+     * while the menu is open, producing a brief audio "tail" of enemy
+     * SFX after the user opens the menu (visible especially on slow PAKs
+     * like He-Man where the menu sits open longer per real-world second).
+     * The exit-path sound_pause_*(0) calls below now correctly resume. */
+    sound_pause_music(1);
+    sound_pause_sample(1);
     _pause = 2;
     bothnewkeys = 0;
 
