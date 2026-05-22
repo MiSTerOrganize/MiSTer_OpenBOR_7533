@@ -107,26 +107,35 @@ void NativeVideoWriter_Shutdown(void) {
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                   int pitch, int bpp, const void* palette) {
     if (!ddr_base || !pixels) return;
-
-    /* Clamp to frame dimensions */
-    if (width > NV_FRAME_WIDTH) width = NV_FRAME_WIDTH;
-    if (height > NV_FRAME_HEIGHT) height = NV_FRAME_HEIGHT;
     if (width <= 0 || height <= 0) return;
+
+    /* Anisotropic nearest-neighbor squish: source W×H → NV_FRAME_WIDTH×HEIGHT.
+     * Sega CD V28 NTSC active area = 320×224. 320×240 PAKs (ATOV, etc.)
+     * get ~7% Y compress; sub-native PAKs (480×272, 960×480) get larger
+     * downscale. Aspect distortion intentional — matches Sega CD displayed
+     * area edge-to-edge per NTSC region match rule. NN avoids the per-pixel
+     * cost of bilinear (~4× faster on Cortex-A9 — 2026-05-22 measurement). */
+    int sx256 = (width * 256) / NV_FRAME_WIDTH;
+    int sy256 = (height * 256) / NV_FRAME_HEIGHT;
+    if (sx256 == 0) sx256 = 1;
+    if (sy256 == 0) sy256 = 1;
 
     uint32_t buf_offset = (active_buf == 0) ? NV_BUF0_OFFSET : NV_BUF1_OFFSET;
     volatile uint16_t* dst = (volatile uint16_t*)(ddr_base + buf_offset);
-    int src_bpp_bytes = bpp / 8;
 
     if (bpp == 16) {
         /* OpenBOR's 16bpp surfaces are BGR565 (B in high bits). The FPGA
-         * decoder expects RGB565 (R in high bits). Swap the R and B
-         * 5-bit fields per pixel while preserving the 6-bit G channel. */
+         * decoder expects RGB565. Swap R and B 5-bit fields per pixel. */
         const uint8_t* src = (const uint8_t*)pixels;
-        for (int y = 0; y < height; y++) {
-            const uint16_t* src_row = (const uint16_t*)(src + y * pitch);
+        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+            int src_y = (y * sy256) / 256;
+            if (src_y >= height) src_y = height - 1;
+            const uint16_t* src_row = (const uint16_t*)(src + src_y * pitch);
             volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
-            for (int x = 0; x < width; x++) {
-                uint16_t px = src_row[x];
+            for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                int src_x = (x * sx256) / 256;
+                if (src_x >= width) src_x = width - 1;
+                uint16_t px = src_row[src_x];
                 uint16_t r5 = px & 0x001F;
                 uint16_t g6 = px & 0x07E0;
                 uint16_t b5 = (px & 0xF800) >> 11;
@@ -139,10 +148,14 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * OpenBOR s_screen palette: 3 bytes per entry (R, G, B), 256 entries. */
         const uint8_t* src = (const uint8_t*)pixels;
         const uint8_t* pal = (const uint8_t*)palette;
-        for (int y = 0; y < height; y++) {
-            const uint8_t* row = src + y * pitch;
-            for (int x = 0; x < width; x++) {
-                uint8_t idx = row[x];
+        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+            int src_y = (y * sy256) / 256;
+            if (src_y >= height) src_y = height - 1;
+            const uint8_t* row = src + src_y * pitch;
+            for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                int src_x = (x * sx256) / 256;
+                if (src_x >= width) src_x = width - 1;
+                uint8_t idx = row[src_x];
                 uint8_t r = pal[idx * 3 + 0];
                 uint8_t g = pal[idx * 3 + 1];
                 uint8_t b = pal[idx * 3 + 2];
@@ -152,16 +165,16 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
         }
     }
     else if (bpp == 32) {
-        /* 32bpp -- OpenBOR's SDL 1.2 surface is laid out byte-0=R,
-         * byte-1=G, byte-2=B, byte-3=A (RGBA). Extracting r from byte 0
-         * and b from byte 2 matches what the FPGA decoder expects in
-         * RGB565 (r in high bits). The older BGRA assumption produced
-         * a uniform blue tint in gameplay (first reported 2026-04-15). */
+        /* 32bpp RGBA — byte-0=R, byte-1=G, byte-2=B, byte-3=A. */
         const uint8_t* src = (const uint8_t*)pixels;
-        for (int y = 0; y < height; y++) {
-            const uint8_t* row = src + y * pitch;
-            for (int x = 0; x < width; x++) {
-                int i = x * 4;
+        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+            int src_y = (y * sy256) / 256;
+            if (src_y >= height) src_y = height - 1;
+            const uint8_t* row = src + src_y * pitch;
+            for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                int src_x = (x * sx256) / 256;
+                if (src_x >= width) src_x = width - 1;
+                int i = src_x * 4;
                 uint8_t r = row[i + 0];
                 uint8_t g = row[i + 1];
                 uint8_t b = row[i + 2];

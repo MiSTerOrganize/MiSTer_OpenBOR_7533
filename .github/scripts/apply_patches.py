@@ -191,14 +191,62 @@ endif
     write(os.path.join(obor, 'openbor.c'), src)
     print("  pausemenu() replaced.")
 
-    # ── 3. sdl/video.c — intercept frame present for SDL2 ────────────
-    # 7533 uses SDL2 codepaths natively; no compat stubs needed (those
-    # were a 4086 + SDL 1.2 hack). The video intercept is documented
-    # in patches/openbor_source_patches.c — we now rely on SDL2's
-    # standard SDL_BlitSurface + SDL_UpdateWindowSurface block being
-    # replaced by NativeVideoWriter_WriteFrame at the dummy driver
-    # level (see patch_sdl_dummy.py for SDL_nullframebuffer.c).
-    print("Patching sdl/video.c (no compat stubs needed for SDL2 build).")
+    # ── 3. sdl/video.c — bypass SDL2 renderer chain in video_copy_screen ─
+    # Profiling 2026-05-22 showed video_copy_screen consumed ~22ms of every
+    # ~25ms update() call (89%). The chain SDL_UpdateTexture → blit() (which
+    # does SDL_RenderClear + SDL_RenderCopy + SDL_RenderPresent) does at
+    # least 3 memcpys of the 320×224×4 = 286KB framebuffer plus internal
+    # SDL2 renderer overhead. Even with the dummy driver, this all runs on
+    # CPU. To recover the budget, we bypass the entire SDL renderer chain
+    # and write directly to DDR3 via NativeVideoWriter_WriteFrame (which
+    # already does the anisotropic NN squish to 320x224 for non-native
+    # source dimensions). Expected savings: ~15ms per frame → ~10ms total
+    # update() = ~100 fps native on Cortex-A9.
+    print("Patching sdl/video.c (bypass SDL2 renderer — direct WriteFrame)...")
+    video_path = os.path.join(obor, 'sdl/video.c')
+    video_c = read(video_path)
+
+    # Add include for native_video_writer.h at the end of the SDL2 include block
+    video_c = strict_replace(
+        video_c,
+        '#include "videocommon.h"\n'
+        '#include "../resources/OpenBOR_Icon_32x32_png.h"',
+        '#include "videocommon.h"\n'
+        '#include "../resources/OpenBOR_Icon_32x32_png.h"\n'
+        '#ifdef MISTER_NATIVE_VIDEO\n'
+        '#include "native_video_writer.h"\n'
+        '#endif',
+        'sdl/video.c include native_video_writer.h'
+    )
+
+    # Replace video_copy_screen body to bypass SDL chain under MISTER_NATIVE_VIDEO
+    video_c = strict_replace(
+        video_c,
+        '\tif(opengl) return video_gl_copy_screen(surface);\n'
+        '\n'
+        '\tSDL_UpdateTexture(texture, NULL, surface->data, surface->pitch);\n'
+        '\tblit();',
+        '\tif(opengl) return video_gl_copy_screen(surface);\n'
+        '\n'
+        '#ifdef MISTER_NATIVE_VIDEO\n'
+        '\t/* Bypass SDL2 renderer chain (saves ~15ms/frame on Cortex-A9).\n'
+        '\t * NativeVideoWriter_WriteFrame writes directly to DDR3 with\n'
+        '\t * anisotropic NN squish to 320×224 (Sega CD V28 NTSC). */\n'
+        '\tNativeVideoWriter_WriteFrame(surface->data,\n'
+        '\t                              surface->width, surface->height,\n'
+        '\t                              surface->pitch,\n'
+        '\t                              stored_videomodes.pixel * 8,\n'
+        '\t                              NULL);\n'
+        '\treturn 1;\n'
+        '#else\n'
+        '\tSDL_UpdateTexture(texture, NULL, surface->data, surface->pitch);\n'
+        '\tblit();\n'
+        '#endif',
+        'sdl/video.c video_copy_screen bypass'
+    )
+
+    write(video_path, video_c)
+    print("  sdl/video.c: video_copy_screen now writes directly to DDR3, bypassing SDL2 renderer chain")
 
     # ── 4. Patch sdl/control.c — replace control_update() ────────────
     print("Patching sdl/control.c (input mapping)...")
