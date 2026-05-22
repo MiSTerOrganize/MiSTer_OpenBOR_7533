@@ -354,68 +354,8 @@ endif
         '.s00 loadScriptFile path -> SaveStates'
     )
 
-    # ── 6d. Patch openbor.c update() — frame-pace cap to FPGA Sega CD vsync ──
-    # Background: in pristine v7533, update() is called by the main game loop
-    # `while(!endgame) { update(1, 0); ... }` with usevwait=0, so vga_vwait()
-    # is NEVER called during gameplay. Frame pacing is implicit, governed by
-    # however long update()'s internal work takes. On the MiSTer hybrid core,
-    # 7533's update() averages ~16.5ms per call which produces frames at
-    # ~60.6 fps — FASTER than the FPGA's Sega CD vsync at 59.92 Hz. Frames
-    # overwrite each other in DDR3 before the FPGA reads them, manifesting
-    # as a periodic 1-frame skip during continuous motion (visible as
-    # character-movement stutter, prominent in ATOV left/right walking).
-    # 4086's update() coincidentally averages ~16.7ms which matches FPGA
-    # rate accidentally; 7533 needs explicit pacing.
-    #
-    # Fix: insert a per-update() usleep that caps the rate at 59.92 Hz.
-    # Target interval = 1,000,000 / 59.92 = 16689us. Slow updates (heavy
-    # scenes) don't sleep; fast updates (light scenes) sleep just enough
-    # to land at vsync. usleep granularity (~1us) is plenty for vsync
-    # alignment. Function-local static state, zero ABI changes.
-    print("Patching openbor.c (frame-pace cap to FPGA Sega CD vsync)...")
-    pace_old = (
-        'void update(int ingame, int usevwait)\n'
-        '{\n'
-        '    int i = 0;\n'
-        '    int p_keys = 0;\n'
-        '\n'
-        '    getinterval();'
-    )
-    pace_new = (
-        'void update(int ingame, int usevwait)\n'
-        '{\n'
-        '    int i = 0;\n'
-        '    int p_keys = 0;\n'
-        '\n'
-        '#ifdef MISTER_NATIVE_VIDEO\n'
-        '    /* MiSTer hybrid-core frame-pace cap: lock to 59.92 Hz FPGA\n'
-        '     * Sega CD vsync. Pure busy-wait via timer_uticks() (SDL2\n'
-        '     * SDL_GetPerformanceCounter, microsecond resolution). usleep\n'
-        '     * was tried in v1 of this patch but MiSTer Buildroot kernel\n'
-        '     * has ~10ms timer granularity — sub-ms sleeps over-shot to\n'
-        '     * 10-15ms, dropping rate to ~28 fps. Busy-wait spends up to\n'
-        '     * ~5-7ms of CPU per frame on average (engine work + busy-wait\n'
-        '     * totals 16.7ms target); acceptable on dual-core Cortex-A9.\n'
-        '     * Target interval = 1,000,000 / 59.92 = 16689us. */\n'
-        '    {\n'
-        '        static u64 mister_last_frame_us = 0;\n'
-        '        if (mister_last_frame_us > 0) {\n'
-        '            u64 _target = mister_last_frame_us + 16689;\n'
-        '            while (timer_uticks() < _target) {\n'
-        '                /* busy-wait until vsync target */\n'
-        '            }\n'
-        '        }\n'
-        '        mister_last_frame_us = timer_uticks();\n'
-        '    }\n'
-        '#endif\n'
-        '\n'
-        '    getinterval();'
-    )
-    obor_c = strict_replace(obor_c, pace_old, pace_new, 'update() frame-pace cap to 59.92 Hz')
-
     write(os.path.join(obor, 'openbor.c'), obor_c)
     print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
-    print("  update() frame-pace capped at 59.92 Hz (FPGA Sega CD vsync target).")
 
     # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
     # Avengers - United Battle Force (and likely other late-build PAKs)
