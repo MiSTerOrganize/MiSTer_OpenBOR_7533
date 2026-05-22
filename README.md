@@ -15,14 +15,15 @@ If a PAK won't run on one build, reload the other RBF and try again — your `Pa
 
 ## Features
 
-- **Native FPGA video output** — 320×240 @ 59.92 Hz with exact MegaCD pixel clock (6.712 MHz from NTSC colorburst crystal). CRT image width matches NES/SNES/Genesis exactly (47.68 µs active time)
+- **Native FPGA video output** — 320×224 @ 59.92 Hz with exact Sega CD NTSC pixel clock (6.712 MHz from NTSC colorburst crystal). H40+V28 mode — CRT image width matches NES/SNES/Genesis exactly (47.68 µs active time)
+- **Direct DDR3 write frame path** — engine's `video_copy_screen` writes pixel data directly to the FPGA's video ring buffer at 0x3A000000, bypassing SDL's renderer/surface chain entirely (saved ~15 ms/frame on Cortex-A9; lifted native fps from ~29 to ~85-100 on a powerful frame-present path 2026-05-22)
 - **Native FPGA audio output** — 48 kHz stereo via DDR3 ring buffer, no ALSA. Audio kernel: **nearest-neighbor (zero-order hold)** at engine + wrapper (matches upstream OpenBOR `engine/source/gamelib/soundmix.c` FIX_TO_INT shift-truncation kernel at all three sample-read sites — music + 8-bit voice + 16-bit voice; wrapper at `patches/sblaster_patch.c::audio_thread_fn` mirrors the engine character — both stages NN. Corrected 2026-05-21 from polyphase windowed-sinc which had been mismatched against the engine's NN kernel and wasted Cortex-A9 CPU).
 - **CRT support** — scanlines, shadow masks, and analog video output for CRT displays
 - **MiSTer OSD integration** — load PAK files from the file browser
 - **4-player support** — connect up to 4 controllers, add players by pressing START
-- **Custom pause menu** — Continue / Options / Reset Pak / Quit
+- **Custom pause menu** — Continue / Options / Reset Pak / Quit. Music and sound effects pause cleanly on menu entry, resume on Continue (audio-tail leak fixed 2026-05-22)
 - **Auto-launch** — OpenBOR starts automatically when the core is loaded
-- **Sub-native PAKs scale automatically** (7533) — PAKs with native resolutions higher than 320×240 (Pocket Dimensional Clash 2 at 480×272, He-Man at 960×480, Avengers UBF at 480×272, etc.) are bilinear-downscaled into the 320×240 CRT-correct envelope with letterboxing where needed. MegaCD timing stays intact for CRT users.
+- **Sub-native PAKs scale automatically** — PAKs with native resolutions other than 320×224 (320×240 4086-era PAKs, 480×272 PSP-widescreen PAKs like Pocket Dimensional Clash 2, 960×480 He-Man, 480×272 Avengers UBF, etc.) are anisotropic-nearest-neighbor-squished into the 320×224 Sega CD V28 NTSC active area edge-to-edge. NN matches engine render character (engine renders pixel-exact, wrapper preserves it; bilinear was ~4× more CPU for marginal benefit). Aspect distortion is intentional — matches Sega CD displayed area.
 
 ## Quick Install
 
@@ -146,9 +147,9 @@ Navigate with D-pad up/down. Press A to confirm, X to go back.
 
 Both builds share the same FPGA core, identical timing.
 
-- Resolution: 320×240 active, 420×262 total (exact MegaCD)
-- Refresh: 59.92 Hz (exact Genesis NTSC)
-- Pixel clock: 53.693 MHz CLK_VIDEO / 8 = 6.712 MHz (exact MegaCD, NTSC colorburst-derived)
+- Resolution: 320×224 active, 420×262 total (exact Sega CD NTSC H40+V28)
+- Refresh: 59.92 Hz (exact Sega CD NTSC)
+- Pixel clock: 53.693 MHz CLK_VIDEO / 8 = 6.712 MHz (exact Sega CD NTSC, colorburst-derived)
 - Pixel format: RGB565 (16 bits per pixel)
 - Audio: 48 kHz stereo S16 PCM via DDR3 ring buffer → I2S/SPDIF/DAC
 - Double-buffered video via DDR3
