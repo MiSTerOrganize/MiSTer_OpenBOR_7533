@@ -30,7 +30,6 @@
 #include "sdlport.h"
 #include "native_audio_writer.h"
 
-#include <math.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -47,21 +46,8 @@ extern void update_sample(unsigned char *buf, int size);
 #define MISTER_CHUNK_BYTES   (MISTER_AUDIO_CHUNK * 4) /* stereo S16                          */
 
 /* 256 output × 44100/48000 = 235.2 input frames needed per tick.
- * Request 236 with +1 margin for the polyphase filter's right wing. */
+ * Request 236 (ceil) so the last src index (~235) stays in-bounds. */
 #define IN_FRAMES_PER_TICK   236
-
-/* Polyphase FIR design constants. 16 taps × 32 phases = 512 int16 coefficients. */
-#define POLY_N        16   /* taps per phase                                       */
-#define POLY_P        32   /* phase quantization levels (fr → phase index)         */
-#define POLY_CENTER   7    /* index of "current" sample within taps (taps[CENTER]) */
-#define POLY_SCALE    15   /* coefficient scale: stored as q15 fixed-point         */
-
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
-
-static int16_t  poly_h[POLY_P][POLY_N];   /* coefficient table (q15)              */
-static int      poly_initialized = 0;
 
 static int              started;
 static int              voicevol = 15;
@@ -75,72 +61,6 @@ static void audio_sleep_us(long us) {
     nanosleep(&ts, NULL);
 }
 
-/* Generate polyphase windowed-sinc FIR coefficients at thread startup.
- *
- * For each phase p in [0, POLY_P), the filter is a Hann-windowed sinc
- * sampled at offsets (k - POLY_CENTER + p/POLY_P) for k in [0, POLY_N).
- * Cutoff = 0.5 (source Nyquist) — appropriate for upsampling. After
- * generation, each phase row sums to 1.0 (DC gain = unity), then scaled
- * by 2^POLY_SCALE for int16 storage. Runtime convolution: sum >>= 15.
- */
-static void poly_init(void) {
-    int p, k;
-    double sum;
-    double row[POLY_N];
-    int iv;
-    double x, sinc_val, arg, win_t, win;
-
-    for (p = 0; p < POLY_P; p++) {
-        sum = 0.0;
-        for (k = 0; k < POLY_N; k++) {
-            x = (double)(k - POLY_CENTER) + (double)p / (double)POLY_P;
-            if (x == 0.0) {
-                sinc_val = 1.0;
-            } else {
-                arg = M_PI * x;
-                sinc_val = sin(arg) / arg;
-            }
-            win_t = (double)k / (double)(POLY_N - 1);
-            win = 0.5 - 0.5 * cos(2.0 * M_PI * win_t);
-            row[k] = sinc_val * win;
-            sum += row[k];
-        }
-        /* Normalize each phase to unit DC gain, scale to q15. */
-        for (k = 0; k < POLY_N; k++) {
-            double v = row[k] / sum * (double)(1 << POLY_SCALE);
-            iv = (int)(v < 0.0 ? v - 0.5 : v + 0.5);
-            if (iv > 32767)  iv = 32767;
-            if (iv < -32768) iv = -32768;
-            poly_h[p][k] = (int16_t)iv;
-        }
-    }
-    poly_initialized = 1;
-}
-
-/* Apply polyphase FIR for one output sample, one channel.
- * src points to interleaved-stereo buffer; channel selects L (0) or R (1).
- * ip is integer source frame position; fr is fractional in [0, 65535].
- * src_len is the number of frames in src (boundary clamp range). */
-static inline int16_t poly_apply(const int16_t *src, int ip, uint32_t fr,
-                                  int src_len, int channel)
-{
-    int p = (int)((fr * (uint32_t)POLY_P) >> 16);
-    if (p >= POLY_P) p = POLY_P - 1;
-
-    int32_t sum = 0;
-    int k;
-    for (k = 0; k < POLY_N; k++) {
-        int idx = ip + k - POLY_CENTER;
-        if (idx < 0) idx = 0;
-        if (idx >= src_len) idx = src_len - 1;
-        sum += (int32_t)src[2 * idx + channel] * (int32_t)poly_h[p][k];
-    }
-    sum >>= POLY_SCALE;
-    if (sum > 32767)  sum = 32767;
-    if (sum < -32768) sum = -32768;
-    return (int16_t)sum;
-}
-
 static void *audio_thread_fn(void *arg) {
     (void)arg;
     static int16_t in_buf[IN_FRAMES_PER_TICK * 2];   /* stereo S16 @ 44.1 kHz from engine */
@@ -149,26 +69,6 @@ static void *audio_thread_fn(void *arg) {
     /* 16.16 step per output sample: (44100 << 16) / 48000 = 60211.
      * Cast to uint64_t before shift to avoid the int32 overflow trap. */
     const uint32_t STEP = (uint32_t)(((uint64_t)ENGINE_AUDIO_RATE << 16) / MISTER_AUDIO_RATE);
-
-    if (!poly_initialized) poly_init();
-
-    /* Soft-limiter state — envelope-following stereo-linked design.
-     * Architecturally correct location per audio-engineering best practice:
-     * limiter LAST in chain (after polyphase resample), where it sees true
-     * intersample peaks from FIR convolution overshoot.
-     *
-     * Design:
-     *   - Threshold: 27852 ≈ -1.5 dBFS — below = unity gain pass-through
-     *   - Attack:  ~1 ms time constant (catches transient peaks fast)
-     *   - Release: ~100 ms (smooth decay, no pumping)
-     *   - Stereo-linked: max(|L|,|R|) drives envelope; same gain applied
-     *     to both channels (transparent stereo image preservation).
-     *   - Final hard-clip at ±32767 as belt-and-suspenders safety. */
-    const float ATTACK_COEFF  = expf(-1.0f / (0.001f * (float)MISTER_AUDIO_RATE));
-    const float RELEASE_COEFF = expf(-1.0f / (0.100f * (float)MISTER_AUDIO_RATE));
-    const float THRESHOLD     = 27852.0f;  /* -1.5 dBFS */
-    float lim_env  = 0.0f;
-    float lim_gain = 1.0f;
 
     while (audio_thread_run) {
         size_t free_frames = NativeAudioWriter_FreeFrames();
