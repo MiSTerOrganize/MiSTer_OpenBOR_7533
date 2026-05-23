@@ -927,21 +927,16 @@ endif
         raise RuntimeError("soundmix.c: mixaudio() null-check block not found (upstream changed?)")
     sm = sm.replace(OLD_NULL_CHECK, NEW_NULL_CHECK)
 
-    # FIX for task #10 audio-ducking continuation (2026-05-17 evening):
+    # FIX for task #10 audio level (2026-05-17 evening):
     # Build 7533 added * 2.5 multiplier to music mix and * 1.5 multiplier to
     # SFX mix vs Build 3366's * 1.0 unity. This makes 7533 audio ~4-8 dB
-    # louder than 3366 — peaks frequently hit our envelope limiter threshold
-    # during heavy action, ducking gain to ~85% (-1.4 dB). User reports
-    # "music fades out briefly when many simultaneous actions are happening
-    # and the volume gets loudest" — matches limiter behavior exactly,
-    # confirmed correlates with loudest action moments.
-    #
-    # User-confirmed 2026-05-17: PC 3366 plays MvC heavy scenes with
-    # continuous music (no ducking). PC 7533 has audible ducking too.
+    # louder than 3366 — peaks regularly clip when summed at the mixer.
+    # User-confirmed 2026-05-17: PC 3366 plays MvC heavy scenes with clean
+    # continuous music. PC 7533 has audible artifacts on loud action.
     #
     # Fix: revert 7533 multipliers to 3366's unity. Audio is overall ~4-8 dB
-    # quieter (user compensates via TV/amp volume), but limiter rarely
-    # engages → no ducking → music plays continuously like on 3366.
+    # quieter (user compensates via TV/amp volume), peaks no longer clip,
+    # heavy scenes play cleanly like on 3366.
     multiplier_replacements = [
         ('lmusic = (lmusic * lvolume / MAXVOLUME * 2.5);',
          'lmusic = (lmusic * lvolume / MAXVOLUME);'),

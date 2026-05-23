@@ -9,18 +9,10 @@
  * (engine/source/gamelib/soundmix.c lines 483/527/552) uses
  * sptr16[FIX_TO_INT(fp_pos)] = shift-truncation nearest-neighbor at
  * all three sample-read sites. The wrapper resampler matches the
- * engine kernel character (NN) at near-zero cost; anything more
- * sophisticated (linear, cubic, polyphase) would smooth already-
- * aliased NN-mixed data for marginal audible gain at real CPU cost.
+ * engine kernel character (NN) at near-zero cost.
  *
- * Architectural parity with OpenBOR_4086 (same kernel, same loop body
- * byte-for-byte modulo per-core history comments). 7533 was corrected
- * from polyphase windowed-sinc to ZOH 2026-05-21 (polyphase was based
- * on a now-superseded "SDL 2 upstream → polyphase" inference that
- * confused SDL2 transport-stage resampling with the engine mixer).
- * Soft-limiter declarations + dead polyphase table/function lingered
- * in this file until 2026-05-23 cleanup; file is now lean and matches
- * 4086 byte-for-byte in Stage 2 audio output.
+ * Architectural parity with OpenBOR_4086 (same kernel, byte-for-byte
+ * identical Stage 2 loop body).
  *
  * Implementation rules:
  *   - uint32_t accum (always positive — no negative-shift UB)
@@ -91,10 +83,7 @@ static void *audio_thread_fn(void *arg) {
          * Mirrors engine character per feedback_audio_type_from_engine_source.md
          * (engine/source/gamelib/soundmix.c at lines 483/527/552 uses
          * sptr16[FIX_TO_INT(fp_pos)] = shift-truncation NN at all three
-         * sample-read sites). Polyphase windowed-sinc on top of NN-mixed
-         * engine output is pure CPU waste for marginal benefit; ZOH at
-         * wrapper preserves engine character at near-zero cost.
-         * Architectural parity with OpenBOR_4086 (same kernel). */
+         * sample-read sites). Architectural parity with OpenBOR_4086. */
         uint32_t accum = 0;
         int i;
         for (i = 0; i < MISTER_AUDIO_CHUNK; i++) {
