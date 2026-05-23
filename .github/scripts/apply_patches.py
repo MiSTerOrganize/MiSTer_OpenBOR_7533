@@ -815,8 +815,63 @@ endif
     # `remap` declarations before `anim`/`frame` blocks, so maps_loaded > 0
     # by the time the first anim frame's loadsprite fires.
 
+    # -- Step 12 (2026-05-23): clamp off-screen / zero-size loading bar to
+    # on-screen default in update_loading(). User-explicit override
+    # (NEVER MODIFY USER GAME FILES rule respected: this is engine-side
+    # interpretation, not cart-file edit).
+    #
+    # WHY: some PAKs declare `loadingbg set=LS_TYPE_BOTH` (bar requested)
+    # but with bar coords at (-1000, -1000) and/or bsize=0 — bar is
+    # invisible. Combined with all-black `data/bgs/loading.gif` background
+    # (common cart-authoring shortcut), user sees pure black during the
+    # multi-second model-cache init phase with no feedback at all.
+    # Canonical case: Double Dragon Reloaded Alternate (levels.txt:42
+    # `loadingbg 1 -1000 -1000 0 105 180 0`). User-reported 2026-05-23.
+    #
+    # FIX: detect off-screen origin OR zero-size and override to a
+    # sensible bottom-center default (1/3 screen width, 25px from bottom).
+    # Only fires when bar is genuinely unrenderable — PAKs with on-screen
+    # bar coords (TMNT-RP, He-Man, etc.) are unchanged.
+    #
+    # Trade-off: PAKs that intentionally hid the bar via off-screen coords
+    # (if any) will now show a default bar. User-accepted trade — better
+    # to surface progress feedback than to silently respect the off-screen
+    # authoring choice that produces user-confusing black screens.
+    loadingbar_old = (
+        "            if(isLoadingScreenTypeBar(s->set))\n"
+        "            {\n"
+        "                loadingbarstatus.size.x = size_x;\n"
+        "                bar(pos_x, pos_y, value, max, &loadingbarstatus);\n"
+        "            }"
+    )
+    loadingbar_new = (
+        "            if(isLoadingScreenTypeBar(s->set))\n"
+        "            {\n"
+        "                /* MiSTer fix 2026-05-23: clamp off-screen or zero-size\n"
+        "                 * bar coords to on-screen bottom-center default. Some\n"
+        "                 * carts (Double Dragon Reloaded Alternate is canonical)\n"
+        "                 * declare set=LS_TYPE_BOTH with bar at (-1000,-1000)\n"
+        "                 * bsize=0 -- bar invisible, user sees pure black during\n"
+        "                 * long model-cache init phase. Override to a visible\n"
+        "                 * default so users always get progress feedback. */\n"
+        "                if (pos_x < 0 || pos_y < 0 ||\n"
+        "                    pos_x >= videomodes.hRes || pos_y >= videomodes.vRes ||\n"
+        "                    size_x <= 0)\n"
+        "                {\n"
+        "                    size_x = videomodes.hRes / 3;\n"
+        "                    pos_x = (videomodes.hRes - size_x) / 2;\n"
+        "                    pos_y = videomodes.vRes - 25;\n"
+        "                }\n"
+        "                loadingbarstatus.size.x = size_x;\n"
+        "                bar(pos_x, pos_y, value, max, &loadingbarstatus);\n"
+        "            }"
+    )
+    ob = strict_replace(ob, loadingbar_old, loadingbar_new,
+                        'step 12: clamp off-screen / zero-size loading bar to on-screen default')
+    print("  update_loading(): off-screen/zero-size bar clamps to visible default")
+
     write(ob_path, ob)
-    print("  openbor.c: 3 palette patches written (steps 1, 2, 3 — line-29499 fallback intact, no struct mods).")
+    print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 — line-29499 fallback intact, no struct mods).")
 
     # ── 4. Step 4 v2 (sprite.c bypass) — RESTORED in v3.7 (2026-05-20).
     #
