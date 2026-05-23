@@ -1,26 +1,32 @@
 /*
- * MiSTer_OpenBOR -- sdl/sblaster.c MiSTer replacement
+ * MiSTer_OpenBOR_7533 -- sdl/sblaster.c MiSTer replacement
  *
- * Option C v3: engine at upstream native 44.1 kHz (Sega CD Red Book CDDA
- * reference rate), glue layer resamples to 48 kHz via POLYPHASE WINDOWED-
- * SINC FIR — matches what PC SDL2's default resampler does (bandlimited
- * interpolation, per src/audio/SDL_audiocvt.c in libsdl-org/SDL).
+ * Audio Stage 2: engine renders at upstream native 44.1 kHz (Sega CD
+ * Red Book CDDA reference rate); glue layer resamples to 48 kHz via
+ * ZERO-ORDER HOLD (sample-and-hold / nearest-neighbor). Engine-source-
+ * driven choice per the NON-NEGOTIABLE rule in
+ * feedback_audio_type_from_engine_source.md: upstream OpenBOR's mixer
+ * (engine/source/gamelib/soundmix.c lines 483/527/552) uses
+ * sptr16[FIX_TO_INT(fp_pos)] = shift-truncation nearest-neighbor at
+ * all three sample-read sites. The wrapper resampler matches the
+ * engine kernel character (NN) at near-zero cost; anything more
+ * sophisticated (linear, cubic, polyphase) would smooth already-
+ * aliased NN-mixed data for marginal audible gain at real CPU cost.
  *
- * PC OpenBOR.exe audio chain: app → SDL_OpenAudioDevice(44100, allowed=0)
- * → SDL2 internal bandlimited interpolation → OS device at native rate.
- * For PC reference parity on MiSTer, we mirror SDL2's polyphase quality.
+ * Architectural parity with OpenBOR_4086 (same kernel, same loop body
+ * byte-for-byte modulo per-core history comments). 7533 was corrected
+ * from polyphase windowed-sinc to ZOH 2026-05-21 (polyphase was based
+ * on a now-superseded "SDL 2 upstream → polyphase" inference that
+ * confused SDL2 transport-stage resampling with the engine mixer).
+ * Soft-limiter declarations + dead polyphase table/function lingered
+ * in this file until 2026-05-23 cleanup; file is now lean and matches
+ * 4086 byte-for-byte in Stage 2 audio output.
  *
- * Filter design:
- *   - 16-tap × 32-phase windowed-sinc FIR
- *   - Hann window for moderate stopband attenuation
- *   - Cutoff at source Nyquist (since we're upsampling 44.1 → 48)
- *   - Coefficient table precomputed at thread start; int16 storage
- *   - Per output sample: 16 multiply-adds per channel (stereo = 32 MAC)
- *
- * Implementation rules (avoid past failure modes):
+ * Implementation rules:
  *   - uint32_t accum (always positive — no negative-shift UB)
  *   - No cross-tick state (each tick self-contained, accum starts 0)
- *   - Boundary clamp at chunk edges (small artifact, sub-ms, inaudible)
+ *   - STEP shift via uint64_t intermediate (avoids int32 overflow at
+ *     rate >= 32768 — the 2026-05-15 "loud buzzing" trap)
  *
  * Copyright (C) 2026 MiSTer Organize -- GPL-3.0
  */
