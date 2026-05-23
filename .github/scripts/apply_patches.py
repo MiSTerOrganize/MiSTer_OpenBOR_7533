@@ -650,11 +650,17 @@ endif
     # NO STRUCT MODIFICATIONS in v3.6. No new fields. No offset shifts.
     # Modern PAKs render bit-identically to stock 7533. ATOV gets the
     # same path that worked in v2.
-    print("v3.9: per-model has_remap_directive struct field + drawmethod gate on step 4 v2 bypass")
-    print("       — Cap's frame GIFs have GARBAGE embedded palettes; `palette classic.gif` is the")
+    print("v3.10: dual-flag discriminator (has_remap_directive + has_palette_directive)")
+    print("       -- v3.9 base: has_remap_directive set by CMD_MODEL_REMAP only.")
+    print("       -- v3.10 addition: has_palette_directive set by CMD_MODEL_PALETTE.")
+    print("       -- Step 4 v2 bypass now gated on (has_remap && !has_palette).")
+    print("       -- Preserves ATOV (has_remap=1, has_palette=0): bypass triggers, use sprite->palette.")
+    print("       -- Fixes TMNT-RP (has_remap=1, has_palette=1): bypass disabled, use drawmethod->table.")
+    print("       -- Preserves modern PAKs (has_remap=0, has_palette=1): bypass was never triggered.")
+    print("       -- Cap's frame GIFs have GARBAGE embedded palettes; palette classic.gif is the")
     print("         canonical render LUT. Modern PAKs need drawmethod->table = classic, NOT bypass.")
-    print("       — Legacy ATOV PAKs need sprite->palette bypass for canonical per-frame render.")
-    print("       — Struct field added at END of s_model + s_drawmethod (no offset shifts).")
+    print("       -- Legacy ATOV PAKs need sprite->palette bypass for canonical per-frame render.")
+    print("       -- Struct fields added at END of s_model + s_drawmethod (no offset shifts).")
 
     # ── Step 0 (v3.9): add `int has_remap_directive;` to END of s_model struct
     # in openbor.h. Adding AT END = no offset shifts for existing fields
@@ -665,8 +671,20 @@ endif
     s_model_old = "    char\t\t\t\t\ttest_fixed[MAX_NAME_LEN];\n    char*\t\t\t\t\ttest_pointer;\n\n} s_model;"
     s_model_new = "    char\t\t\t\t\ttest_fixed[MAX_NAME_LEN];\n    char*\t\t\t\t\ttest_pointer;\n\n    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n} s_model;"
     obh = strict_replace(obh, s_model_old, s_model_new, 'v3.9: add has_remap_directive to s_model END')
-    write(obh_path, obh)
     print("  s_model.has_remap_directive added at struct end")
+
+    # -- Step 0e (v3.10): add `int has_palette_directive;` to END of s_model
+    # after the v3.9 has_remap_directive line. Set by CMD_MODEL_PALETTE.
+    # Tightens step 4 v2 gate so TMNT-RP-style modern PAKs (declare both
+    # `palette FILE.gif` master AND `remap` directives) skip the bypass and
+    # render via drawmethod->table = master LUT (canonical), while ATOV-style
+    # legacy PAKs (declare `remap` only, no `palette`) keep the bypass
+    # = sprite->palette per-frame (canonical for ATOV).
+    s_model_v310_old = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n} s_model;"
+    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n} s_model;"
+    obh = strict_replace(obh, s_model_v310_old, s_model_v310_new, 'v3.10: add has_palette_directive to s_model END')
+    write(obh_path, obh)
+    print("  s_model.has_palette_directive added at struct end (v3.10)")
 
     # ── Step 0b (v3.9): add `int has_remap_directive;` to END of s_drawmethod
     # struct in types.h. Drawmethod is per-render-call so this field carries
@@ -677,8 +695,16 @@ endif
     s_dm_old = "    water_transform water;\t\n\tint tag;\t\t\t\t// ~~\n} s_drawmethod;"
     s_dm_new = "    water_transform water;\t\n\tint tag;\t\t\t\t// ~~\n\tint has_remap_directive; /* MiSTer v3.9: legacy-PAK flag for sprite.c step 4 v2 bypass; copied from model at render-time */\n} s_drawmethod;"
     types = strict_replace(types, s_dm_old, s_dm_new, 'v3.9: add has_remap_directive to s_drawmethod END')
-    write(types_path, types)
     print("  s_drawmethod.has_remap_directive added at struct end")
+
+    # -- Step 0f (v3.10): add `int has_palette_directive;` to END of s_drawmethod
+    # after the v3.9 has_remap_directive line. Carried from model to sprite.c
+    # at render-time alongside has_remap_directive (see step 0h).
+    s_dm_v310_old = "\tint has_remap_directive; /* MiSTer v3.9: legacy-PAK flag for sprite.c step 4 v2 bypass; copied from model at render-time */\n} s_drawmethod;"
+    s_dm_v310_new = "\tint has_remap_directive; /* MiSTer v3.9: legacy-PAK flag for sprite.c step 4 v2 bypass; copied from model at render-time */\n\tint has_palette_directive; /* MiSTer v3.10: master-palette flag (tightens step 4 v2 gate for TMNT-RP-style modern PAKs); copied from model at render-time */\n} s_drawmethod;"
+    types = strict_replace(types, s_dm_v310_old, s_dm_v310_new, 'v3.10: add has_palette_directive to s_drawmethod END')
+    write(types_path, types)
+    print("  s_drawmethod.has_palette_directive added at struct end (v3.10)")
 
     print("Patching openbor.c (per-sprite palette: PIXEL_x8 loadsprite + skip force-assign)...")
     ob_path = os.path.join(obor, 'openbor.c')
@@ -691,6 +717,17 @@ endif
     ob = strict_replace(ob, set_flag_old, set_flag_new, 'v3.9 step 0c: set newchar->has_remap_directive=1 in CMD_MODEL_REMAP')
     print("  set newchar->has_remap_directive=1 inside CMD_MODEL_REMAP case")
 
+    # -- Step 0g (v3.10): set newchar->has_palette_directive = 1 inside
+    # CMD_MODEL_PALETTE handler. Anchor on the unique case opener.
+    # Setting the flag UNCONDITIONALLY (both `palette FILE.gif` and `palette none`
+    # forms set it) is intentional: any explicit palette directive signals
+    # author-declared master intent, which should disable the legacy bypass.
+    # Verified verbatim against pristine v7533 openbor.c line 14480.
+    set_pal_flag_old = "            case CMD_MODEL_PALETTE:\n\n                if(newchar->palette == NULL)"
+    set_pal_flag_new = "            case CMD_MODEL_PALETTE:\n\n                newchar->has_palette_directive = 1; /* MiSTer v3.10: master-palette discriminator (distinguishes TMNT-RP modern w/ remap from ATOV legacy) */\n                if(newchar->palette == NULL)"
+    ob = strict_replace(ob, set_pal_flag_old, set_pal_flag_new, 'v3.10 step 0g: set newchar->has_palette_directive=1 in CMD_MODEL_PALETTE')
+    print("  set newchar->has_palette_directive=1 inside CMD_MODEL_PALETTE case (v3.10)")
+
     # ── Step 0d (v3.9): copy has_remap_directive from model to drawmethod at
     # render time. Inject right after `drawmethod = &commonmethod;` (line ~29635
     # in stock; that's where per-frame drawmethod is finalized).
@@ -699,6 +736,14 @@ endif
     copy_to_dm_new = "                    drawmethod = &commonmethod;\n                    drawmethod->has_remap_directive = e->modeldata.has_remap_directive; /* MiSTer v3.9: pass legacy-PAK flag to sprite.c step 4 v2 */\n\n                    if(e->modeldata.alpha >= 1 && e->modeldata.alpha <= MAX_BLENDINGS)"
     ob = strict_replace(ob, copy_to_dm_old, copy_to_dm_new, 'v3.9 step 0d: copy has_remap_directive into commonmethod at render')
     print("  drawmethod->has_remap_directive set at render-time from e->modeldata.has_remap_directive")
+
+    # -- Step 0h (v3.10): copy has_palette_directive from model to drawmethod
+    # at render time, alongside v3.9 step 0d's has_remap_directive copy. Together
+    # the two flags drive the tightened step 4 v2 gate (see modified sp_new below).
+    copy_pal_to_dm_old = "                    drawmethod->has_remap_directive = e->modeldata.has_remap_directive; /* MiSTer v3.9: pass legacy-PAK flag to sprite.c step 4 v2 */\n\n                    if(e->modeldata.alpha >= 1 && e->modeldata.alpha <= MAX_BLENDINGS)"
+    copy_pal_to_dm_new = "                    drawmethod->has_remap_directive = e->modeldata.has_remap_directive; /* MiSTer v3.9: pass legacy-PAK flag to sprite.c step 4 v2 */\n                    drawmethod->has_palette_directive = e->modeldata.has_palette_directive; /* MiSTer v3.10: pass master-palette flag (tightens step 4 v2 gate for TMNT-RP) */\n\n                    if(e->modeldata.alpha >= 1 && e->modeldata.alpha <= MAX_BLENDINGS)"
+    ob = strict_replace(ob, copy_pal_to_dm_old, copy_pal_to_dm_new, 'v3.10 step 0h: copy has_palette_directive into commonmethod at render')
+    print("  drawmethod->has_palette_directive set at render-time (v3.10)")
 
     # Step 1: loadsprite uses PIXEL_x8 ONLY for legacy-remap PAKs (ATOV-style).
     # Modern PAKs keep upstream behavior: `nopalette ? PIXEL_x8 : PIXEL_8`.
@@ -827,26 +872,38 @@ endif
     sp_new = (
         "        case PIXEL_32:\n"
         "        {\n"
-        "            /* MiSTer palette fix step 4 v2 (v3.9, 2026-05-20):\n"
-        "             * conditional on per-sprite palette AND model-level legacy flag.\n"
+        "            /* MiSTer palette fix step 4 v2 (v3.10, 2026-05-23):\n"
+        "             * dual-flag discriminator gates the sprite->palette bypass.\n"
         "             *\n"
         "             * Bypass drawmethod->table -> use sprite->palette ONLY when:\n"
-        "             *   1. frame->palette is populated (each Hugo frame's canonical GIF palette), AND\n"
-        "             *   2. drawmethod->has_remap_directive is set (model parsed CMD_MODEL_REMAP)\n"
+        "             *   1. frame->palette is populated, AND\n"
+        "             *   2. drawmethod->has_remap_directive  (CMD_MODEL_REMAP fired), AND\n"
+        "             *   3. drawmethod->has_palette_directive is FALSE (no explicit master)\n"
         "             *\n"
-        "             * For Hugo (ATOV legacy): both TRUE -> use sprite->palette = canonical per-frame ✓\n"
+        "             * Truth table for the three known PAK archetypes:\n"
         "             *\n"
-        "             * For Cap (modern, alternatepal-only): has_remap_directive=0 -> NO bypass\n"
-        "             * -> use drawmethod->table = ent->colourmap = newchar->palette = classic.gif\n"
-        "             * (the canonical render LUT for Cap's GARBAGE-palette frame GIFs). ✓\n"
+        "             *   ATOV (legacy):       has_remap=1, has_palette=0 -> BYPASS triggers\n"
+        "             *     Use sprite->palette = each frames canonical GIF palette.\n"
+        "             *     Hugo green / Vice white+purple / Playa correct.\n"
         "             *\n"
-        "             * Discovered 2026-05-20: Cap's frame GIFs (att*, c*, id*, ...) have garbage\n"
-        "             * embedded palettes (palette MD5 526b13c7) NOT matching classic.gif (1b8e2d5d).\n"
-        "             * Cart author's design: use `palette classic.gif` as the master render LUT for\n"
-        "             * all frames. v3.7/v3.8 step 4 v2 bypass to sprite->palette broke this for Cap.\n"
-        "             * v3.9 gates bypass on has_remap_directive so modern PAKs (Cap/Beast/War Machine/\n"
-        "             * He-Man/Avengers/PDC2) keep stock drawmethod->table path. */\n"
-        "            unsigned *table_arg = (frame && frame->palette && drawmethod->has_remap_directive) ? NULL : (unsigned *)drawmethod->table;\n"
+        "             *   TMNT-RP (modern w/ remap):  has_remap=1, has_palette=1 -> NO BYPASS\n"
+        "             *     Use drawmethod->table = master palette declared via `palette icon.gif`.\n"
+        "             *     Raph renders with `7302b71bbe` (red) instead of his frames embedded\n"
+        "             *     Leo-blue palette `0e944ad9bf`. Cart author copied Leo frame templates\n"
+        "             *     and authored Raph via the master LUT swap, not per-frame palette.\n"
+        "             *\n"
+        "             *   Cap / He-Man / PDC2 (modern, no remap):  has_remap=0 -> NO BYPASS\n"
+        "             *     Use drawmethod->table (unchanged from v3.9 behavior). Same render path\n"
+        "             *     as stock 7533 for these PAKs since has_remap_directive=0 short-circuits\n"
+        "             *     the bypass before v3.10 even checks has_palette_directive.\n"
+        "             *\n"
+        "             * Why the v3.10 third condition: ATOV declares NO `palette FILE.gif` master\n"
+        "             * (verified extract 2026-05-23: Hugo/Vice/Playa character.txt have 0 palette\n"
+        "             * directives, 4-6 remap directives). TMNT-RP DOES declare `palette icon.gif`\n"
+        "             * master. has_palette_directive cleanly distinguishes them without breaking\n"
+        "             * the v3.9 ATOV fix (which depends on sprite->palette being the canonical\n"
+        "             * per-frame palette for legacy ATOV-style PAKs). */\n"
+        "            unsigned *table_arg = (frame && frame->palette && drawmethod->has_remap_directive && !drawmethod->has_palette_directive) ? NULL : (unsigned *)drawmethod->table;\n"
         "            putsprite_x8p32(x, y, drawmethod->flipx, frame, screen, table_arg, getblendfunction32(drawmethod->alpha));\n"
         "            break;\n"
         "        }"
