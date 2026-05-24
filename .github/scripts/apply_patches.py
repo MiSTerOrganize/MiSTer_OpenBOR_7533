@@ -975,7 +975,13 @@ endif
         "static unsigned int _prof_sprite_post_cum_ms = 0;\n"
         "/* MiSTer 2026-05-24 SUB-PROFILE v5: file I/O + parser loop time. */\n"
         "static unsigned int _prof_file_cum_ms = 0;\n"
-        "static unsigned int _prof_parser_cum_ms = 0;"
+        "static unsigned int _prof_parser_cum_ms = 0;\n"
+        "/* MiSTer 2026-05-24 SUB-PROFILE v6: per-CMD_MODEL_* dispatch time. */\n"
+        "static unsigned int _prof_cmd_anim_cum_ms = 0;\n"
+        "static unsigned int _prof_cmd_frame_cum_ms = 0;\n"
+        "static unsigned int _prof_cmd_subclass_cum_ms = 0;\n"
+        "static unsigned int _prof_cmd_script_cum_ms = 0;\n"
+        "static unsigned int _prof_cmd_other_cum_ms = 0;"
     )
     ob = strict_replace(ob, sub_profile_sprite_post_global_old, sub_profile_sprite_post_global_new,
                         'SUB-PROFILE v4+v5: sprite_post + file + parser globals')
@@ -1034,6 +1040,70 @@ endif
     )
     ob = strict_replace(ob, sub_profile_parser_start_old, sub_profile_parser_start_new,
                         'SUB-PROFILE v5: parser loop start timer (unique anchor)')
+
+    # Part 1g (SUB-PROFILE v6): per-CMD_MODEL_* dispatch timer.
+    # Insert _prof_cmd_t0 = timer_gettick(); BEFORE switch(cmd), then dispatch
+    # the delta to per-cmd accumulator AFTER switch closes. Categories: ANIM,
+    # FRAME, SUBCLASS, SCRIPT (covers both CMD_MODEL_SCRIPT + ANIMATIONSCRIPT),
+    # OTHER (everything else). This breaks parse_other into the heavy suspects
+    # so we know which CMD_* directive dominates per-fighter load time.
+    sub_profile_cmd_start_old = (
+        "            cmd = getModelCommand(modelcmdlist, command);\n"
+        "\n"
+        "            //if (cmd != CMD_MODEL_FRAME) framenum = 0;\n"
+        "\n"
+        "            switch(cmd)\n"
+        "            {"
+    )
+    sub_profile_cmd_start_new = (
+        "            cmd = getModelCommand(modelcmdlist, command);\n"
+        "\n"
+        "            //if (cmd != CMD_MODEL_FRAME) framenum = 0;\n"
+        "\n"
+        "            /* MiSTer 2026-05-24 SUB-PROFILE v6: time each CMD_* dispatch. */\n"
+        "            unsigned int _prof_cmd_t0 = timer_gettick();\n"
+        "            switch(cmd)\n"
+        "            {"
+    )
+    ob = strict_replace(ob, sub_profile_cmd_start_old, sub_profile_cmd_start_new,
+                        'SUB-PROFILE v6: per-CMD_* dispatch timer start')
+
+    # AFTER switch closes — dispatch delta to per-cmd accumulator.
+    # Unique anchor: the default case's `printf("Command '%s' not understood...")`
+    # + closing braces.
+    sub_profile_cmd_end_old = (
+        "            default:\n"
+        "                if(command && command[0])\n"
+        "                {\n"
+        "                    if(!handle_txt_include(command, &arglist, &filename, fnbuf, &buf, &pos, &size))\n"
+        "                    {\n"
+        "                        printf(\"Command '%s' not understood in file '%s'!\\n\", command, filename);\n"
+        "                    }\n"
+        "                }\n"
+        "            }"
+    )
+    sub_profile_cmd_end_new = (
+        "            default:\n"
+        "                if(command && command[0])\n"
+        "                {\n"
+        "                    if(!handle_txt_include(command, &arglist, &filename, fnbuf, &buf, &pos, &size))\n"
+        "                    {\n"
+        "                        printf(\"Command '%s' not understood in file '%s'!\\n\", command, filename);\n"
+        "                    }\n"
+        "                }\n"
+        "            }\n"
+        "            /* MiSTer 2026-05-24 SUB-PROFILE v6: dispatch delta to per-cmd accumulator. */\n"
+        "            {\n"
+        "                unsigned int _prof_cmd_delta = timer_gettick() - _prof_cmd_t0;\n"
+        "                if (cmd == CMD_MODEL_FRAME) _prof_cmd_frame_cum_ms += _prof_cmd_delta;\n"
+        "                else if (cmd == CMD_MODEL_ANIM) _prof_cmd_anim_cum_ms += _prof_cmd_delta;\n"
+        "                else if (cmd == CMD_MODEL_SUBCLASS) _prof_cmd_subclass_cum_ms += _prof_cmd_delta;\n"
+        "                else if (cmd == CMD_MODEL_SCRIPT || cmd == CMD_MODEL_ANIMATIONSCRIPT) _prof_cmd_script_cum_ms += _prof_cmd_delta;\n"
+        "                else _prof_cmd_other_cum_ms += _prof_cmd_delta;\n"
+        "            }"
+    )
+    ob = strict_replace(ob, sub_profile_cmd_end_old, sub_profile_cmd_end_new,
+                        'SUB-PROFILE v6: per-CMD_* dispatch accumulator')
 
     sub_profile_parser_end_old = (
         "        // Go to next line\n"
@@ -1105,13 +1175,13 @@ endif
     )
     profile_new = (
         "    unsigned int ticks = timer_gettick();\n"
-        "    /* MiSTer 2026-05-24 TEMPORARY PROFILE v5 -- revert after measured */\n"
+        "    /* MiSTer 2026-05-24 TEMPORARY PROFILE v6 -- revert after measured */\n"
         "    {\n"
         "        extern unsigned int _prof_sample_cum_ms;\n"
         "        static unsigned int _prof_start_ticks = 0;\n"
         "        const char *_slot = (s == &loadingbg[0]) ? \"L0\" : (s == &loadingbg[1]) ? \"L1\" : \"BG\";\n"
         "        if (s == &loadingbg[0] && value == -1) _prof_start_ticks = ticks;\n"
-        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u ms gif=%u sam=%u post=%u file=%u parser=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks, _prof_gif_cum_ms, _prof_sample_cum_ms, _prof_sprite_post_cum_ms, _prof_file_cum_ms, _prof_parser_cum_ms);\n"
+        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u gif=%u sam=%u post=%u file=%u anim=%u frame=%u sub=%u scr=%u other=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks, _prof_gif_cum_ms, _prof_sample_cum_ms, _prof_sprite_post_cum_ms, _prof_file_cum_ms, _prof_cmd_anim_cum_ms, _prof_cmd_frame_cum_ms, _prof_cmd_subclass_cum_ms, _prof_cmd_script_cum_ms, _prof_cmd_other_cum_ms);\n"
         "    }\n"
         "\n"
         "    if(ticks - soundtick > 20)"
