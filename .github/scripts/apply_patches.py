@@ -934,6 +934,64 @@ endif
     ob = strict_replace(ob, sub_profile_loadbitmap_main_old, sub_profile_loadbitmap_main_new,
                         'SUB-PROFILE: wrap loadbitmap() in loadsprite primary path')
 
+    # Part 1d (SUB-PROFILE v4): wrap the post-loadbitmap section in loadsprite()
+    # primary path (clipbitmap + fakey_encodesprite + malloc + encodesprite) with
+    # a single timer accumulating to _prof_sprite_post_cum_ms. This captures the
+    # sprite encoding work after the bitmap is decoded — the "other" inside loadsprite.
+    # Together with gif (already), we get: loadsprite_total_time = gif + sprite_post.
+    # The deduction parse_other = per_model_t - gif - sample - sprite_post gives
+    # the character.txt parse + remaining model-load overhead for free.
+    sub_profile_sprite_post_global_old = "/* MiSTer 2026-05-24 SUB-PROFILE: cumulative loadbitmap time (GIF decode). */\nstatic unsigned int _prof_gif_cum_ms = 0;"
+    sub_profile_sprite_post_global_new = (
+        "/* MiSTer 2026-05-24 SUB-PROFILE: cumulative loadbitmap time (GIF decode). */\n"
+        "static unsigned int _prof_gif_cum_ms = 0;\n"
+        "/* MiSTer 2026-05-24 SUB-PROFILE v4: cumulative sprite-post-processing time. */\n"
+        "static unsigned int _prof_sprite_post_cum_ms = 0;"
+    )
+    ob = strict_replace(ob, sub_profile_sprite_post_global_old, sub_profile_sprite_post_global_new,
+                        'SUB-PROFILE v4: _prof_sprite_post_cum_ms global')
+
+    sub_profile_sprite_post_block_old = (
+        "    clipbitmap(bitmap, &clipl, &clipr, &clipt, &clipb);\n"
+        "\n"
+        "    len = strlen(filename);\n"
+        "    size = fakey_encodesprite(bitmap);\n"
+        "    curr = malloc(sizeof(*curr));\n"
+        "    curr->sprite = malloc(size);\n"
+        "    curr->filename = malloc(len + 1);\n"
+        "    if(curr == NULL || curr->sprite == NULL || curr->filename == NULL)\n"
+        "    {\n"
+        "        freebitmap(bitmap);\n"
+        "        borShutdown(1, \"loadsprite() Out of memory!\\n\");\n"
+        "    }\n"
+        "    memcpy(curr->filename, filename, len);\n"
+        "    curr->filename[len] = 0;\n"
+        "    encodesprite(ofsx - clipl, ofsy - clipt, bitmap, curr->sprite);"
+    )
+    sub_profile_sprite_post_block_new = (
+        "    /* MiSTer 2026-05-24 SUB-PROFILE v4: time the post-loadbitmap sprite-creation work. */\n"
+        "    {\n"
+        "        unsigned int _prof_t0 = timer_gettick();\n"
+        "        clipbitmap(bitmap, &clipl, &clipr, &clipt, &clipb);\n"
+        "        len = strlen(filename);\n"
+        "        size = fakey_encodesprite(bitmap);\n"
+        "        curr = malloc(sizeof(*curr));\n"
+        "        curr->sprite = malloc(size);\n"
+        "        curr->filename = malloc(len + 1);\n"
+        "        if(curr == NULL || curr->sprite == NULL || curr->filename == NULL)\n"
+        "        {\n"
+        "            freebitmap(bitmap);\n"
+        "            borShutdown(1, \"loadsprite() Out of memory!\\n\");\n"
+        "        }\n"
+        "        memcpy(curr->filename, filename, len);\n"
+        "        curr->filename[len] = 0;\n"
+        "        encodesprite(ofsx - clipl, ofsy - clipt, bitmap, curr->sprite);\n"
+        "        _prof_sprite_post_cum_ms += timer_gettick() - _prof_t0;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, sub_profile_sprite_post_block_old, sub_profile_sprite_post_block_new,
+                        'SUB-PROFILE v4: wrap post-loadbitmap sprite-creation block')
+
     # Part 2: update_loading() PROFILE patch now also prints gif=%u ms.
     profile_old = (
         "    unsigned int ticks = timer_gettick();\n"
@@ -942,13 +1000,13 @@ endif
     )
     profile_new = (
         "    unsigned int ticks = timer_gettick();\n"
-        "    /* MiSTer 2026-05-24 TEMPORARY PROFILE v3 -- revert after measured */\n"
+        "    /* MiSTer 2026-05-24 TEMPORARY PROFILE v4 -- revert after measured */\n"
         "    {\n"
         "        extern unsigned int _prof_sample_cum_ms;\n"
         "        static unsigned int _prof_start_ticks = 0;\n"
         "        const char *_slot = (s == &loadingbg[0]) ? \"L0\" : (s == &loadingbg[1]) ? \"L1\" : \"BG\";\n"
         "        if (s == &loadingbg[0] && value == -1) _prof_start_ticks = ticks;\n"
-        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u ms gif=%u ms sample=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks, _prof_gif_cum_ms, _prof_sample_cum_ms);\n"
+        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u ms gif=%u ms sample=%u ms sprite_post=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks, _prof_gif_cum_ms, _prof_sample_cum_ms, _prof_sprite_post_cum_ms);\n"
         "    }\n"
         "\n"
         "    if(ticks - soundtick > 20)"
