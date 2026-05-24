@@ -852,6 +852,38 @@ endif
     # `remap` declarations before `anim`/`frame` blocks, so maps_loaded > 0
     # by the time the first anim frame's loadsprite fires.
 
+    # -- TEMPORARY PROFILE 2026-05-24 (DIAG -- REVERT AFTER DD-RELOADED LOAD MEASURED).
+    # Insert one printf per update_loading() call to log timestamp + slot tag +
+    # progress value. Per feedback_logging_hotpath_perf.md update_loading fires
+    # ~20-50x per PAK load (well below hotpath threshold). Output goes to
+    # /media/fat/logs/OpenBOR_7533/OpenBorLog.txt. Slot tags:
+    #   L0 = loadingbg[0] = model cache phase (the slow one)
+    #   L1 = loadingbg[1] = level load phase
+    #   BG = bgPosi       = per-level loading bar (cart-authored)
+    # Baseline resets on every L0 init call (value=-1), so each PAK load
+    # starts at t=0 ms. Per feedback_apply_patches_encoding_safety.md:
+    # ASCII-only patch content (no em-dash/arrow/curly-quote).
+    profile_old = (
+        "    unsigned int ticks = timer_gettick();\n"
+        "\n"
+        "    if(ticks - soundtick > 20)"
+    )
+    profile_new = (
+        "    unsigned int ticks = timer_gettick();\n"
+        "    /* MiSTer 2026-05-24 TEMPORARY PROFILE -- revert after DD-Reloaded measured */\n"
+        "    {\n"
+        "        static unsigned int _prof_start_ticks = 0;\n"
+        "        const char *_slot = (s == &loadingbg[0]) ? \"L0\" : (s == &loadingbg[1]) ? \"L1\" : \"BG\";\n"
+        "        if (s == &loadingbg[0] && value == -1) _prof_start_ticks = ticks;\n"
+        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks);\n"
+        "    }\n"
+        "\n"
+        "    if(ticks - soundtick > 20)"
+    )
+    ob = strict_replace(ob, profile_old, profile_new,
+                        'TEMPORARY PROFILE: log update_loading timestamps')
+    print("  TEMPORARY PROFILE inserted in update_loading (revert after measurement)")
+
     # -- Step 12 (2026-05-23): clamp off-screen / zero-size loading bar to
     # on-screen default in update_loading(). User-explicit override
     # (NEVER MODIFY USER GAME FILES rule respected: this is engine-side
