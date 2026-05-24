@@ -946,10 +946,71 @@ endif
         "/* MiSTer 2026-05-24 SUB-PROFILE: cumulative loadbitmap time (GIF decode). */\n"
         "static unsigned int _prof_gif_cum_ms = 0;\n"
         "/* MiSTer 2026-05-24 SUB-PROFILE v4: cumulative sprite-post-processing time. */\n"
-        "static unsigned int _prof_sprite_post_cum_ms = 0;"
+        "static unsigned int _prof_sprite_post_cum_ms = 0;\n"
+        "/* MiSTer 2026-05-24 SUB-PROFILE v5: file I/O + parser loop time. */\n"
+        "static unsigned int _prof_file_cum_ms = 0;\n"
+        "static unsigned int _prof_parser_cum_ms = 0;"
     )
     ob = strict_replace(ob, sub_profile_sprite_post_global_old, sub_profile_sprite_post_global_new,
-                        'SUB-PROFILE v4: _prof_sprite_post_cum_ms global')
+                        'SUB-PROFILE v4+v5: sprite_post + file + parser globals')
+
+    # Part 1e (SUB-PROFILE v5): wrap buffer_pakfile() call (character.txt read
+    # from PAK file). Captures file I/O cost. Per JL Legacy v4 result parse_other
+    # is 93.5% of total -- need to break it into file_read / parser / post-parser.
+    sub_profile_file_old = (
+        "    if(buffer_pakfile(filename, &buf, &size) != 1)\n"
+        "    {\n"
+        "        borShutdown(1, \"Unable to open file '%s'\\n\\n\", filename);\n"
+        "    }"
+    )
+    sub_profile_file_new = (
+        "    /* MiSTer 2026-05-24 SUB-PROFILE v5: time the buffer_pakfile char.txt read. */\n"
+        "    {\n"
+        "        unsigned int _prof_t0 = timer_gettick();\n"
+        "        int _prof_buf_rc = buffer_pakfile(filename, &buf, &size);\n"
+        "        _prof_file_cum_ms += timer_gettick() - _prof_t0;\n"
+        "        if(_prof_buf_rc != 1)\n"
+        "        {\n"
+        "            borShutdown(1, \"Unable to open file '%s'\\n\\n\", filename);\n"
+        "        }\n"
+        "    }"
+    )
+    ob = strict_replace(ob, sub_profile_file_old, sub_profile_file_new,
+                        'SUB-PROFILE v5: wrap buffer_pakfile')
+
+    # Part 1f (SUB-PROFILE v5): wrap the parser while loop with a timer.
+    # parser_cum_ms accumulates time spent inside the parser dispatch loop
+    # (which INCLUDES nested loadsprite + sound_load_sample calls).
+    # pure_parser_time = parser - gif - sample - sprite_post (deduced per model).
+    sub_profile_parser_start_old = (
+        "    // Now interpret the contents of buf line by line\n"
+        "    while(pos < size)\n"
+        "    {"
+    )
+    sub_profile_parser_start_new = (
+        "    /* MiSTer 2026-05-24 SUB-PROFILE v5: time the parser loop entry-to-exit. */\n"
+        "    unsigned int _prof_parser_t0 = timer_gettick();\n"
+        "    // Now interpret the contents of buf line by line\n"
+        "    while(pos < size)\n"
+        "    {"
+    )
+    ob = strict_replace(ob, sub_profile_parser_start_old, sub_profile_parser_start_new,
+                        'SUB-PROFILE v5: parser loop start timer')
+
+    sub_profile_parser_end_old = (
+        "        // Go to next line\n"
+        "        pos += getNewLineStart(buf + pos);\n"
+        "    }"
+    )
+    sub_profile_parser_end_new = (
+        "        // Go to next line\n"
+        "        pos += getNewLineStart(buf + pos);\n"
+        "    }\n"
+        "    /* MiSTer 2026-05-24 SUB-PROFILE v5: parser loop accumulator. */\n"
+        "    _prof_parser_cum_ms += timer_gettick() - _prof_parser_t0;"
+    )
+    ob = strict_replace(ob, sub_profile_parser_end_old, sub_profile_parser_end_new,
+                        'SUB-PROFILE v5: parser loop end accumulator')
 
     sub_profile_sprite_post_block_old = (
         "    clipbitmap(bitmap, &clipl, &clipr, &clipt, &clipb);\n"
@@ -1000,13 +1061,13 @@ endif
     )
     profile_new = (
         "    unsigned int ticks = timer_gettick();\n"
-        "    /* MiSTer 2026-05-24 TEMPORARY PROFILE v4 -- revert after measured */\n"
+        "    /* MiSTer 2026-05-24 TEMPORARY PROFILE v5 -- revert after measured */\n"
         "    {\n"
         "        extern unsigned int _prof_sample_cum_ms;\n"
         "        static unsigned int _prof_start_ticks = 0;\n"
         "        const char *_slot = (s == &loadingbg[0]) ? \"L0\" : (s == &loadingbg[1]) ? \"L1\" : \"BG\";\n"
         "        if (s == &loadingbg[0] && value == -1) _prof_start_ticks = ticks;\n"
-        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u ms gif=%u ms sample=%u ms sprite_post=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks, _prof_gif_cum_ms, _prof_sample_cum_ms, _prof_sprite_post_cum_ms);\n"
+        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u ms gif=%u sam=%u post=%u file=%u parser=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks, _prof_gif_cum_ms, _prof_sample_cum_ms, _prof_sprite_post_cum_ms, _prof_file_cum_ms, _prof_parser_cum_ms);\n"
         "    }\n"
         "\n"
         "    if(ticks - soundtick > 20)"
