@@ -27,8 +27,9 @@ def write(path, content):
     with open(path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(content)
 
-def strict_replace(content, old, new, label):
-    """Replace `old` with `new` in content; RAISE if `old` not found.
+def strict_replace(content, old, new, label, count=1):
+    """Replace `old` with `new` in content; RAISE if `old` not found OR
+    if found more than `count` times (default 1).
 
     Use this instead of `content.replace(old, new)` for patches where a
     silent no-op would corrupt the build. The 2026-05-19 ATOV palette
@@ -38,6 +39,13 @@ def strict_replace(content, old, new, label):
     has `strcpy(buf, "./")`. Saves/Config/SaveStates redirect had been
     broken without anyone noticing because plain `.replace()` returns the
     source unchanged when the pattern doesn't match.
+
+    The 2026-05-24 SUB-PROFILE v5 session uncovered the dual bug: a
+    pattern that matched MULTIPLE places injected the same C code into
+    many functions in openbor.c (parser-loop-end pattern matched 14
+    places, only one of which had a matching parser-loop-start with the
+    needed local variable). count=1 catches this class of bug; pass
+    explicit count=N when the pattern is intentionally multi-match.
     """
     if old not in content:
         raise RuntimeError(
@@ -45,6 +53,15 @@ def strict_replace(content, old, new, label):
             f"  First 80 chars of expected: {old[:80]!r}\n"
             f"  Verify the pattern matches PRISTINE upstream at "
             f"https://raw.githubusercontent.com/DCurrent/openbor/v7533/engine/..."
+        )
+    actual_count = content.count(old)
+    if actual_count != count:
+        raise RuntimeError(
+            f"strict_replace failed for '{label}': expected {count} match(es), "
+            f"found {actual_count}. Pattern is not unique enough.\n"
+            f"  First 80 chars of expected: {old[:80]!r}\n"
+            f"  Add more surrounding context to make the pattern unique, "
+            f"or pass count={actual_count} if multi-match is intentional."
         )
     return content.replace(old, new)
 
@@ -380,17 +397,21 @@ endif
     # so they need their own replacement. Writing to cwd's Logs/ directory
     # violates the canonical single-location log rule
     # (/media/fat/logs/{CoreName}/) — patch to absolute paths.
+    # 4 occurrences each — intentional multi-match (LOGFILE / LOGFILE_BS /
+    # LOGFILE_SCREEN / LOGFILE_SCRIPT macros all hardcode the same string).
     src = strict_replace(
         src,
         '"./Logs/OpenBorLog.txt"',
         '"/media/fat/logs/OpenBOR_7533/OpenBorLog.txt"',
-        'source/utils.c OpenBorLog absolute path'
+        'source/utils.c OpenBorLog absolute path',
+        count=4
     )
     src = strict_replace(
         src,
         '"./Logs/ScriptLog.txt"',
         '"/media/fat/logs/OpenBOR_7533/ScriptLog.txt"',
-        'source/utils.c ScriptLog absolute path'
+        'source/utils.c ScriptLog absolute path',
+        count=5
     )
 
     write(os.path.join(obor, 'source/utils.c'), src)
@@ -401,27 +422,32 @@ endif
     obor_c = read(os.path.join(obor, 'openbor.c'))
 
     # .cfg files: savesettings/loadsettings → "Config"
+    # 2 occurrences (both functions use same idiom) — intentional multi-match.
     obor_c = strict_replace(
         obor_c,
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpname, 4);',
         '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 4);',
-        '.cfg path -> Config (savesettings/loadsettings)'
+        '.cfg path -> Config (savesettings/loadsettings)',
+        count=2
     )
 
-    # default.cfg — v7533 uses strcat instead of strncat with size limit
+    # default.cfg — v7533 uses strcat instead of strncat with size limit.
+    # 2 occurrences (savesettings_default / loadsettings_default).
     obor_c = strict_replace(
         obor_c,
         'getBasePath(path, "Saves", 0);\n    strcat(path, "default.cfg");',
         '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    strcat(path, "default.cfg");',
-        'default.cfg path -> Config'
+        'default.cfg path -> Config',
+        count=2
     )
 
-    # .hi files
+    # .hi files — 2 occurrences (save_high_score / load_high_score).
     obor_c = strict_replace(
         obor_c,
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpname, 1);',
         '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 1);',
-        '.hi (high score) path -> Config'
+        '.hi (high score) path -> Config',
+        count=2
     )
 
     # .s00 save states (saveScriptFile uses tmpvalue)
@@ -982,12 +1008,24 @@ endif
     # parser_cum_ms accumulates time spent inside the parser dispatch loop
     # (which INCLUDES nested loadsprite + sound_load_sample calls).
     # pure_parser_time = parser - gif - sample - sprite_post (deduced per model).
+    # NOTE: parser START + END patterns must be UNIQUE to load_cached_model.
+    # v5 first attempt failed because the bare patterns matched 7+/14
+    # parser loops in openbor.c (other functions have similar shape).
+    # Unique START anchor: the `//char* test = "load   knife 0";` comment
+    # is unique to load_cached_model (1 occurrence). Unique END anchor:
+    # `tempInt = 1;` at column 0 (no indent) is unique to load_cached_model.
     sub_profile_parser_start_old = (
+        "    //char* test = \"load   knife 0\";\n"
+        "    //ParseArgs(&arglist,test,argbuf);\n"
+        "\n"
         "    // Now interpret the contents of buf line by line\n"
         "    while(pos < size)\n"
         "    {"
     )
     sub_profile_parser_start_new = (
+        "    //char* test = \"load   knife 0\";\n"
+        "    //ParseArgs(&arglist,test,argbuf);\n"
+        "\n"
         "    /* MiSTer 2026-05-24 SUB-PROFILE v5: time the parser loop entry-to-exit. */\n"
         "    unsigned int _prof_parser_t0 = timer_gettick();\n"
         "    // Now interpret the contents of buf line by line\n"
@@ -995,22 +1033,28 @@ endif
         "    {"
     )
     ob = strict_replace(ob, sub_profile_parser_start_old, sub_profile_parser_start_new,
-                        'SUB-PROFILE v5: parser loop start timer')
+                        'SUB-PROFILE v5: parser loop start timer (unique anchor)')
 
     sub_profile_parser_end_old = (
         "        // Go to next line\n"
         "        pos += getNewLineStart(buf + pos);\n"
-        "    }"
+        "    }\n"
+        "\n"
+        "\n"
+        "    tempInt = 1;"
     )
     sub_profile_parser_end_new = (
         "        // Go to next line\n"
         "        pos += getNewLineStart(buf + pos);\n"
         "    }\n"
         "    /* MiSTer 2026-05-24 SUB-PROFILE v5: parser loop accumulator. */\n"
-        "    _prof_parser_cum_ms += timer_gettick() - _prof_parser_t0;"
+        "    _prof_parser_cum_ms += timer_gettick() - _prof_parser_t0;\n"
+        "\n"
+        "\n"
+        "    tempInt = 1;"
     )
     ob = strict_replace(ob, sub_profile_parser_end_old, sub_profile_parser_end_new,
-                        'SUB-PROFILE v5: parser loop end accumulator')
+                        'SUB-PROFILE v5: parser loop end accumulator (unique anchor)')
 
     sub_profile_sprite_post_block_old = (
         "    clipbitmap(bitmap, &clipl, &clipr, &clipt, &clipb);\n"
