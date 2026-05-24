@@ -852,17 +852,62 @@ endif
     # `remap` declarations before `anim`/`frame` blocks, so maps_loaded > 0
     # by the time the first anim frame's loadsprite fires.
 
-    # -- TEMPORARY PROFILE 2026-05-24 (DIAG -- REVERT AFTER DD-RELOADED LOAD MEASURED).
-    # Insert one printf per update_loading() call to log timestamp + slot tag +
-    # progress value. Per feedback_logging_hotpath_perf.md update_loading fires
-    # ~20-50x per PAK load (well below hotpath threshold). Output goes to
-    # /media/fat/logs/OpenBOR_7533/OpenBorLog.txt. Slot tags:
-    #   L0 = loadingbg[0] = model cache phase (the slow one)
-    #   L1 = loadingbg[1] = level load phase
-    #   BG = bgPosi       = per-level loading bar (cart-authored)
-    # Baseline resets on every L0 init call (value=-1), so each PAK load
-    # starts at t=0 ms. Per feedback_apply_patches_encoding_safety.md:
-    # ASCII-only patch content (no em-dash/arrow/curly-quote).
+    # -- TEMPORARY SUB-PROFILE 2026-05-24 (DIAG -- REVERT AFTER DD-RELOADED MEASURED).
+    # Two-part sub-profile to break per-model time into GIF-decode vs other.
+    # Goal: confirm whether GIF decode dominates per-model cost (parallel-GIF
+    # decode is the right fix if yes; samples or parse if no).
+    #
+    # Part 1: add file-scope counter + wrap loadbitmap() call inside
+    # loadsprite2() with timer. _prof_gif_cum_ms accumulates total time in
+    # the image decoder (GIF/PNG/BMP/PCX) across all sprite loads.
+    #
+    # Part 2: extend update_loading() PROFILE printf to include `gif=%u ms`
+    # showing cumulative GIF-decode time at each model boundary. Post-process
+    # by diffing consecutive lines to get per-model GIF time, then compare
+    # to per-model total time to compute GIF fraction.
+    #
+    # Per feedback_logging_hotpath_perf.md: NO per-call printf added here;
+    # _prof_gif_cum_ms is an arithmetic accumulator only (negligible cost
+    # even on hot path of 600+ sprite loads per heavy fighter).
+    # Per feedback_apply_patches_encoding_safety.md: ASCII-only patch content.
+
+    # Part 1a: file-scope counter before loadsprite2() definition.
+    sub_profile_global_old = (
+        "s_sprite *loadsprite2(char *filename, int *width, int *height)\n"
+        "{\n"
+        "    size_t size;"
+    )
+    sub_profile_global_new = (
+        "/* MiSTer 2026-05-24 SUB-PROFILE: cumulative loadbitmap time (GIF decode). */\n"
+        "static unsigned int _prof_gif_cum_ms = 0;\n"
+        "\n"
+        "s_sprite *loadsprite2(char *filename, int *width, int *height)\n"
+        "{\n"
+        "    size_t size;"
+    )
+    ob = strict_replace(ob, sub_profile_global_old, sub_profile_global_new,
+                        'SUB-PROFILE: _prof_gif_cum_ms global before loadsprite2')
+
+    # Part 1b: wrap loadbitmap() call with timer accumulation.
+    sub_profile_loadbitmap_old = (
+        "    // Load raw bitmap (image) file from pack. If this\n"
+        "    // fails, then we return NULL.\n"
+        "    bitmap = loadbitmap(filename, packfile, pixelformat);"
+    )
+    sub_profile_loadbitmap_new = (
+        "    // Load raw bitmap (image) file from pack. If this\n"
+        "    // fails, then we return NULL.\n"
+        "    /* MiSTer 2026-05-24 SUB-PROFILE: accumulate decoder time. */\n"
+        "    {\n"
+        "        unsigned int _prof_t0 = timer_gettick();\n"
+        "        bitmap = loadbitmap(filename, packfile, pixelformat);\n"
+        "        _prof_gif_cum_ms += timer_gettick() - _prof_t0;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, sub_profile_loadbitmap_old, sub_profile_loadbitmap_new,
+                        'SUB-PROFILE: wrap loadbitmap() with timer')
+
+    # Part 2: update_loading() PROFILE patch now also prints gif=%u ms.
     profile_old = (
         "    unsigned int ticks = timer_gettick();\n"
         "\n"
@@ -875,14 +920,14 @@ endif
         "        static unsigned int _prof_start_ticks = 0;\n"
         "        const char *_slot = (s == &loadingbg[0]) ? \"L0\" : (s == &loadingbg[1]) ? \"L1\" : \"BG\";\n"
         "        if (s == &loadingbg[0] && value == -1) _prof_start_ticks = ticks;\n"
-        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks);\n"
+        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u ms gif=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks, _prof_gif_cum_ms);\n"
         "    }\n"
         "\n"
         "    if(ticks - soundtick > 20)"
     )
     ob = strict_replace(ob, profile_old, profile_new,
-                        'TEMPORARY PROFILE: log update_loading timestamps')
-    print("  TEMPORARY PROFILE inserted in update_loading (revert after measurement)")
+                        'TEMPORARY PROFILE: log update_loading timestamps + cumulative gif_ms')
+    print("  TEMPORARY SUB-PROFILE inserted (loadbitmap timer + extended PROFILE printf)")
 
     # -- Step 12 (2026-05-23): clamp off-screen / zero-size loading bar to
     # on-screen default in update_loading(). User-explicit override
