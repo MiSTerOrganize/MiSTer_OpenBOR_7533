@@ -184,6 +184,43 @@ endif
     write(os.path.join(obor, 'Makefile'), mf)
     print("  Makefile patched.")
 
+    # ── 1b. Patch packfile.c — bump CACHEBLOCKS 96 -> 255 + readahead 0 -> 64KB
+    # MiSTer 2026-05-24: PAK init speedup on heavy carts via filecache tuning.
+    #
+    # Background: OpenBOR's filecache (engine/source/gamelib/filecache.c +
+    # packfile.c) is a transparent block-cache between disk reads and the
+    # engine's file API. Default config keeps 96 blocks x 32KB = ~3MB resident
+    # and uses NO readahead (pak_vfdreadahead[i] init = -1). Cart init on
+    # heavy PAKs (~600-1000 model loads) thrashes the cache + waits on each
+    # block's SD read.
+    #
+    # Tuning:
+    #   - CACHEBLOCKS 96 -> 255 (uint8_t ceiling per filecache.h:
+    #       "BLOCKS MUST BE 255 OR LESS"). ~8MB resident cache vs ~3MB.
+    #       More blocks stay hot through init = fewer evict-reload cycles.
+    #   - pak_vfdreadahead init -1 -> 65536 (64KB default = 2 cache blocks).
+    #       Most asset reads (sprites, scripts, music) are sequential within
+    #       a file so prefetch is a clean fit. prebuffer stays at 0 (no
+    #       filecache_wait_for_prebuffer calls added) so open() doesn't
+    #       block on initial prefetch.
+    #
+    # Memory cost: ~8MB resident vs ~3MB. Negligible on MiSTer's 1GB DDR3.
+    # PAK on-disk format unchanged. Read semantics unchanged. PAKs that
+    # load today still load identically.
+    print("Patching packfile.c (filecache speedup: CACHEBLOCKS 96->255 + readahead 0->64KB)...")
+    pf_path = os.path.join(obor, 'source/gamelib/packfile.c')
+    pf = read(pf_path)
+    pf = strict_replace(pf,
+        '#ifndef OPENDINGUX\n#define CACHEBLOCKS    (96)\n#else\n#define CACHEBLOCKS    (8)\n#endif',
+        '#ifndef OPENDINGUX\n#define CACHEBLOCKS    (255) /* MiSTer 2026-05-24: 96 -> 255 (uint8_t ceiling). ~8MB resident cache. */\n#else\n#define CACHEBLOCKS    (8)\n#endif',
+        'filecache: bump CACHEBLOCKS 96 -> 255')
+    pf = strict_replace(pf,
+        '        pak_vfdreadahead[i] = -1;\n    }\n    pak_initialized = 0;',
+        '        pak_vfdreadahead[i] = 65536; /* MiSTer 2026-05-24: 64KB default readahead (was -1=none); paired with bumped CACHEBLOCKS */\n    }\n    pak_initialized = 0;',
+        'filecache: init pak_vfdreadahead = 64KB (was -1)')
+    write(pf_path, pf)
+    print("  packfile.c: CACHEBLOCKS=255 + readahead=65536 (paired filecache speedup)")
+
     # ── 2. Patch openbor.c — replace pausemenu() ─────────────────────
     print("Patching openbor.c (pausemenu)...")
     src = read(os.path.join(obor, 'openbor.c'))
