@@ -981,7 +981,10 @@ endif
         "static unsigned int _prof_cmd_frame_cum_ms = 0;\n"
         "static unsigned int _prof_cmd_subclass_cum_ms = 0;\n"
         "static unsigned int _prof_cmd_script_cum_ms = 0;\n"
-        "static unsigned int _prof_cmd_other_cum_ms = 0;"
+        "static unsigned int _prof_cmd_other_cum_ms = 0;\n"
+        "/* MiSTer 2026-05-24 SUB-PROFILE v7: CMD_MODEL_FRAME sub-phase timers. */\n"
+        "static unsigned int _prof_frame_peek_cum_ms = 0;\n"
+        "static unsigned int _prof_frame_loadsprite_cum_ms = 0;"
     )
     ob = strict_replace(ob, sub_profile_sprite_post_global_old, sub_profile_sprite_post_global_new,
                         'SUB-PROFILE v4+v5: sprite_post + file + parser globals')
@@ -1040,6 +1043,93 @@ endif
     )
     ob = strict_replace(ob, sub_profile_parser_start_old, sub_profile_parser_start_new,
                         'SUB-PROFILE v5: parser loop start timer (unique anchor)')
+
+    # Part 1h (SUB-PROFILE v7): inside CMD_MODEL_FRAME, time the peek-scan
+    # loop and the loadsprite() call separately. Unique anchor: the peek-scan
+    # only appears in CMD_MODEL_FRAME case body (lines 16826-16851 in pristine
+    # v7533). Wrap from `peek = 0;` to end of `while(!frameset) { ... }`.
+    sub_profile_v7_peek_old = (
+        "                peek = 0;\n"
+        "                if(frameset && framecount >= 0)\n"
+        "                {\n"
+        "                    framecount = -framecount;\n"
+        "                }\n"
+        "                while(!frameset)\n"
+        "                {\n"
+        "                    value3 = findarg(buf + pos + peek, 0);\n"
+        "                    if(stricmp(value3, \"frame\") == 0)\n"
+        "                    {\n"
+        "                        framecount++;\n"
+        "                    }\n"
+        "                    if((stricmp(value3, \"anim\") == 0) || (pos + peek >= size))\n"
+        "                    {\n"
+        "                        frameset = 1;\n"
+        "                    }\n"
+        "                    // Go to next line\n"
+        "                    while(buf[pos + peek] && buf[pos + peek] != '\\n' && buf[pos + peek] != '\\r')\n"
+        "                    {\n"
+        "                        ++peek;\n"
+        "                    }\n"
+        "                    while(buf[pos + peek] == '\\n' || buf[pos + peek] == '\\r')\n"
+        "                    {\n"
+        "                        ++peek;\n"
+        "                    }\n"
+        "                }"
+    )
+    sub_profile_v7_peek_new = (
+        "                /* MiSTer 2026-05-24 SUB-PROFILE v7: time peek-scan in CMD_MODEL_FRAME. */\n"
+        "                {\n"
+        "                    unsigned int _prof_peek_t0 = timer_gettick();\n"
+        "                    peek = 0;\n"
+        "                    if(frameset && framecount >= 0)\n"
+        "                    {\n"
+        "                        framecount = -framecount;\n"
+        "                    }\n"
+        "                    while(!frameset)\n"
+        "                    {\n"
+        "                        value3 = findarg(buf + pos + peek, 0);\n"
+        "                        if(stricmp(value3, \"frame\") == 0)\n"
+        "                        {\n"
+        "                            framecount++;\n"
+        "                        }\n"
+        "                        if((stricmp(value3, \"anim\") == 0) || (pos + peek >= size))\n"
+        "                        {\n"
+        "                            frameset = 1;\n"
+        "                        }\n"
+        "                        // Go to next line\n"
+        "                        while(buf[pos + peek] && buf[pos + peek] != '\\n' && buf[pos + peek] != '\\r')\n"
+        "                        {\n"
+        "                            ++peek;\n"
+        "                        }\n"
+        "                        while(buf[pos + peek] == '\\n' || buf[pos + peek] == '\\r')\n"
+        "                        {\n"
+        "                            ++peek;\n"
+        "                        }\n"
+        "                    }\n"
+        "                    _prof_frame_peek_cum_ms += timer_gettick() - _prof_peek_t0;\n"
+        "                }"
+    )
+    ob = strict_replace(ob, sub_profile_v7_peek_old, sub_profile_v7_peek_new,
+                        'SUB-PROFILE v7: CMD_MODEL_FRAME peek-scan timer')
+
+    # Part 1i (SUB-PROFILE v7): the specific loadsprite() call inside
+    # CMD_MODEL_FRAME (line 16858 in pristine; post-step-1 the comment is
+    # MiSTer v3.9-tagged). Step 1 (palette v3.9 gating) above ALREADY replaced
+    # this line with the has_remap_directive-gated variant. v7 must match
+    # the POST-step-1 text, not the pristine text.
+    sub_profile_v7_loadsprite_old = (
+        "                index = stricmp(value, \"none\") == 0 ? -1 : loadsprite(value, offset.x, offset.y, (newchar->has_remap_directive || nopalette) ? PIXEL_x8 : PIXEL_8); // MiSTer v3.9 2026-05-20: force PIXEL_x8 for ATOV-style legacy `remap` PAKs; modern PAKs (alternatepal-only Cap/He-Man) keep stock PIXEL_8 path"
+    )
+    sub_profile_v7_loadsprite_new = (
+        "                /* MiSTer 2026-05-24 SUB-PROFILE v7: time the loadsprite call inside CMD_MODEL_FRAME. */\n"
+        "                {\n"
+        "                    unsigned int _prof_ls_t0 = timer_gettick();\n"
+        "                    index = stricmp(value, \"none\") == 0 ? -1 : loadsprite(value, offset.x, offset.y, (newchar->has_remap_directive || nopalette) ? PIXEL_x8 : PIXEL_8); // MiSTer v3.9 2026-05-20: force PIXEL_x8 for ATOV-style legacy `remap` PAKs; modern PAKs (alternatepal-only Cap/He-Man) keep stock PIXEL_8 path\n"
+        "                    _prof_frame_loadsprite_cum_ms += timer_gettick() - _prof_ls_t0;\n"
+        "                }"
+    )
+    ob = strict_replace(ob, sub_profile_v7_loadsprite_old, sub_profile_v7_loadsprite_new,
+                        'SUB-PROFILE v7: CMD_MODEL_FRAME loadsprite() timer')
 
     # Part 1g (SUB-PROFILE v6): per-CMD_MODEL_* dispatch timer.
     # Insert _prof_cmd_t0 = timer_gettick(); BEFORE switch(cmd), then dispatch
@@ -1181,7 +1271,7 @@ endif
         "        static unsigned int _prof_start_ticks = 0;\n"
         "        const char *_slot = (s == &loadingbg[0]) ? \"L0\" : (s == &loadingbg[1]) ? \"L1\" : \"BG\";\n"
         "        if (s == &loadingbg[0] && value == -1) _prof_start_ticks = ticks;\n"
-        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u gif=%u sam=%u post=%u file=%u anim=%u frame=%u sub=%u scr=%u other=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks, _prof_gif_cum_ms, _prof_sample_cum_ms, _prof_sprite_post_cum_ms, _prof_file_cum_ms, _prof_cmd_anim_cum_ms, _prof_cmd_frame_cum_ms, _prof_cmd_subclass_cum_ms, _prof_cmd_script_cum_ms, _prof_cmd_other_cum_ms);\n"
+        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u gif=%u sam=%u post=%u file=%u anim=%u frame=%u sub=%u scr=%u other=%u peek=%u fls=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks, _prof_gif_cum_ms, _prof_sample_cum_ms, _prof_sprite_post_cum_ms, _prof_file_cum_ms, _prof_cmd_anim_cum_ms, _prof_cmd_frame_cum_ms, _prof_cmd_subclass_cum_ms, _prof_cmd_script_cum_ms, _prof_cmd_other_cum_ms, _prof_frame_peek_cum_ms, _prof_frame_loadsprite_cum_ms);\n"
         "    }\n"
         "\n"
         "    if(ticks - soundtick > 20)"
