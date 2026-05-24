@@ -888,7 +888,8 @@ endif
     ob = strict_replace(ob, sub_profile_global_old, sub_profile_global_new,
                         'SUB-PROFILE: _prof_gif_cum_ms global before loadsprite2')
 
-    # Part 1b: wrap loadbitmap() call with timer accumulation.
+    # Part 1b: wrap loadbitmap() call in loadsprite2() (refill-NULL-sprite path,
+    # only hits when a cached sprite was previously freed — rare on initial load).
     sub_profile_loadbitmap_old = (
         "    // Load raw bitmap (image) file from pack. If this\n"
         "    // fails, then we return NULL.\n"
@@ -897,7 +898,7 @@ endif
     sub_profile_loadbitmap_new = (
         "    // Load raw bitmap (image) file from pack. If this\n"
         "    // fails, then we return NULL.\n"
-        "    /* MiSTer 2026-05-24 SUB-PROFILE: accumulate decoder time. */\n"
+        "    /* MiSTer 2026-05-24 SUB-PROFILE: accumulate decoder time (refill path). */\n"
         "    {\n"
         "        unsigned int _prof_t0 = timer_gettick();\n"
         "        bitmap = loadbitmap(filename, packfile, pixelformat);\n"
@@ -905,7 +906,33 @@ endif
         "    }"
     )
     ob = strict_replace(ob, sub_profile_loadbitmap_old, sub_profile_loadbitmap_new,
-                        'SUB-PROFILE: wrap loadbitmap() with timer')
+                        'SUB-PROFILE: wrap loadbitmap() in loadsprite2 (refill path)')
+
+    # Part 1c: wrap loadbitmap() call in loadsprite() direct path (PRIMARY path
+    # on fresh PAK load — first-time sprite creation goes through here, not via
+    # loadsprite2). The DD-Reloaded gif=0 result was because we only instrumented
+    # loadsprite2; the direct call in loadsprite() was untimed. Fixed in v2.
+    sub_profile_loadbitmap_main_old = (
+        "    bitmap = loadbitmap(filename, packfile, bmpformat);\n"
+        "    if(bitmap == NULL)\n"
+        "    {\n"
+        "        borShutdown(1, \"Unable to load file '%s'\\n\", filename);\n"
+        "    }"
+    )
+    sub_profile_loadbitmap_main_new = (
+        "    /* MiSTer 2026-05-24 SUB-PROFILE: accumulate decoder time (primary path). */\n"
+        "    {\n"
+        "        unsigned int _prof_t0 = timer_gettick();\n"
+        "        bitmap = loadbitmap(filename, packfile, bmpformat);\n"
+        "        _prof_gif_cum_ms += timer_gettick() - _prof_t0;\n"
+        "    }\n"
+        "    if(bitmap == NULL)\n"
+        "    {\n"
+        "        borShutdown(1, \"Unable to load file '%s'\\n\", filename);\n"
+        "    }"
+    )
+    ob = strict_replace(ob, sub_profile_loadbitmap_main_old, sub_profile_loadbitmap_main_new,
+                        'SUB-PROFILE: wrap loadbitmap() in loadsprite primary path')
 
     # Part 2: update_loading() PROFILE patch now also prints gif=%u ms.
     profile_old = (
