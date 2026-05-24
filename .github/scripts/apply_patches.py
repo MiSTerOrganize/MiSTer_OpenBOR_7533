@@ -942,12 +942,13 @@ endif
     )
     profile_new = (
         "    unsigned int ticks = timer_gettick();\n"
-        "    /* MiSTer 2026-05-24 TEMPORARY PROFILE -- revert after DD-Reloaded measured */\n"
+        "    /* MiSTer 2026-05-24 TEMPORARY PROFILE v3 -- revert after measured */\n"
         "    {\n"
+        "        extern unsigned int _prof_sample_cum_ms;\n"
         "        static unsigned int _prof_start_ticks = 0;\n"
         "        const char *_slot = (s == &loadingbg[0]) ? \"L0\" : (s == &loadingbg[1]) ? \"L1\" : \"BG\";\n"
         "        if (s == &loadingbg[0] && value == -1) _prof_start_ticks = ticks;\n"
-        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u ms gif=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks, _prof_gif_cum_ms);\n"
+        "        if (_prof_start_ticks) printf(\"[PROFILE] slot=%s val=%d max=%d t=%u ms gif=%u ms sample=%u ms\\n\", _slot, value, max, ticks - _prof_start_ticks, _prof_gif_cum_ms, _prof_sample_cum_ms);\n"
         "    }\n"
         "\n"
         "    if(ticks - soundtick > 20)"
@@ -1220,8 +1221,60 @@ endif
             raise RuntimeError(f"soundmix.c: multiplier pattern not found: {old[:40]}...")
         sm = sm.replace(old, new)
 
+    # -- TEMPORARY SUB-PROFILE v3 2026-05-24 (DIAG -- REVERT AFTER MEASURED).
+    # Add sample loading time tracking. After DD Reloaded v2 measurement
+    # showed gif=7%, the remaining 93% is in samples / sprite-post / parse.
+    # This adds _prof_sample_cum_ms tracking via loadwave() timer.
+    sm_sample_global_old = (
+        "int sound_load_sample(char *filename, char *packfilename, int iLog)\n"
+        "{\n"
+        "    s_soundcache *cache;"
+    )
+    sm_sample_global_new = (
+        "/* MiSTer 2026-05-24 SUB-PROFILE v3: cumulative loadwave time. */\n"
+        "unsigned int _prof_sample_cum_ms = 0;\n"
+        "extern unsigned timer_gettick();\n"
+        "\n"
+        "int sound_load_sample(char *filename, char *packfilename, int iLog)\n"
+        "{\n"
+        "    s_soundcache *cache;"
+    )
+    sm = strict_replace(sm, sm_sample_global_old, sm_sample_global_new,
+                        'SUB-PROFILE v3: _prof_sample_cum_ms global in soundmix.c')
+
+    sm_loadwave_old = (
+        "    memset(&sample, 0, sizeof(sample));\n"
+        "    if(!loadwave(filename, packfilename, &sample, MAX_SOUND_LEN))\n"
+        "    {\n"
+        "        if(iLog)\n"
+        "        {\n"
+        "            printf(\"sound_load_sample can't load sample from file '%s'!\\n\", filename);\n"
+        "        }\n"
+        "        return -1;\n"
+        "    }"
+    )
+    sm_loadwave_new = (
+        "    memset(&sample, 0, sizeof(sample));\n"
+        "    /* MiSTer 2026-05-24 SUB-PROFILE v3: time the loadwave call. */\n"
+        "    {\n"
+        "        unsigned int _prof_t0 = timer_gettick();\n"
+        "        int _prof_ok = loadwave(filename, packfilename, &sample, MAX_SOUND_LEN);\n"
+        "        _prof_sample_cum_ms += timer_gettick() - _prof_t0;\n"
+        "        if(!_prof_ok)\n"
+        "        {\n"
+        "            if(iLog)\n"
+        "            {\n"
+        "                printf(\"sound_load_sample can't load sample from file '%s'!\\n\", filename);\n"
+        "            }\n"
+        "            return -1;\n"
+        "        }\n"
+        "    }"
+    )
+    sm = strict_replace(sm, sm_loadwave_old, sm_loadwave_new,
+                        'SUB-PROFILE v3: wrap loadwave with timer')
+
     write(sm_path, sm)
-    print("  soundmix.c patched (cache-reload + multiplier revert in mixaudio).")
+    print("  soundmix.c patched (cache-reload + multiplier revert + SUB-PROFILE v3 sample timer).")
 
     # -- 11. REMOVED (2026-05-19) — caused He-Man flashing regression.
     #
