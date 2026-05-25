@@ -17,6 +17,12 @@ If a PAK won't run on one build, reload the other RBF and try again — your `Pa
 
 - **Native FPGA video output** — 320×224 @ 59.92 Hz with exact Sega CD NTSC pixel clock (6.712 MHz from NTSC colorburst crystal). H40+V28 mode — CRT image width matches NES/SNES/Genesis exactly (47.68 µs active time)
 - **Direct DDR3 write frame path** — engine's `video_copy_screen` writes pixel data directly to the FPGA's video ring buffer at 0x3A000000, bypassing SDL's renderer/surface chain entirely (saved ~15 ms/frame on Cortex-A9; lifted native fps from ~29 to ~85-100 on a powerful frame-present path 2026-05-22)
+- **PAK load-time hash-map cache** (v2.9, 2026-05-24) — `loadsprite()` cache lookup replaced from O(N) linear scan to O(1) hash table (262144 buckets, separate chaining, DJB2 hash with inline case-folding). Phase 1 + Phase 1.1 tunes shipped. Validated load-time reductions on heavy PAKs:
+  - Justice League Legacy: 213 s → **69.1 s (-68%)** ⭐
+  - Double Dragon Reloaded Alt: 73 s → **35 s (-52%)**
+  - A Tale of Vengeance: ~12 s → **1.87 s (-80%+)** ⭐
+  - TMNT Rescue Palooza / Avengers UBF / He-Man / PDC2: 25-50% reductions
+  - `[LOAD] PAK loaded in N ms` printf retained at end of `load_models()` for power-user tracking — `grep '\[LOAD\]' /media/fat/logs/OpenBOR_7533/OpenBorLog.txt`
 - **Native FPGA audio output** — 48 kHz stereo via DDR3 ring buffer, no ALSA. Audio kernel: **nearest-neighbor (zero-order hold)** at engine + wrapper (matches upstream OpenBOR `engine/source/gamelib/soundmix.c` FIX_TO_INT shift-truncation kernel at all three sample-read sites — music + 8-bit voice + 16-bit voice; wrapper at `patches/sblaster_patch.c::audio_thread_fn` mirrors the engine character — both stages NN).
 - **CRT support** — scanlines, shadow masks, and analog video output for CRT displays
 - **MiSTer OSD integration** — load PAK files from the file browser
