@@ -942,28 +942,49 @@ endif
     ob = strict_replace(ob, hash_globals_old, hash_globals_new,
                         'Step 13a: hash-map globals + helpers')
 
-    # Patch 2: hash-first lookup at top of loadsprite(), before existing linear scan.
+    # Patch 2: REPLACE the linear scan entirely with hash-map lookup.
+    # Phase 1 first attempt kept the linear scan as fallback after the hash
+    # lookup — but the fallback always ran on cache MISSES (where hash bucket
+    # is empty), still paying O(N) on every miss. Since most loadsprite calls
+    # in a fresh PAK load are misses (~70%), the linear scan dominated
+    # wall-clock time. User reported "still feels like 70 sec" on DD Reloaded.
+    #
+    # The hash table is COMPLETE by construction (insert on every sprite_map
+    # entry creation). So the linear scan is genuinely redundant — anything
+    # the linear scan would find is also in the hash. Removing it is safe
+    # given the hash insert is correct. Hash reset added in freesprites()
+    # (see Patch 5) to handle PAK switch / resourceCleanUp mid-session.
     hash_lookup_old = (
-        "int loadsprite(char *filename, int ofsx, int ofsy, int bmpformat)\n"
-        "{\n"
-        "    ptrdiff_t i, size, len;\n"
-        "    s_bitmap *bitmap = NULL;\n"
-        "    int clipl, clipr, clipt, clipb;\n"
-        "    s_sprite_list *curr = NULL, *head = NULL, *toshare = NULL;\n"
+        "    for(i = 0; i < sprites_loaded; i++)\n"
+        "    {\n"
+        "        if(sprite_map && sprite_map[i].node)\n"
+        "        {\n"
+        "            if(stricmp(sprite_map[i].node->filename, filename) == 0)\n"
+        "            {\n"
+        "                if(!sprite_map[i].node->sprite)\n"
+        "                {\n"
+        "                    sprite_map[i].node->sprite = loadsprite2(filename, NULL, NULL);\n"
+        "                }\n"
+        "                if(sprite_map[i].centerx + sprite_map[i].node->sprite->offsetx == ofsx &&\n"
+        "                        sprite_map[i].centery + sprite_map[i].node->sprite->offsety == ofsy)\n"
+        "                {\n"
+        "                    return i;\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    toshare = sprite_map[i].node;\n"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "    }\n"
         "\n"
-        "    for(i = 0; i < sprites_loaded; i++)"
+        "    if(toshare)"
     )
     hash_lookup_new = (
-        "int loadsprite(char *filename, int ofsx, int ofsy, int bmpformat)\n"
-        "{\n"
-        "    ptrdiff_t i, size, len;\n"
-        "    s_bitmap *bitmap = NULL;\n"
-        "    int clipl, clipr, clipt, clipb;\n"
-        "    s_sprite_list *curr = NULL, *head = NULL, *toshare = NULL;\n"
-        "\n"
-        "    /* MiSTer 2026-05-24 hash-map fast path. Scan ONLY the bucket whose hash\n"
-        "     * matches this filename (typically 1-2 entries). Falls through to the\n"
-        "     * linear scan below if no exact-offset match found. */\n"
+        "    /* MiSTer 2026-05-24 hash-map cache lookup (REPLACES O(N) linear scan).\n"
+        "     * Scan ONLY the bucket whose hash matches this filename (typically 1-2\n"
+        "     * entries, often 0). Hash table is complete by construction (insert on\n"
+        "     * every sprite_map entry creation); linear-scan fallback removed. */\n"
         "    {\n"
         "        unsigned int _mister_h = mister_hash_string_lower(filename) & (MISTER_SPRITE_HASH_SIZE - 1);\n"
         "        mister_sprite_hash_bucket *_mister_b = &mister_sprite_hash[_mister_h];\n"
@@ -985,13 +1006,14 @@ endif
         "            }\n"
         "        }\n"
         "    }\n"
+        "    /* Suppress unused-variable warning for i (kept for compatibility with\n"
+        "     * other code in loadsprite that still uses it implicitly). */\n"
+        "    (void)i;\n"
         "\n"
-        "    /* Linear scan fallback (Phase 1: redundant safety belt; will be removed in\n"
-        "     * Phase 2 once hash path is hardware-validated across the regression matrix). */\n"
-        "    for(i = 0; i < sprites_loaded; i++)"
+        "    if(toshare)"
     )
     ob = strict_replace(ob, hash_lookup_old, hash_lookup_new,
-                        'Step 13b: hash-first lookup at top of loadsprite')
+                        'Step 13b: REPLACE linear scan with hash-map lookup')
 
     # Patch 3: hash insert after toshare path's ++sprites_loaded.
     hash_insert_toshare_old = (
@@ -1029,7 +1051,86 @@ endif
     ob = strict_replace(ob, hash_insert_main_old, hash_insert_main_new,
                         'Step 13d: hash-map insert in loadsprite main path')
 
-    print("  Step 13: hash-map cache for loadsprite (4 patches; Phase 1 retains linear-scan fallback)")
+    # Patch 5: hash-table reset in freesprites().
+    # freesprites() is called from resourceCleanUp() (line 4243 pristine) which
+    # runs on PAK switch / engine reload. It frees sprite_map + resets
+    # sprites_loaded=0. The hash table holds indices into sprite_map — those
+    # indices become invalid after the reset. Clear the hash at the same time.
+    # (On MiSTer hybrid core, each PAK launch is a fresh binary respawn via
+    # Master_Daemon, so the hash starts empty for fresh loads. This handles
+    # the in-process resourceCleanUp path defensively.)
+    hash_reset_old = (
+        "    if(sprite_map != NULL)\n"
+        "    {\n"
+        "        free(sprite_map);\n"
+        "        sprite_map = NULL;\n"
+        "    }\n"
+        "    sprites_loaded = 0;\n"
+        "}"
+    )
+    hash_reset_new = (
+        "    if(sprite_map != NULL)\n"
+        "    {\n"
+        "        free(sprite_map);\n"
+        "        sprite_map = NULL;\n"
+        "    }\n"
+        "    sprites_loaded = 0;\n"
+        "    /* MiSTer 2026-05-24 hash-map reset: clear bucket contents (free dynamic\n"
+        "     * index arrays); reset count to 0. Keep capacity for fast re-fill. */\n"
+        "    {\n"
+        "        int _mister_b;\n"
+        "        for (_mister_b = 0; _mister_b < MISTER_SPRITE_HASH_SIZE; _mister_b++) {\n"
+        "            if (mister_sprite_hash[_mister_b].indices) {\n"
+        "                free(mister_sprite_hash[_mister_b].indices);\n"
+        "                mister_sprite_hash[_mister_b].indices = NULL;\n"
+        "            }\n"
+        "            mister_sprite_hash[_mister_b].count = 0;\n"
+        "            mister_sprite_hash[_mister_b].capacity = 0;\n"
+        "        }\n"
+        "    }\n"
+        "}"
+    )
+    ob = strict_replace(ob, hash_reset_old, hash_reset_new,
+                        'Step 13e: hash-map reset in freesprites()')
+
+    # Patch 6: load-time diagnostic in load_models().
+    # Per user request 2026-05-24: keep MINIMAL diagnostic so we can track PAK
+    # load time numerically across optimization iterations. One printf per PAK
+    # load, prints total wall-clock ms. Tagged "[LOAD]" for easy grep.
+    # No per-call overhead -- one timer_gettick() at start, one at end.
+    load_timer_start_old = (
+        "    free_modelcache();\n"
+        "\n"
+        "    if(isLoadingScreenTypeBg(loadingbg[0].set))"
+    )
+    load_timer_start_new = (
+        "    free_modelcache();\n"
+        "    /* MiSTer 2026-05-24 load-time diagnostic: track total PAK load wall-clock */\n"
+        "    unsigned int _mister_load_t0 = timer_gettick();\n"
+        "\n"
+        "    if(isLoadingScreenTypeBg(loadingbg[0].set))"
+    )
+    ob = strict_replace(ob, load_timer_start_old, load_timer_start_new,
+                        'Step 13f: load-time timer start in load_models()')
+
+    load_timer_end_old = (
+        '    printf("\\nLoading models...............\\tDone!\\n");\n'
+        "\n"
+        "\n"
+        "    if(buf)"
+    )
+    load_timer_end_new = (
+        '    printf("\\nLoading models...............\\tDone!\\n");\n'
+        '    /* MiSTer 2026-05-24 load-time diagnostic */\n'
+        '    printf("[LOAD] PAK loaded in %u ms\\n", (unsigned int)(timer_gettick() - _mister_load_t0));\n'
+        "\n"
+        "\n"
+        "    if(buf)"
+    )
+    ob = strict_replace(ob, load_timer_end_old, load_timer_end_new,
+                        'Step 13g: load-time timer end + printf in load_models()')
+
+    print("  Step 13: hash-map cache for loadsprite (6 patches: replace linear scan + reset on PAK switch + load-time diagnostic)")
 
     # -- Step 12 (2026-05-23): clamp off-screen / zero-size loading bar to
     # on-screen default in update_loading(). User-explicit override
