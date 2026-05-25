@@ -873,6 +873,164 @@ endif
     # `remap` declarations before `anim`/`frame` blocks, so maps_loaded > 0
     # by the time the first anim frame's loadsprite fires.
 
+    # -- Step 13 (2026-05-24): HASH-MAP loadsprite cache.
+    # SUB-PROFILE v7 diagnostic data (reverted in same commit chain) identified
+    # loadsprite()'s O(N) linear cache lookup as 70% of total PAK load time on
+    # JL Legacy (138 sec of 213 sec). gif decode = 4%, samples = 1%,
+    # sprite_post = 1%, parser body = bulk of remaining 25%. Hash-map replaces
+    # the linear scan; bucket lookup is O(1) average, eliminating the dominant
+    # cost.
+    #
+    # Phase 1 design: ADD hash-first lookup at top of loadsprite(); preserve
+    # existing linear scan as fallback (belt-and-suspenders). Hash insert at
+    # both sprite_map entry creation sites (toshare path + main path).
+    # Phase 2 (future): remove linear scan after extensive validation.
+    #
+    # v3.10 palette lock: NONE of the 12 locked patches modify the cache
+    # lookup loop. Hash lookup runs BEFORE step 1 (PIXEL_x8 gating on
+    # loadbitmap arg), so palette-pipeline code paths unchanged.
+    # Regression test matrix required: ATOV + TMNT-RP + Avengers + He-Man + PDC2.
+
+    # Patch 1: hash globals + helpers, inserted before loadsprite2() definition
+    # (file scope; visible to both loadsprite2 and loadsprite later in file).
+    hash_globals_old = (
+        "s_sprite *loadsprite2(char *filename, int *width, int *height)\n"
+        "{\n"
+        "    size_t size;"
+    )
+    hash_globals_new = (
+        "/* MiSTer 2026-05-24 hash-map cache for loadsprite (replaces O(N) linear scan).\n"
+        " * Separate-chaining hash; bucket count power-of-2 for fast mask.\n"
+        " * Bucket holds indices into sprite_map[] (not pointers, so realloc-safe). */\n"
+        "#define MISTER_SPRITE_HASH_SIZE 65536\n"
+        "typedef struct mister_sprite_hash_bucket_s {\n"
+        "    int *indices;\n"
+        "    int count;\n"
+        "    int capacity;\n"
+        "} mister_sprite_hash_bucket;\n"
+        "static mister_sprite_hash_bucket mister_sprite_hash[MISTER_SPRITE_HASH_SIZE];\n"
+        "\n"
+        "static unsigned int mister_hash_string_lower(const char *s) {\n"
+        "    /* DJB2 with inline lowercasing for case-insensitive match. */\n"
+        "    unsigned int h = 5381;\n"
+        "    while (*s) {\n"
+        "        unsigned int c = (unsigned char)*s++;\n"
+        "        if (c >= 'A' && c <= 'Z') c += 32;\n"
+        "        h = ((h << 5) + h) + c;\n"
+        "    }\n"
+        "    return h;\n"
+        "}\n"
+        "\n"
+        "static void mister_sprite_hash_insert(int index) {\n"
+        "    if (!sprite_map || !sprite_map[index].node || !sprite_map[index].node->filename) return;\n"
+        "    unsigned int h = mister_hash_string_lower(sprite_map[index].node->filename) & (MISTER_SPRITE_HASH_SIZE - 1);\n"
+        "    mister_sprite_hash_bucket *b = &mister_sprite_hash[h];\n"
+        "    if (b->count >= b->capacity) {\n"
+        "        int new_cap = b->capacity ? b->capacity * 2 : 4;\n"
+        "        int *new_idx = realloc(b->indices, sizeof(int) * new_cap);\n"
+        "        if (!new_idx) return;  /* OOM: linear-scan fallback in loadsprite() picks up the slack */\n"
+        "        b->indices = new_idx;\n"
+        "        b->capacity = new_cap;\n"
+        "    }\n"
+        "    b->indices[b->count++] = index;\n"
+        "}\n"
+        "\n"
+        "s_sprite *loadsprite2(char *filename, int *width, int *height)\n"
+        "{\n"
+        "    size_t size;"
+    )
+    ob = strict_replace(ob, hash_globals_old, hash_globals_new,
+                        'Step 13a: hash-map globals + helpers')
+
+    # Patch 2: hash-first lookup at top of loadsprite(), before existing linear scan.
+    hash_lookup_old = (
+        "int loadsprite(char *filename, int ofsx, int ofsy, int bmpformat)\n"
+        "{\n"
+        "    ptrdiff_t i, size, len;\n"
+        "    s_bitmap *bitmap = NULL;\n"
+        "    int clipl, clipr, clipt, clipb;\n"
+        "    s_sprite_list *curr = NULL, *head = NULL, *toshare = NULL;\n"
+        "\n"
+        "    for(i = 0; i < sprites_loaded; i++)"
+    )
+    hash_lookup_new = (
+        "int loadsprite(char *filename, int ofsx, int ofsy, int bmpformat)\n"
+        "{\n"
+        "    ptrdiff_t i, size, len;\n"
+        "    s_bitmap *bitmap = NULL;\n"
+        "    int clipl, clipr, clipt, clipb;\n"
+        "    s_sprite_list *curr = NULL, *head = NULL, *toshare = NULL;\n"
+        "\n"
+        "    /* MiSTer 2026-05-24 hash-map fast path. Scan ONLY the bucket whose hash\n"
+        "     * matches this filename (typically 1-2 entries). Falls through to the\n"
+        "     * linear scan below if no exact-offset match found. */\n"
+        "    {\n"
+        "        unsigned int _mister_h = mister_hash_string_lower(filename) & (MISTER_SPRITE_HASH_SIZE - 1);\n"
+        "        mister_sprite_hash_bucket *_mister_b = &mister_sprite_hash[_mister_h];\n"
+        "        int _mister_j;\n"
+        "        for (_mister_j = 0; _mister_j < _mister_b->count; _mister_j++) {\n"
+        "            int _mister_i = _mister_b->indices[_mister_j];\n"
+        "            if (sprite_map && sprite_map[_mister_i].node) {\n"
+        "                if (stricmp(sprite_map[_mister_i].node->filename, filename) == 0) {\n"
+        "                    if (!sprite_map[_mister_i].node->sprite) {\n"
+        "                        sprite_map[_mister_i].node->sprite = loadsprite2(filename, NULL, NULL);\n"
+        "                    }\n"
+        "                    if (sprite_map[_mister_i].centerx + sprite_map[_mister_i].node->sprite->offsetx == ofsx &&\n"
+        "                            sprite_map[_mister_i].centery + sprite_map[_mister_i].node->sprite->offsety == ofsy) {\n"
+        "                        return _mister_i;\n"
+        "                    } else {\n"
+        "                        toshare = sprite_map[_mister_i].node;\n"
+        "                    }\n"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "    }\n"
+        "\n"
+        "    /* Linear scan fallback (Phase 1: redundant safety belt; will be removed in\n"
+        "     * Phase 2 once hash path is hardware-validated across the regression matrix). */\n"
+        "    for(i = 0; i < sprites_loaded; i++)"
+    )
+    ob = strict_replace(ob, hash_lookup_old, hash_lookup_new,
+                        'Step 13b: hash-first lookup at top of loadsprite')
+
+    # Patch 3: hash insert after toshare path's ++sprites_loaded.
+    hash_insert_toshare_old = (
+        "        sprite_map[sprites_loaded].centery = ofsy - toshare->sprite->offsety;\n"
+        "        ++sprites_loaded;\n"
+        "        return sprites_loaded - 1;\n"
+        "    }"
+    )
+    hash_insert_toshare_new = (
+        "        sprite_map[sprites_loaded].centery = ofsy - toshare->sprite->offsety;\n"
+        "        ++sprites_loaded;\n"
+        "        mister_sprite_hash_insert(sprites_loaded - 1);  /* MiSTer 2026-05-24 hash-map insert (toshare path) */\n"
+        "        return sprites_loaded - 1;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, hash_insert_toshare_old, hash_insert_toshare_new,
+                        'Step 13c: hash-map insert in loadsprite toshare path')
+
+    # Patch 4: hash insert after main path's ++sprites_loaded.
+    hash_insert_main_old = (
+        "    sprite_list->sprite->srcheight = bitmap->clipped_height;\n"
+        "    freebitmap(bitmap);\n"
+        "    ++sprites_loaded;\n"
+        "    return sprites_loaded - 1;\n"
+        "}"
+    )
+    hash_insert_main_new = (
+        "    sprite_list->sprite->srcheight = bitmap->clipped_height;\n"
+        "    freebitmap(bitmap);\n"
+        "    ++sprites_loaded;\n"
+        "    mister_sprite_hash_insert(sprites_loaded - 1);  /* MiSTer 2026-05-24 hash-map insert (main path) */\n"
+        "    return sprites_loaded - 1;\n"
+        "}"
+    )
+    ob = strict_replace(ob, hash_insert_main_old, hash_insert_main_new,
+                        'Step 13d: hash-map insert in loadsprite main path')
+
+    print("  Step 13: hash-map cache for loadsprite (4 patches; Phase 1 retains linear-scan fallback)")
+
     # -- Step 12 (2026-05-23): clamp off-screen / zero-size loading bar to
     # on-screen default in update_loading(). User-explicit override
     # (NEVER MODIFY USER GAME FILES rule respected: this is engine-side
