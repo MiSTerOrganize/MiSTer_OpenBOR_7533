@@ -902,7 +902,7 @@ endif
         "/* MiSTer 2026-05-24 hash-map cache for loadsprite (replaces O(N) linear scan).\n"
         " * Separate-chaining hash; bucket count power-of-2 for fast mask.\n"
         " * Bucket holds indices into sprite_map[] (not pointers, so realloc-safe). */\n"
-        "#define MISTER_SPRITE_HASH_SIZE 65536\n"
+        "#define MISTER_SPRITE_HASH_SIZE 262144  /* MiSTer 2026-05-24 Phase 1.1: 4x buckets, ~2MB RAM, lower collision rate */\n"
         "typedef struct mister_sprite_hash_bucket_s {\n"
         "    int *indices;\n"
         "    int count;\n"
@@ -926,7 +926,7 @@ endif
         "    unsigned int h = mister_hash_string_lower(sprite_map[index].node->filename) & (MISTER_SPRITE_HASH_SIZE - 1);\n"
         "    mister_sprite_hash_bucket *b = &mister_sprite_hash[h];\n"
         "    if (b->count >= b->capacity) {\n"
-        "        int new_cap = b->capacity ? b->capacity * 2 : 4;\n"
+        "        int new_cap = b->capacity ? b->capacity * 2 : 16;  /* MiSTer 2026-05-24 Phase 1.1: larger initial bucket capacity skips early reallocs */\n"
         "        int *new_idx = realloc(b->indices, sizeof(int) * new_cap);\n"
         "        if (!new_idx) return;  /* OOM: linear-scan fallback in loadsprite() picks up the slack */\n"
         "        b->indices = new_idx;\n"
@@ -1130,7 +1130,23 @@ endif
     ob = strict_replace(ob, load_timer_end_old, load_timer_end_new,
                         'Step 13g: load-time timer end + printf in load_models()')
 
-    print("  Step 13: hash-map cache for loadsprite (6 patches: replace linear scan + reset on PAK switch + load-time diagnostic)")
+    # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
+    # 256 -> 4096. Reduces realloc count from ~195 to ~12 for a 50k-sprite
+    # PAK. Each realloc copies the entire previous array; fewer reallocs =
+    # less cumulative memcpy work. Combined with hash bucket tweaks (size +
+    # initial capacity in Patch 1), targets the residual loadsprite overhead
+    # not addressed by the hash itself.
+    sprite_map_growth_old = (
+        "        sprite_map_max_items = (((size + 1) >> 8) + 1) << 8;"
+    )
+    sprite_map_growth_new = (
+        "        /* MiSTer 2026-05-24 Phase 1.1: 256-chunk -> 4096-chunk growth (16x fewer reallocs) */\n"
+        "        sprite_map_max_items = (((size + 1) >> 12) + 1) << 12;"
+    )
+    ob = strict_replace(ob, sprite_map_growth_old, sprite_map_growth_new,
+                        'Step 13h (Phase 1.1): prepare_sprite_map growth 256 -> 4096 chunks')
+
+    print("  Step 13: hash-map cache for loadsprite (7 patches: hash + linear-scan replace + reset + load-time diagnostic + sprite_map growth tuning)")
 
     # -- Step 12 (2026-05-23): clamp off-screen / zero-size loading bar to
     # on-screen default in update_loading(). User-explicit override
