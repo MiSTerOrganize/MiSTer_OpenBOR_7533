@@ -1421,6 +1421,183 @@ endif
                         'Step 15: Path 1 reorder of normal_find_target() loop body (cheap-first)')
     print("  Step 15: normal_find_target() cheap-first reorder (no behavior change)")
 
+    # -- Step 16 (2026-05-26): three small zero-risk mechanical refactors.
+    #
+    # 16a: do_attack -- B-style pre-filter + invariant hoist.
+    #      checkhit() opens with 4 early-exit conditions; 3 are per-target
+    #      and 1 is invariant (attacker->animation->collision_attack).
+    #      Moving the per-target checks into the caller loop avoids the
+    #      function call cost for non-hittable targets. Hoisting the
+    #      attacker invariant out of the loop avoids re-checking it N
+    #      times per attack.
+    #
+    # 16b: block_find_target -- short-circuit && chain reorder cheap-first
+    #      (same pattern as Step 15 Path 1 did for normal_find_target).
+    #
+    # 16c: find_ent_here -- hoist self->modeldata.grabdistance multiplications
+    #      out of the loop. Currently computed once per iteration.
+    #
+    # SAFETY: all three are pure reorders/hoists. Same final filter sets,
+    # same arithmetic results, just less wasted work per iteration. Zero
+    # behavior change.
+
+    # Patch 16a: do_attack invariant hoist + per-target pre-filter.
+    s16a_old = (
+        "    current_anim = attacking_entity->animation;\n"
+        "\n"
+        "    for(i = 0; i < ent_max && !followed; i++)\n"
+        "    {\n"
+        "        target = ent_list[i];\n"
+        "\n"
+        "        if(!target->exists)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        // Check collision. If a collision\n"
+        "        // is found, the impacting\n"
+        "        // collision pointers are also\n"
+        "        // populated into lasthit, which\n"
+        "        // we will use below.\n"
+        "        if(!checkhit(attacking_entity, target))\n"
+        "        {\n"
+        "            continue;\n"
+        "        }"
+    )
+    s16a_new = (
+        "    current_anim = attacking_entity->animation;\n"
+        "\n"
+        "    /* MiSTer 2026-05-26 Step 16a: hoist invariant out of loop. */\n"
+        "    /* attacker->animation->collision_attack is fixed across all */\n"
+        "    /* iterations -- no need to re-check it per target.          */\n"
+        "    if (!current_anim || !current_anim->collision_attack)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "\n"
+        "    for(i = 0; i < ent_max && !followed; i++)\n"
+        "    {\n"
+        "        target = ent_list[i];\n"
+        "\n"
+        "        if(!target->exists)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        /* Step 16a B-style pre-filter: skip cases checkhit() */\n"
+        "        /* would early-out on. Saves the function call cost.  */\n"
+        "        if(target == attacking_entity)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "        if(!target->animation->collision_body)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "        if(!target->animation->vulnerable[target->animpos])\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        // Check collision. If a collision\n"
+        "        // is found, the impacting\n"
+        "        // collision pointers are also\n"
+        "        // populated into lasthit, which\n"
+        "        // we will use below.\n"
+        "        if(!checkhit(attacking_entity, target))\n"
+        "        {\n"
+        "            continue;\n"
+        "        }"
+    )
+    ob = strict_replace(ob, s16a_old, s16a_new,
+                        'Step 16a: do_attack invariant hoist + B-style pre-filter')
+
+    # Patch 16b: block_find_target short-circuit chain reorder cheap-first.
+    s16b_old = (
+        "        if (attacker && attacker->exists && attacker != self // Can't target self\n"
+        "            && (faction_check_can_damage(attacker, self, 0)) // Type is something attacker can damage.\n"
+        "            && (anim < 0 || (anim >= 0 && check_range_target_all(self, attacker, anim, 0, 0))) // Valid animation ID and in range.\n"
+        "            && !(attacker->death_state & DEATH_STATE_DEAD) // Must be alive.\n"
+        "            && attacker->attacking != ATTACKING_NONE // Must be attacking.\n"
+        "            && collision_attack_find_no_block_on_frame(attacker->animation, attacker->animpos, 1) != NULL // Valid blockable attack.\n"
+        "            && (diffd = (diffx = diff(attacker->position.x, self->position.x)) + (diffz = diff(attacker->position.z, self->position.z))) >= min\n"
+        "            && diffd <= max\n"
+        "            && (attacker->modeldata.stealth.hide <= detect) // Stealth factor less then perception factor (allows invisibility).\n"
+        "            )"
+    )
+    s16b_new = (
+        "        /* MiSTer 2026-05-26 Step 16b: short-circuit chain reordered cheap-first. */\n"
+        "        /* Death-state bitmask, attacking-state field, stealth field, and the     */\n"
+        "        /* distance math all run BEFORE the expensive function calls (faction,    */\n"
+        "        /* range-target-all, collision-attack-find). Same final filter set.       */\n"
+        "        if (attacker && attacker->exists && attacker != self // Can't target self\n"
+        "            && !(attacker->death_state & DEATH_STATE_DEAD) // Must be alive. (moved up)\n"
+        "            && attacker->attacking != ATTACKING_NONE // Must be attacking. (moved up)\n"
+        "            && (attacker->modeldata.stealth.hide <= detect) // Stealth check. (moved up)\n"
+        "            && (diffd = (diffx = diff(attacker->position.x, self->position.x)) + (diffz = diff(attacker->position.z, self->position.z))) >= min\n"
+        "            && diffd <= max\n"
+        "            && (faction_check_can_damage(attacker, self, 0)) // Type is something attacker can damage. (moved down -- expensive)\n"
+        "            && (anim < 0 || (anim >= 0 && check_range_target_all(self, attacker, anim, 0, 0))) // Valid animation ID and in range. (moved down -- expensive)\n"
+        "            && collision_attack_find_no_block_on_frame(attacker->animation, attacker->animpos, 1) != NULL // Valid blockable attack. (moved down -- expensive)\n"
+        "            )"
+    )
+    ob = strict_replace(ob, s16b_old, s16b_new,
+                        'Step 16b: block_find_target short-circuit reorder cheap-first')
+
+    # Patch 16c: find_ent_here -- hoist grab-distance invariants out of loop.
+    s16c_old = (
+        "entity *find_ent_here(entity *exclude, float x, float z, e_entity_type types, int (*test)(entity *, entity *))\n"
+        "{\n"
+        "    int i;\n"
+        "    for(i = 0; i < ent_max; i++)\n"
+        "    {\n"
+        "        if( ent_list[i]->exists\n"
+        "                && ent_list[i] != exclude\n"
+        "                && (ent_list[i]->modeldata.type & types)\n"
+        "                && diff(ent_list[i]->position.x, x) < (self->modeldata.grabdistance * 0.83333)\n"
+        "                && diff(ent_list[i]->position.z, z) < (self->modeldata.grabdistance / 3)\n"
+        "                && ent_list[i]->animation->vulnerable[ent_list[i]->animpos]\n"
+        "                && (!test || test(exclude, ent_list[i]))\n"
+        "          )\n"
+        "        {\n"
+        "            return ent_list[i];\n"
+        "        }\n"
+        "    }\n"
+        "    return NULL;\n"
+        "}"
+    )
+    s16c_new = (
+        "entity *find_ent_here(entity *exclude, float x, float z, e_entity_type types, int (*test)(entity *, entity *))\n"
+        "{\n"
+        "    int i;\n"
+        "    /* MiSTer 2026-05-26 Step 16c: hoist self-invariants out of the loop. */\n"
+        "    /* self->modeldata.grabdistance is fixed across all iterations.       */\n"
+        "    double grab_x_thresh = self->modeldata.grabdistance * 0.83333;\n"
+        "    double grab_z_thresh = (double)self->modeldata.grabdistance / 3.0;\n"
+        "    for(i = 0; i < ent_max; i++)\n"
+        "    {\n"
+        "        if( ent_list[i]->exists\n"
+        "                && ent_list[i] != exclude\n"
+        "                && (ent_list[i]->modeldata.type & types)\n"
+        "                && diff(ent_list[i]->position.x, x) < grab_x_thresh\n"
+        "                && diff(ent_list[i]->position.z, z) < grab_z_thresh\n"
+        "                && ent_list[i]->animation->vulnerable[ent_list[i]->animpos]\n"
+        "                && (!test || test(exclude, ent_list[i]))\n"
+        "          )\n"
+        "        {\n"
+        "            return ent_list[i];\n"
+        "        }\n"
+        "    }\n"
+        "    return NULL;\n"
+        "}"
+    )
+    ob = strict_replace(ob, s16c_old, s16c_new,
+                        'Step 16c: find_ent_here grab-distance invariant hoist')
+
+    print("  Step 16a: do_attack invariant hoist + B-style pre-filter")
+    print("  Step 16b: block_find_target short-circuit reorder cheap-first")
+    print("  Step 16c: find_ent_here grab-distance invariant hoist")
+
     # ----- BELOW: original diagnostic patches removed 2026-05-26 ------
     # (FPS profile + SUB-PROFILE v8 served their purpose; reverted now that
     #  B+E ships as the permanent fix.)
