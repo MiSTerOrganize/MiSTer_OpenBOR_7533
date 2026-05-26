@@ -1214,275 +1214,102 @@ endif
                         'step 12: clamp off-screen / zero-size loading bar to on-screen default')
     print("  update_loading(): off-screen/zero-size bar clamps to visible default")
 
-    # -- TEMPORARY PER-FRAME PROFILE 2026-05-25 (DIAG -- REVERT AFTER MEASURED).
-    # Same approach as load-time SUB-PROFILE v2-v7 but for per-FRAME work.
-    # Goal: identify which engine subsystem dominates per-frame CPU time on
-    # CPU-bound PAKs (Avengers UBF ~30 fps, He-Man ~33 fps at stock 800 MHz).
+    # -- Step 14 (2026-05-26): B+E entity-collision optimization.
     #
-    # 5 patches:
-    #   13i: file-scope globals (frame counter, cumulative subsystem timers)
-    #   13j: entity timer wrapping while(_time < newtime) tick loop
-    #   13k: render timer wrapping display_ents() call
-    #   13l: script timer wrapping execute_updatedscripts() call
-    #   13m: FPS counter + periodic printf at top of if(ingame==1 && !_pause) block
+    # Profile evidence from 7 PAKs (Avengers, He-Man, JL Legacy, TMNT-RP, PDC2,
+    # DD Reloaded, ATOV; fps range 13-113) showed `arrange_ents()` -> per-entity
+    # `check_entity_collision_for()` consuming 28-42% of entity-tick time across
+    # all PAKs. Root cause: nested O(N^2) loop over ent_list[] for every entity.
     #
-    # Output: [FPS] N.N avg (frames=N entity=Nms render=Nms script=Nms other=Nms
-    # interval=Nms) every ~5 sec during actual gameplay. Diagnostic auto-skips
-    # title screens / menus / pause (gated on ingame==1 && !_pause).
+    # Optimization combines two cheap pre-culls:
+    #   B: skip targets where target->animation->collision_entity is NULL
+    #      (check_entity_collision would return 0 anyway -- skip the call cost)
+    #   E: skip pairs whose positions differ by >256 px in x OR z axis
+    #      (256 px > any reasonable single-entity hitbox extent; no OpenBOR PAK
+    #      has a hitbox reaching 256 px from entity center on a 320x224 screen)
     #
-    # REVERT after one measurement cycle, same as load-time profile work.
+    # Behavior preservation: B is a no-op skip (function returns 0 anyway);
+    # E only skips pairs that can't physically collide (rect cull strictly
+    # larger than max hitbox extent). collided_entity iteration order is
+    # unchanged for nearby pairs -- only far-apart pairs are skipped earlier.
+    #
+    # Expected gain: ~85% reduction in collision-pair work in typical scenes.
 
-    # Patch 13i: file-scope globals before update() definition.
-    # NOTE: previous attempt put globals before playlevel() but the FPS code
-    # (while loop, display_ents call, etc.) is actually in update() which
-    # is defined EARLIER in the file than playlevel. C requires declaration
-    # before use. Globals now placed before update() (line 45669 pristine).
-    fps_globals_old = (
-        "void update(int ingame, int usevwait)\n"
+    # Patch 14: B+E entity-collision optimization in check_entity_collision_for().
+    # Inserts inline pre-filter (B: skip non-collidable targets) + cheap rect cull
+    # (E: skip pairs with |dx|>256 OR |dz|>256 in level coords).
+    bp14_old = (
+        "void check_entity_collision_for(entity* ent)\n"
         "{\n"
-        "    int i = 0;\n"
-        "    int p_keys = 0;"
-    )
-    fps_globals_new = (
-        "/* MiSTer 2026-05-25 TEMPORARY per-frame profile diagnostic. */\n"
-        "static unsigned int _mister_fps_frames = 0;\n"
-        "static unsigned int _mister_fps_t_last_print = 0;\n"
-        "static unsigned int _mister_fps_entity_ms = 0;\n"
-        "static unsigned int _mister_fps_render_ms = 0;\n"
-        "static unsigned int _mister_fps_script_ms = 0;\n"
-        "/* SUB-PROFILE v8 globals are declared earlier (before update_ents) -- */\n"
-        "/* see TEMPORARY SUB-PROFILE v8 patch (REVERT AFTER MEASURED). */\n"
-        "\n"
-        "void update(int ingame, int usevwait)\n"
-        "{\n"
-        "    int i = 0;\n"
-        "    int p_keys = 0;"
-    )
-    ob = strict_replace(ob, fps_globals_old, fps_globals_new,
-                        'Step 13i: per-frame profile globals before update()')
-
-    # Patch 13j: entity timer start (before while(_time < newtime)).
-    fps_entity_start_old = "        while(_time < newtime)"
-    fps_entity_start_new = (
-        "        unsigned int _mister_ent_t0 = timer_gettick();  /* TEMP profile */\n"
-        "        while(_time < newtime)"
-    )
-    ob = strict_replace(ob, fps_entity_start_old, fps_entity_start_new,
-                        'Step 13j: entity timer start before tick loop')
-
-    # Patch 13k: entity timer end (after ++_time; }) -- same scope as start.
-    fps_entity_end_old = (
-        "            ++_time;\n"
-        "        }"
-    )
-    fps_entity_end_new = (
-        "            ++_time;\n"
-        "        }\n"
-        "        _mister_fps_entity_ms += timer_gettick() - _mister_ent_t0;  /* TEMP profile */"
-    )
-    ob = strict_replace(ob, fps_entity_end_old, fps_entity_end_new,
-                        'Step 13k: entity timer end after tick loop')
-
-    # Patch 13l: render timer wrapping display_ents() call.
-    fps_render_old = (
-        "    if(ingame == 1 || check_in_screen())\n"
-        "        if(!_pause)\n"
+        "    // Animation has collision?\n"
+        "    if (ent && ent->animation && ent->animation->collision_entity)\n"
+        "    {\n"
+        "        int i;\n"
+        "        for(i = 0; i < ent_max; i++)\n"
         "        {\n"
-        "            display_ents();\n"
-        "        }"
-    )
-    fps_render_new = (
-        "    if(ingame == 1 || check_in_screen())\n"
-        "        if(!_pause)\n"
-        "        {\n"
-        "            unsigned int _mister_rnd_t0 = timer_gettick();  /* TEMP profile */\n"
-        "            display_ents();\n"
-        "            _mister_fps_render_ms += timer_gettick() - _mister_rnd_t0;  /* TEMP profile */\n"
-        "        }"
-    )
-    ob = strict_replace(ob, fps_render_old, fps_render_new,
-                        'Step 13l: render timer around display_ents()')
-
-    # Patch 13m: script timer wrapping execute_updatedscripts() call.
-    fps_script_old = (
-        "    if(ingame == 1 || alwaysupdate)\n"
-        "    {\n"
-        "        execute_updatedscripts();\n"
-        "    }"
-    )
-    fps_script_new = (
-        "    if(ingame == 1 || alwaysupdate)\n"
-        "    {\n"
-        "        unsigned int _mister_scr_t0 = timer_gettick();  /* TEMP profile */\n"
-        "        execute_updatedscripts();\n"
-        "        _mister_fps_script_ms += timer_gettick() - _mister_scr_t0;  /* TEMP profile */\n"
-        "    }"
-    )
-    ob = strict_replace(ob, fps_script_old, fps_script_new,
-                        'Step 13m: script timer around execute_updatedscripts()')
-
-    # Patch 13n: FPS counter + periodic printf at top of if(ingame==1 && !_pause).
-    # Block fires once per render frame ONLY when in gameplay AND not paused --
-    # title/intro/menus/pause are auto-skipped. Logs once per ~5 sec.
-    fps_print_old = (
-        "    if(ingame == 1 && !_pause)\n"
-        "    {\n"
-        "        draw_scrolled_bg();"
-    )
-    fps_print_new = (
-        "    if(ingame == 1 && !_pause)\n"
-        "    {\n"
-        "        /* MiSTer 2026-05-25 TEMP per-frame profile: log [FPS] N.N every ~5 sec */\n"
-        "        {\n"
-        "            unsigned int _now_ms = timer_gettick();\n"
-        "            if (_mister_fps_t_last_print == 0) _mister_fps_t_last_print = _now_ms;\n"
-        "            _mister_fps_frames++;\n"
-        "            if (_now_ms - _mister_fps_t_last_print >= 5000) {\n"
-        "                unsigned int interval = _now_ms - _mister_fps_t_last_print;\n"
-        "                unsigned int fps_x10 = (_mister_fps_frames * 10000u) / interval;\n"
-        "                unsigned int sub_sum = _mister_fps_entity_ms + _mister_fps_render_ms + _mister_fps_script_ms;\n"
-        "                unsigned int other_ms = (interval > sub_sum) ? (interval - sub_sum) : 0u;\n"
-        "                printf(\"[FPS] %u.%u avg (frames=%u entity=%ums render=%ums script=%ums other=%ums interval=%ums)\\n\",\n"
-        "                       fps_x10 / 10u, fps_x10 % 10u,\n"
-        "                       _mister_fps_frames,\n"
-        "                       _mister_fps_entity_ms,\n"
-        "                       _mister_fps_render_ms,\n"
-        "                       _mister_fps_script_ms,\n"
-        "                       other_ms,\n"
-        "                       interval);\n"
-        "                /* SUB-PROFILE v8 — REVERT AFTER MEASURED — entity-internal breakdown. */\n"
-        "                printf(\"[SUB] entity=%ums = script=%ums + ai=%ums + anim=%ums + coll=%ums + arrange=%ums\\n\",\n"
-        "                       _mister_fps_entity_ms,\n"
-        "                       _mister_se_script_ms,\n"
-        "                       _mister_se_ai_ms,\n"
-        "                       _mister_se_anim_ms,\n"
-        "                       _mister_se_coll_ms,\n"
-        "                       _mister_se_arr_ms);\n"
-        "                _mister_fps_frames = 0;\n"
-        "                _mister_fps_entity_ms = 0;\n"
-        "                _mister_fps_render_ms = 0;\n"
-        "                _mister_fps_script_ms = 0;\n"
-        "                _mister_se_script_ms = 0;\n"
-        "                _mister_se_ai_ms = 0;\n"
-        "                _mister_se_anim_ms = 0;\n"
-        "                _mister_se_coll_ms = 0;\n"
-        "                _mister_se_arr_ms = 0;\n"
-        "                _mister_fps_t_last_print = _now_ms;\n"
+        "            //s_anim *a = ent->animation[ent->animnum];\n"
+        "            entity* target = ent_list[i];\n"
+        "            if(target->exists && target != ent)\n"
+        "            {\n"
+        "                if (check_entity_collision(ent, target))\n"
+        "                {\n"
+        "                    ent->collided_entity = target;\n"
+        "                    target->collided_entity = ent;\n"
+        "                    return;\n"
+        "                }\n"
         "            }\n"
         "        }\n"
-        "        draw_scrolled_bg();"
-    )
-    ob = strict_replace(ob, fps_print_old, fps_print_new,
-                        'Step 13n: per-frame profile counter + periodic [FPS] printf')
-
-    # -- TEMPORARY SUB-PROFILE v8 2026-05-26 (REVERT AFTER MEASURED).
-    # Break down the entity bucket (which dominates per-frame CPU on Avengers
-    # at ~482 ms per 5-sec window in the 30-35 fps band) into the 5 sub-system
-    # calls inside update_ents(): execute_updateentity_script / check_ai /
-    # update_animation / check_attack / arrange_ents. Goal: identify which
-    # sub-system to optimize.
-    #
-    # 6 patches (13n2 + 13o-13s).
-    # Output line: [SUB] entity=Nms = script=N + ai=N + anim=N + coll=N + arrange=N
-
-    # Patch 13n2: SUB-PROFILE v8 globals BEFORE update_ents().
-    # NOTE: update_ents() is defined at ~line 29247 pristine, update() at ~45669.
-    # Globals MUST be declared before the FIRST consumer = before update_ents().
-    # The FPS-profile globals (patch 13i) sit before update() and only feed update()
-    # itself; SUB-PROFILE v8 globals are read by update_ents() (the [SUB] timers)
-    # AND written by the printf inside update() (the reset block after [SUB] printf),
-    # so the SUB-PROFILE v8 globals are placed earlier in the file.
-    se_globals_old = "void update_ents()\n{\n    int i;"
-    se_globals_new = (
-        "/* MiSTer 2026-05-26 TEMPORARY SUB-PROFILE v8 (REVERT AFTER MEASURED). */\n"
-        "/* Per-frame breakdown INSIDE update_ents() -- script/ai/anim/coll/arrange. */\n"
-        "unsigned int _mister_se_script_ms = 0;\n"
-        "unsigned int _mister_se_ai_ms = 0;\n"
-        "unsigned int _mister_se_anim_ms = 0;\n"
-        "unsigned int _mister_se_coll_ms = 0;\n"
-        "unsigned int _mister_se_arr_ms = 0;\n"
+        "    }\n"
         "\n"
-        "void update_ents()\n"
+        "    ent->collided_entity = NULL;\n"
+        "    return;\n"
+        "}"
+    )
+    bp14_new = (
+        "void check_entity_collision_for(entity* ent)\n"
         "{\n"
-        "    int i;"
-    )
-    ob = strict_replace(ob, se_globals_old, se_globals_new,
-                        'Step 13n2: SUB-PROFILE v8 globals before update_ents()')
-
-    # Patch 13o: time execute_updateentity_script(self) per entity.
-    se_script_old = (
-        "                execute_updateentity_script(self);// execute a script\n"
-        "                if(!self->exists)\n"
-        "                {\n"
-        "                    continue;\n"
-        "                }\n"
-        "                check_ai();// check ai"
-    )
-    se_script_new = (
-        "                {\n"
-        "                    unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
-        "                    execute_updateentity_script(self);// execute a script\n"
-        "                    _mister_se_script_ms += timer_gettick() - _se_t0;\n"
-        "                }\n"
-        "                if(!self->exists)\n"
-        "                {\n"
-        "                    continue;\n"
-        "                }\n"
-        "                {\n"
-        "                    unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
-        "                    check_ai();// check ai\n"
-        "                    _mister_se_ai_ms += timer_gettick() - _se_t0;\n"
-        "                }"
-    )
-    ob = strict_replace(ob, se_script_old, se_script_new,
-                        'Step 13o/13p: SUB-PROFILE v8 timers around execute_updateentity_script + check_ai')
-
-    # Patch 13q: time update_animation() per entity.
-    se_anim_old = (
-        "                update_animation(); // if not frozen, update animation\n"
-        "                if(!self->exists)\n"
-        "                {\n"
-        "                    continue;\n"
-        "                }\n"
-        "                check_attack();// Collission detection"
-    )
-    se_anim_new = (
-        "                {\n"
-        "                    unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
-        "                    update_animation(); // if not frozen, update animation\n"
-        "                    _mister_se_anim_ms += timer_gettick() - _se_t0;\n"
-        "                }\n"
-        "                if(!self->exists)\n"
-        "                {\n"
-        "                    continue;\n"
-        "                }\n"
-        "                {\n"
-        "                    unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
-        "                    check_attack();// Collission detection\n"
-        "                    _mister_se_coll_ms += timer_gettick() - _se_t0;\n"
-        "                }"
-    )
-    ob = strict_replace(ob, se_anim_old, se_anim_new,
-                        'Step 13q/13r: SUB-PROFILE v8 timers around update_animation + check_attack')
-
-    # Patch 13s: time arrange_ents() called once per tick (post-loop).
-    se_arrange_old = (
-        "    }//end of for\n"
-        "    arrange_ents();"
-    )
-    se_arrange_new = (
-        "    }//end of for\n"
+        "    // Animation has collision?\n"
+        "    if (ent && ent->animation && ent->animation->collision_entity)\n"
         "    {\n"
-        "        unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
-        "        arrange_ents();\n"
-        "        _mister_se_arr_ms += timer_gettick() - _se_t0;\n"
-        "    }"
+        "        /* MiSTer 2026-05-26 B+E entity-collision optimization. */\n"
+        "        /* Profile data (7 PAKs, fps 13-113) showed this loop = 28-42%% */\n"
+        "        /* of per-tick entity work. B: skip non-collidable targets.    */\n"
+        "        /* E: cheap rect cull (256 px > any reasonable hitbox extent). */\n"
+        "        int i;\n"
+        "        int ent_x = (int)ent->position.x;\n"
+        "        int ent_z = (int)ent->position.z;\n"
+        "        for(i = 0; i < ent_max; i++)\n"
+        "        {\n"
+        "            entity* target = ent_list[i];\n"
+        "            if(target->exists && target != ent\n"
+        "               && target->animation && target->animation->collision_entity)  /* B */\n"
+        "            {\n"
+        "                int dx = (int)target->position.x - ent_x;                   /* E */\n"
+        "                int dz = (int)target->position.z - ent_z;\n"
+        "                if (dx > 256 || dx < -256 || dz > 256 || dz < -256) continue;\n"
+        "                if (check_entity_collision(ent, target))\n"
+        "                {\n"
+        "                    ent->collided_entity = target;\n"
+        "                    target->collided_entity = ent;\n"
+        "                    return;\n"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "    }\n"
+        "\n"
+        "    ent->collided_entity = NULL;\n"
+        "    return;\n"
+        "}"
     )
-    ob = strict_replace(ob, se_arrange_old, se_arrange_new,
-                        'Step 13s: SUB-PROFILE v8 timer around arrange_ents() (per-tick, post-loop)')
+    ob = strict_replace(ob, bp14_old, bp14_new,
+                        'Step 14: B+E entity-collision optimization (filter non-collidable + 256px rect cull)')
+    print("  Step 14: B+E entity-collision cull -- expected 5-10x speedup on arrange bucket")
 
-    print("  TEMPORARY per-frame profile inserted (5 patches: globals + entity/render/script timers + [FPS] printf gated on ingame==1 && !_pause)")
-    print("  TEMPORARY SUB-PROFILE v8 inserted (3 strict_replace patches inside update_ents() — adds [SUB] entity-internal breakdown line)")
+    # ----- BELOW: original diagnostic patches removed 2026-05-26 ------
+    # (FPS profile + SUB-PROFILE v8 served their purpose; reverted now that
+    #  B+E ships as the permanent fix.)
+    # Removed: fps_globals_new, fps_entity_start, fps_entity_end, fps_render,
+    # fps_script, fps_print, se_globals, se_script (+ai), se_anim (+coll), se_arrange.
 
     write(ob_path, ob)
     print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 — line-29499 fallback intact, no struct mods).")
