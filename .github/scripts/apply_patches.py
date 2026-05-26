@@ -1232,11 +1232,16 @@ endif
     #
     # REVERT after one measurement cycle, same as load-time profile work.
 
-    # Patch 13i: file-scope globals before playlevel() definition.
+    # Patch 13i: file-scope globals before update() definition.
+    # NOTE: previous attempt put globals before playlevel() but the FPS code
+    # (while loop, display_ents call, etc.) is actually in update() which
+    # is defined EARLIER in the file than playlevel. C requires declaration
+    # before use. Globals now placed before update() (line 45669 pristine).
     fps_globals_old = (
-        "int playlevel(char *filename)\n"
+        "void update(int ingame, int usevwait)\n"
         "{\n"
-        "    int i, type, p_alive = 0;"
+        "    int i = 0;\n"
+        "    int p_keys = 0;"
     )
     fps_globals_new = (
         "/* MiSTer 2026-05-25 TEMPORARY per-frame profile diagnostic. */\n"
@@ -1246,12 +1251,13 @@ endif
         "static unsigned int _mister_fps_render_ms = 0;\n"
         "static unsigned int _mister_fps_script_ms = 0;\n"
         "\n"
-        "int playlevel(char *filename)\n"
+        "void update(int ingame, int usevwait)\n"
         "{\n"
-        "    int i, type, p_alive = 0;"
+        "    int i = 0;\n"
+        "    int p_keys = 0;"
     )
     ob = strict_replace(ob, fps_globals_old, fps_globals_new,
-                        'Step 13i: per-frame profile globals before playlevel')
+                        'Step 13i: per-frame profile globals before update()')
 
     # Patch 13j: entity timer start (before while(_time < newtime)).
     fps_entity_start_old = "        while(_time < newtime)"
