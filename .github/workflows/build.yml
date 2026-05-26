@@ -37,6 +37,17 @@ jobs:
           chmod +x games/OpenBOR/OpenBOR_7533
           git config user.email "ci@misterorganize"
           git config user.name "MiSTer Organize CI"
+          # Diagnostic-marker gate (added 2026-05-25 per feedback_no_diagnostic_binaries_in_db.md):
+          # If apply_patches.py carries TEMPORARY / SUB-PROFILE / DIAG instrumentation,
+          # the rebuilt binary is for research only and MUST NOT land on main (where DB
+          # rebuild would pick up its hash and ship it via db.json to end users).
+          # Binary still uploads as workflow artifact below for manual deploy testing.
+          if grep -qE "TEMPORARY PROFILE|TEMPORARY DIAG|TEMPORARY SUB-PROFILE|SUB-PROFILE v[0-9]+|REVERT AFTER MEASURED" .github/scripts/apply_patches.py; then
+            echo "[CI gate] Diagnostic markers detected in apply_patches.py — SKIPPING binary commit-back."
+            echo "[CI gate] Binary built successfully and uploads as workflow artifact for manual deploy."
+            echo "[CI gate] Will commit binary back automatically once diagnostic markers are removed."
+            exit 0
+          fi
           if ! git diff --quiet games/OpenBOR/OpenBOR_7533; then
             git add games/OpenBOR/OpenBOR_7533
             git commit -m "CI: rebuild ARM binary for ${{ github.sha }}"
