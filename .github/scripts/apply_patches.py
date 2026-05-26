@@ -1250,13 +1250,8 @@ endif
         "static unsigned int _mister_fps_entity_ms = 0;\n"
         "static unsigned int _mister_fps_render_ms = 0;\n"
         "static unsigned int _mister_fps_script_ms = 0;\n"
-        "/* MiSTer 2026-05-26 TEMPORARY SUB-PROFILE v8 (REVERT AFTER MEASURED): */\n"
-        "/* per-frame breakdown INSIDE update_ents() — script/ai/anim/collision/arrange. */\n"
-        "unsigned int _mister_se_script_ms = 0;\n"
-        "unsigned int _mister_se_ai_ms = 0;\n"
-        "unsigned int _mister_se_anim_ms = 0;\n"
-        "unsigned int _mister_se_coll_ms = 0;\n"
-        "unsigned int _mister_se_arr_ms = 0;\n"
+        "/* SUB-PROFILE v8 globals are declared earlier (before update_ents) -- */\n"
+        "/* see TEMPORARY SUB-PROFILE v8 patch (REVERT AFTER MEASURED). */\n"
         "\n"
         "void update(int ingame, int usevwait)\n"
         "{\n"
@@ -1387,8 +1382,32 @@ endif
     # update_animation / check_attack / arrange_ents. Goal: identify which
     # sub-system to optimize.
     #
-    # 5 patches (13o-13s): one per sub-call inside update_ents().
+    # 6 patches (13n2 + 13o-13s).
     # Output line: [SUB] entity=Nms = script=N + ai=N + anim=N + coll=N + arrange=N
+
+    # Patch 13n2: SUB-PROFILE v8 globals BEFORE update_ents().
+    # NOTE: update_ents() is defined at ~line 29247 pristine, update() at ~45669.
+    # Globals MUST be declared before the FIRST consumer = before update_ents().
+    # The FPS-profile globals (patch 13i) sit before update() and only feed update()
+    # itself; SUB-PROFILE v8 globals are read by update_ents() (the [SUB] timers)
+    # AND written by the printf inside update() (the reset block after [SUB] printf),
+    # so the SUB-PROFILE v8 globals are placed earlier in the file.
+    se_globals_old = "void update_ents()\n{\n    int i;"
+    se_globals_new = (
+        "/* MiSTer 2026-05-26 TEMPORARY SUB-PROFILE v8 (REVERT AFTER MEASURED). */\n"
+        "/* Per-frame breakdown INSIDE update_ents() -- script/ai/anim/coll/arrange. */\n"
+        "unsigned int _mister_se_script_ms = 0;\n"
+        "unsigned int _mister_se_ai_ms = 0;\n"
+        "unsigned int _mister_se_anim_ms = 0;\n"
+        "unsigned int _mister_se_coll_ms = 0;\n"
+        "unsigned int _mister_se_arr_ms = 0;\n"
+        "\n"
+        "void update_ents()\n"
+        "{\n"
+        "    int i;"
+    )
+    ob = strict_replace(ob, se_globals_old, se_globals_new,
+                        'Step 13n2: SUB-PROFILE v8 globals before update_ents()')
 
     # Patch 13o: time execute_updateentity_script(self) per entity.
     se_script_old = (
