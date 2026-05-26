@@ -1250,6 +1250,13 @@ endif
         "static unsigned int _mister_fps_entity_ms = 0;\n"
         "static unsigned int _mister_fps_render_ms = 0;\n"
         "static unsigned int _mister_fps_script_ms = 0;\n"
+        "/* MiSTer 2026-05-26 TEMPORARY SUB-PROFILE v8 (REVERT AFTER MEASURED): */\n"
+        "/* per-frame breakdown INSIDE update_ents() — script/ai/anim/collision/arrange. */\n"
+        "unsigned int _mister_se_script_ms = 0;\n"
+        "unsigned int _mister_se_ai_ms = 0;\n"
+        "unsigned int _mister_se_anim_ms = 0;\n"
+        "unsigned int _mister_se_coll_ms = 0;\n"
+        "unsigned int _mister_se_arr_ms = 0;\n"
         "\n"
         "void update(int ingame, int usevwait)\n"
         "{\n"
@@ -1348,10 +1355,23 @@ endif
         "                       _mister_fps_script_ms,\n"
         "                       other_ms,\n"
         "                       interval);\n"
+        "                /* SUB-PROFILE v8 — REVERT AFTER MEASURED — entity-internal breakdown. */\n"
+        "                printf(\"[SUB] entity=%ums = script=%ums + ai=%ums + anim=%ums + coll=%ums + arrange=%ums\\n\",\n"
+        "                       _mister_fps_entity_ms,\n"
+        "                       _mister_se_script_ms,\n"
+        "                       _mister_se_ai_ms,\n"
+        "                       _mister_se_anim_ms,\n"
+        "                       _mister_se_coll_ms,\n"
+        "                       _mister_se_arr_ms);\n"
         "                _mister_fps_frames = 0;\n"
         "                _mister_fps_entity_ms = 0;\n"
         "                _mister_fps_render_ms = 0;\n"
         "                _mister_fps_script_ms = 0;\n"
+        "                _mister_se_script_ms = 0;\n"
+        "                _mister_se_ai_ms = 0;\n"
+        "                _mister_se_anim_ms = 0;\n"
+        "                _mister_se_coll_ms = 0;\n"
+        "                _mister_se_arr_ms = 0;\n"
         "                _mister_fps_t_last_print = _now_ms;\n"
         "            }\n"
         "        }\n"
@@ -1360,7 +1380,90 @@ endif
     ob = strict_replace(ob, fps_print_old, fps_print_new,
                         'Step 13n: per-frame profile counter + periodic [FPS] printf')
 
+    # -- TEMPORARY SUB-PROFILE v8 2026-05-26 (REVERT AFTER MEASURED).
+    # Break down the entity bucket (which dominates per-frame CPU on Avengers
+    # at ~482 ms per 5-sec window in the 30-35 fps band) into the 5 sub-system
+    # calls inside update_ents(): execute_updateentity_script / check_ai /
+    # update_animation / check_attack / arrange_ents. Goal: identify which
+    # sub-system to optimize.
+    #
+    # 5 patches (13o-13s): one per sub-call inside update_ents().
+    # Output line: [SUB] entity=Nms = script=N + ai=N + anim=N + coll=N + arrange=N
+
+    # Patch 13o: time execute_updateentity_script(self) per entity.
+    se_script_old = (
+        "                execute_updateentity_script(self);// execute a script\n"
+        "                if(!self->exists)\n"
+        "                {\n"
+        "                    continue;\n"
+        "                }\n"
+        "                check_ai();// check ai"
+    )
+    se_script_new = (
+        "                {\n"
+        "                    unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
+        "                    execute_updateentity_script(self);// execute a script\n"
+        "                    _mister_se_script_ms += timer_gettick() - _se_t0;\n"
+        "                }\n"
+        "                if(!self->exists)\n"
+        "                {\n"
+        "                    continue;\n"
+        "                }\n"
+        "                {\n"
+        "                    unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
+        "                    check_ai();// check ai\n"
+        "                    _mister_se_ai_ms += timer_gettick() - _se_t0;\n"
+        "                }"
+    )
+    ob = strict_replace(ob, se_script_old, se_script_new,
+                        'Step 13o/13p: SUB-PROFILE v8 timers around execute_updateentity_script + check_ai')
+
+    # Patch 13q: time update_animation() per entity.
+    se_anim_old = (
+        "                update_animation(); // if not frozen, update animation\n"
+        "                if(!self->exists)\n"
+        "                {\n"
+        "                    continue;\n"
+        "                }\n"
+        "                check_attack();// Collission detection"
+    )
+    se_anim_new = (
+        "                {\n"
+        "                    unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
+        "                    update_animation(); // if not frozen, update animation\n"
+        "                    _mister_se_anim_ms += timer_gettick() - _se_t0;\n"
+        "                }\n"
+        "                if(!self->exists)\n"
+        "                {\n"
+        "                    continue;\n"
+        "                }\n"
+        "                {\n"
+        "                    unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
+        "                    check_attack();// Collission detection\n"
+        "                    _mister_se_coll_ms += timer_gettick() - _se_t0;\n"
+        "                }"
+    )
+    ob = strict_replace(ob, se_anim_old, se_anim_new,
+                        'Step 13q/13r: SUB-PROFILE v8 timers around update_animation + check_attack')
+
+    # Patch 13s: time arrange_ents() called once per tick (post-loop).
+    se_arrange_old = (
+        "    }//end of for\n"
+        "    arrange_ents();"
+    )
+    se_arrange_new = (
+        "    }//end of for\n"
+        "    {\n"
+        "        unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
+        "        arrange_ents();\n"
+        "        _mister_se_arr_ms += timer_gettick() - _se_t0;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, se_arrange_old, se_arrange_new,
+                        'Step 13s: SUB-PROFILE v8 timer around arrange_ents() (per-tick, post-loop)')
+
     print("  TEMPORARY per-frame profile inserted (5 patches: globals + entity/render/script timers + [FPS] printf gated on ingame==1 && !_pause)")
+    print("  TEMPORARY SUB-PROFILE v8 inserted (3 strict_replace patches inside update_ents() — adds [SUB] entity-internal breakdown line)")
 
     write(ob_path, ob)
     print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 — line-29499 fallback intact, no struct mods).")
