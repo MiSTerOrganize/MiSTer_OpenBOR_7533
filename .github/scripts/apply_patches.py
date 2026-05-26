@@ -1305,6 +1305,122 @@ endif
                         'Step 14: B+E entity-collision optimization (filter non-collidable + 256px rect cull)')
     print("  Step 14: B+E entity-collision cull -- expected 5-10x speedup on arrange bucket")
 
+    # -- Step 15 (2026-05-26): Path 1 reorder of normal_find_target() loop body.
+    #
+    # SUB-PROFILE v8 data identified ai as He-Man's #2 bottleneck (23.4% of
+    # entity time vs ~10-15% on other PAKs). Root cause: many AI entities call
+    # normal_find_target() per think tick, which iterates ent_max entities and
+    # runs faction_check_is_hostile() + check_range_target_all() BEFORE the
+    # cheap distance + death-state checks. Reordering puts cheap checks first
+    # so expensive function calls are skipped for entities the existing filter
+    # would have culled anyway (dead entities, entities >9999 px Manhattan
+    # distance from self).
+    #
+    # SAFETY: pure reorder, same final filter as upstream. Mathematically
+    # identical output set; only check order changed. Zero behavior risk.
+    pf15_old = (
+        "        // Must exist.\n"
+        "        if(!ent_list[i]->exists)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        // Can't be self.\n"
+        "        if(ent_list[i] == self)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        /* Must be hostile toward it. */\n"
+        "        if (!faction_check_is_hostile(self, ent_list[i]))\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        // If anim is defined, then then target must be\n"
+        "        // in range of animation.\n"
+        "        if(anim >= 0)\n"
+        "        {\n"
+        "            if(!check_range_target_all(self, ent_list[i], anim, 0, 0))\n"
+        "            {\n"
+        "                continue;\n"
+        "            }\n"
+        "        }\n"
+        "\n"
+        "        // Can't be dead.\n"
+        "        if(ent_list[i]->death_state & DEATH_STATE_DEAD)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        // Get X and Z differences between us and target. We then\n"
+        "        // add them up to get a total distance.\n"
+        "        diffx = diff(ent_list[i]->position.x, self->position.x);\n"
+        "        diffz = diff(ent_list[i]->position.z, self->position.z);\n"
+        "        diffd = diffx + diffz;\n"
+        "\n"
+        "        // Distance must be within min and max.\n"
+        "        if(diffd <= min || diffd >= max)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }"
+    )
+    pf15_new = (
+        "        // Must exist.\n"
+        "        if(!ent_list[i]->exists)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        // Can't be self.\n"
+        "        if(ent_list[i] == self)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        /* MiSTer 2026-05-26 Path 1: cheap-first reorder.                 */\n"
+        "        /* Same filter set; death-state + distance checks now run BEFORE  */\n"
+        "        /* faction_check_is_hostile + check_range_target_all function     */\n"
+        "        /* calls. Saves the expensive calls on entities that the existing */\n"
+        "        /* filter would have culled by the original (later) distance test.*/\n"
+        "\n"
+        "        // Can't be dead. (cheap field+bit test -- moved up)\n"
+        "        if(ent_list[i]->death_state & DEATH_STATE_DEAD)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        // Get X and Z differences between us and target. (moved up)\n"
+        "        diffx = diff(ent_list[i]->position.x, self->position.x);\n"
+        "        diffz = diff(ent_list[i]->position.z, self->position.z);\n"
+        "        diffd = diffx + diffz;\n"
+        "\n"
+        "        // Distance must be within min and max. (moved up)\n"
+        "        if(diffd <= min || diffd >= max)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        /* Must be hostile toward it. (expensive function call -- now after distance) */\n"
+        "        if (!faction_check_is_hostile(self, ent_list[i]))\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        // If anim is defined, then then target must be\n"
+        "        // in range of animation. (expensive multi-arg -- now after distance)\n"
+        "        if(anim >= 0)\n"
+        "        {\n"
+        "            if(!check_range_target_all(self, ent_list[i], anim, 0, 0))\n"
+        "            {\n"
+        "                continue;\n"
+        "            }\n"
+        "        }"
+    )
+    ob = strict_replace(ob, pf15_old, pf15_new,
+                        'Step 15: Path 1 reorder of normal_find_target() loop body (cheap-first)')
+    print("  Step 15: normal_find_target() cheap-first reorder (no behavior change)")
+
     # ----- BELOW: original diagnostic patches removed 2026-05-26 ------
     # (FPS profile + SUB-PROFILE v8 served their purpose; reverted now that
     #  B+E ships as the permanent fix.)
