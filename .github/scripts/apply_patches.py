@@ -1214,6 +1214,148 @@ endif
                         'step 12: clamp off-screen / zero-size loading bar to on-screen default')
     print("  update_loading(): off-screen/zero-size bar clamps to visible default")
 
+    # -- TEMPORARY PER-FRAME PROFILE 2026-05-25 (DIAG -- REVERT AFTER MEASURED).
+    # Same approach as load-time SUB-PROFILE v2-v7 but for per-FRAME work.
+    # Goal: identify which engine subsystem dominates per-frame CPU time on
+    # CPU-bound PAKs (Avengers UBF ~30 fps, He-Man ~33 fps at stock 800 MHz).
+    #
+    # 5 patches:
+    #   13i: file-scope globals (frame counter, cumulative subsystem timers)
+    #   13j: entity timer wrapping while(_time < newtime) tick loop
+    #   13k: render timer wrapping display_ents() call
+    #   13l: script timer wrapping execute_updatedscripts() call
+    #   13m: FPS counter + periodic printf at top of if(ingame==1 && !_pause) block
+    #
+    # Output: [FPS] N.N avg (frames=N entity=Nms render=Nms script=Nms other=Nms
+    # interval=Nms) every ~5 sec during actual gameplay. Diagnostic auto-skips
+    # title screens / menus / pause (gated on ingame==1 && !_pause).
+    #
+    # REVERT after one measurement cycle, same as load-time profile work.
+
+    # Patch 13i: file-scope globals before playlevel() definition.
+    fps_globals_old = (
+        "int playlevel(char *filename)\n"
+        "{\n"
+        "    int i, type, p_alive = 0;"
+    )
+    fps_globals_new = (
+        "/* MiSTer 2026-05-25 TEMPORARY per-frame profile diagnostic. */\n"
+        "static unsigned int _mister_fps_frames = 0;\n"
+        "static unsigned int _mister_fps_t_last_print = 0;\n"
+        "static unsigned int _mister_fps_entity_ms = 0;\n"
+        "static unsigned int _mister_fps_render_ms = 0;\n"
+        "static unsigned int _mister_fps_script_ms = 0;\n"
+        "\n"
+        "int playlevel(char *filename)\n"
+        "{\n"
+        "    int i, type, p_alive = 0;"
+    )
+    ob = strict_replace(ob, fps_globals_old, fps_globals_new,
+                        'Step 13i: per-frame profile globals before playlevel')
+
+    # Patch 13j: entity timer start (before while(_time < newtime)).
+    fps_entity_start_old = "        while(_time < newtime)"
+    fps_entity_start_new = (
+        "        unsigned int _mister_ent_t0 = timer_gettick();  /* TEMP profile */\n"
+        "        while(_time < newtime)"
+    )
+    ob = strict_replace(ob, fps_entity_start_old, fps_entity_start_new,
+                        'Step 13j: entity timer start before tick loop')
+
+    # Patch 13k: entity timer end (after ++_time; }) -- same scope as start.
+    fps_entity_end_old = (
+        "            ++_time;\n"
+        "        }"
+    )
+    fps_entity_end_new = (
+        "            ++_time;\n"
+        "        }\n"
+        "        _mister_fps_entity_ms += timer_gettick() - _mister_ent_t0;  /* TEMP profile */"
+    )
+    ob = strict_replace(ob, fps_entity_end_old, fps_entity_end_new,
+                        'Step 13k: entity timer end after tick loop')
+
+    # Patch 13l: render timer wrapping display_ents() call.
+    fps_render_old = (
+        "    if(ingame == 1 || check_in_screen())\n"
+        "        if(!_pause)\n"
+        "        {\n"
+        "            display_ents();\n"
+        "        }"
+    )
+    fps_render_new = (
+        "    if(ingame == 1 || check_in_screen())\n"
+        "        if(!_pause)\n"
+        "        {\n"
+        "            unsigned int _mister_rnd_t0 = timer_gettick();  /* TEMP profile */\n"
+        "            display_ents();\n"
+        "            _mister_fps_render_ms += timer_gettick() - _mister_rnd_t0;  /* TEMP profile */\n"
+        "        }"
+    )
+    ob = strict_replace(ob, fps_render_old, fps_render_new,
+                        'Step 13l: render timer around display_ents()')
+
+    # Patch 13m: script timer wrapping execute_updatedscripts() call.
+    fps_script_old = (
+        "    if(ingame == 1 || alwaysupdate)\n"
+        "    {\n"
+        "        execute_updatedscripts();\n"
+        "    }"
+    )
+    fps_script_new = (
+        "    if(ingame == 1 || alwaysupdate)\n"
+        "    {\n"
+        "        unsigned int _mister_scr_t0 = timer_gettick();  /* TEMP profile */\n"
+        "        execute_updatedscripts();\n"
+        "        _mister_fps_script_ms += timer_gettick() - _mister_scr_t0;  /* TEMP profile */\n"
+        "    }"
+    )
+    ob = strict_replace(ob, fps_script_old, fps_script_new,
+                        'Step 13m: script timer around execute_updatedscripts()')
+
+    # Patch 13n: FPS counter + periodic printf at top of if(ingame==1 && !_pause).
+    # Block fires once per render frame ONLY when in gameplay AND not paused --
+    # title/intro/menus/pause are auto-skipped. Logs once per ~5 sec.
+    fps_print_old = (
+        "    if(ingame == 1 && !_pause)\n"
+        "    {\n"
+        "        draw_scrolled_bg();"
+    )
+    fps_print_new = (
+        "    if(ingame == 1 && !_pause)\n"
+        "    {\n"
+        "        /* MiSTer 2026-05-25 TEMP per-frame profile: log [FPS] N.N every ~5 sec */\n"
+        "        {\n"
+        "            unsigned int _now_ms = timer_gettick();\n"
+        "            if (_mister_fps_t_last_print == 0) _mister_fps_t_last_print = _now_ms;\n"
+        "            _mister_fps_frames++;\n"
+        "            if (_now_ms - _mister_fps_t_last_print >= 5000) {\n"
+        "                unsigned int interval = _now_ms - _mister_fps_t_last_print;\n"
+        "                unsigned int fps_x10 = (_mister_fps_frames * 10000u) / interval;\n"
+        "                unsigned int sub_sum = _mister_fps_entity_ms + _mister_fps_render_ms + _mister_fps_script_ms;\n"
+        "                unsigned int other_ms = (interval > sub_sum) ? (interval - sub_sum) : 0u;\n"
+        "                printf(\"[FPS] %u.%u avg (frames=%u entity=%ums render=%ums script=%ums other=%ums interval=%ums)\\n\",\n"
+        "                       fps_x10 / 10u, fps_x10 % 10u,\n"
+        "                       _mister_fps_frames,\n"
+        "                       _mister_fps_entity_ms,\n"
+        "                       _mister_fps_render_ms,\n"
+        "                       _mister_fps_script_ms,\n"
+        "                       other_ms,\n"
+        "                       interval);\n"
+        "                _mister_fps_frames = 0;\n"
+        "                _mister_fps_entity_ms = 0;\n"
+        "                _mister_fps_render_ms = 0;\n"
+        "                _mister_fps_script_ms = 0;\n"
+        "                _mister_fps_t_last_print = _now_ms;\n"
+        "            }\n"
+        "        }\n"
+        "        draw_scrolled_bg();"
+    )
+    ob = strict_replace(ob, fps_print_old, fps_print_new,
+                        'Step 13n: per-frame profile counter + periodic [FPS] printf')
+
+    print("  TEMPORARY per-frame profile inserted (5 patches: globals + entity/render/script timers + [FPS] printf gated on ingame==1 && !_pause)")
+
     write(ob_path, ob)
     print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 — line-29499 fallback intact, no struct mods).")
 
