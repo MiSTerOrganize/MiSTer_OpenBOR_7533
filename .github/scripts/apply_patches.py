@@ -1645,6 +1645,13 @@ endif
         "static unsigned int _mister_fps_script_ms = 0;\n"
         "/* SUB-PROFILE v8 globals are declared earlier (before update_ents) -- */\n"
         "/* see TEMPORARY SUB-PROFILE v8 patch (REVERT AFTER MEASURED). */\n"
+        "/* MiSTer 2026-05-27 TEMPORARY SUB-PROFILE v9 (REVERT AFTER MEASURED): */\n"
+        "/* outer-loop instrumentation for the 'other' bucket on JL Legacy. */\n"
+        "static unsigned int _mister_o9_input_ms = 0;\n"
+        "static unsigned int _mister_o9_keysc_ms = 0;\n"
+        "static unsigned int _mister_o9_vwait_ms = 0;\n"
+        "static unsigned int _mister_o9_vcopy_ms = 0;\n"
+        "static unsigned int _mister_o9_audio_ms = 0;\n"
         "\n"
         "void update(int ingame, int usevwait)\n"
         "{\n"
@@ -1751,6 +1758,13 @@ endif
         "                       _mister_se_anim_ms,\n"
         "                       _mister_se_coll_ms,\n"
         "                       _mister_se_arr_ms);\n"
+        "                /* SUB-PROFILE v9 — REVERT AFTER MEASURED — outer-loop breakdown. */\n"
+        "                printf(\"[OTH] input=%ums keysc=%ums vwait=%ums vcopy=%ums audio=%ums\\n\",\n"
+        "                       _mister_o9_input_ms,\n"
+        "                       _mister_o9_keysc_ms,\n"
+        "                       _mister_o9_vwait_ms,\n"
+        "                       _mister_o9_vcopy_ms,\n"
+        "                       _mister_o9_audio_ms);\n"
         "                _mister_fps_frames = 0;\n"
         "                _mister_fps_entity_ms = 0;\n"
         "                _mister_fps_render_ms = 0;\n"
@@ -1760,6 +1774,11 @@ endif
         "                _mister_se_anim_ms = 0;\n"
         "                _mister_se_coll_ms = 0;\n"
         "                _mister_se_arr_ms = 0;\n"
+        "                _mister_o9_input_ms = 0;\n"
+        "                _mister_o9_keysc_ms = 0;\n"
+        "                _mister_o9_vwait_ms = 0;\n"
+        "                _mister_o9_vcopy_ms = 0;\n"
+        "                _mister_o9_audio_ms = 0;\n"
         "                _mister_fps_t_last_print = _now_ms;\n"
         "            }\n"
         "        }\n"
@@ -1874,8 +1893,94 @@ endif
     ob = strict_replace(ob, se_arrange_old, se_arrange_new,
                         'Step 13s: SUB-PROFILE v8 timer around arrange_ents() (per-tick, post-loop)')
 
+    # -- TEMPORARY SUB-PROFILE v9 2026-05-27 (REVERT AFTER MEASURED).
+    # Times the unmeasured 'other' bucket: inputrefresh, execute_keyscripts,
+    # vga_vwait, video_copy_screen, sound_update_music. Goal: identify what
+    # in the outer update() loop caused JL Legacy to drop from 86 to 70 fps
+    # despite entity-bucket work being unchanged.
+    #
+    # 5 patches (13t-13x): one per function call in update() outside the
+    # existing entity/render/script timers.
+
+    # Patch 13t: time inputrefresh(playrecstatus->status) inside update().
+    o9_input_old = (
+        "    inputrefresh(playrecstatus->status);\n"
+        "    if(playrecstatus->status == A_REC_REC && !_pause && level) if ( !recordInputs() ) stopRecordInputs();"
+    )
+    o9_input_new = (
+        "    {\n"
+        "        unsigned int _o9_t0 = timer_gettick();  /* TEMP SUB-PROFILE v9 */\n"
+        "        inputrefresh(playrecstatus->status);\n"
+        "        _mister_o9_input_ms += timer_gettick() - _o9_t0;\n"
+        "    }\n"
+        "    if(playrecstatus->status == A_REC_REC && !_pause && level) if ( !recordInputs() ) stopRecordInputs();"
+    )
+    ob = strict_replace(ob, o9_input_old, o9_input_new,
+                        'Step 13t: SUB-PROFILE v9 timer around inputrefresh()')
+
+    # Patch 13u: time execute_keyscripts() inside update().
+    o9_keysc_old = (
+        "        if(ingame == 1 || check_in_screen())\n"
+        "        {\n"
+        "            execute_keyscripts();\n"
+        "        }"
+    )
+    o9_keysc_new = (
+        "        if(ingame == 1 || check_in_screen())\n"
+        "        {\n"
+        "            unsigned int _o9_t0 = timer_gettick();  /* TEMP SUB-PROFILE v9 */\n"
+        "            execute_keyscripts();\n"
+        "            _mister_o9_keysc_ms += timer_gettick() - _o9_t0;\n"
+        "        }"
+    )
+    ob = strict_replace(ob, o9_keysc_old, o9_keysc_new,
+                        'Step 13u: SUB-PROFILE v9 timer around execute_keyscripts()')
+
+    # Patch 13v: time vga_vwait() inside update() (the vsync wait — main suspect).
+    o9_vwait_old = (
+        "    if(usevwait)\n"
+        "    {\n"
+        "        vga_vwait();\n"
+        "    }\n"
+        "    video_copy_screen(vscreen);"
+    )
+    o9_vwait_new = (
+        "    if(usevwait)\n"
+        "    {\n"
+        "        unsigned int _o9_t0 = timer_gettick();  /* TEMP SUB-PROFILE v9 */\n"
+        "        vga_vwait();\n"
+        "        _mister_o9_vwait_ms += timer_gettick() - _o9_t0;\n"
+        "    }\n"
+        "    {\n"
+        "        unsigned int _o9_t0 = timer_gettick();  /* TEMP SUB-PROFILE v9 */\n"
+        "        video_copy_screen(vscreen);\n"
+        "        _mister_o9_vcopy_ms += timer_gettick() - _o9_t0;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, o9_vwait_old, o9_vwait_new,
+                        'Step 13v/13w: SUB-PROFILE v9 timers around vga_vwait + video_copy_screen')
+
+    # Patch 13x: time sound_update_music() at end of update().
+    o9_audio_old = (
+        "    check_music();\n"
+        "    sound_update_music();\n"
+        "}"
+    )
+    o9_audio_new = (
+        "    check_music();\n"
+        "    {\n"
+        "        unsigned int _o9_t0 = timer_gettick();  /* TEMP SUB-PROFILE v9 */\n"
+        "        sound_update_music();\n"
+        "        _mister_o9_audio_ms += timer_gettick() - _o9_t0;\n"
+        "    }\n"
+        "}"
+    )
+    ob = strict_replace(ob, o9_audio_old, o9_audio_new,
+                        'Step 13x: SUB-PROFILE v9 timer around sound_update_music()')
+
     print("  TEMPORARY per-frame profile inserted (5 patches: globals + entity/render/script timers + [FPS] printf gated on ingame==1 && !_pause)")
     print("  TEMPORARY SUB-PROFILE v8 inserted (3 strict_replace patches inside update_ents() — adds [SUB] entity-internal breakdown line)")
+    print("  TEMPORARY SUB-PROFILE v9 inserted (5 patches in outer update() loop — adds [OTH] outer-loop breakdown line)")
 
     # ----- BELOW: original diagnostic patches removed 2026-05-26 ------
     # (FPS profile + SUB-PROFILE v8 served their purpose; reverted now that
