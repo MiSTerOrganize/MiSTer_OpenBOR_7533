@@ -120,6 +120,21 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
     if (sx256 == 0) sx256 = 1;
     if (sy256 == 0) sy256 = 1;
 
+    /* MiSTer 2026-05-27 Step 18: precompute src_x lookup table once per
+     * frame. Hoists (x * sx256) / 256 + clamp out of the inner pixel loop.
+     * Saves 1 mul + 1 div + 1 compare per dest pixel (71680 px/frame on
+     * 320x224). Same arithmetic, byte-identical output, ~20-30% lift on
+     * the WriteFrame inner loop. Identifies vcopy as JL Legacy's dominant
+     * cost (53% of per-frame budget; SUB-PROFILE v9 measurement 2026-05-27). */
+    uint16_t src_x_table[NV_FRAME_WIDTH];
+    {
+        int wm1 = width - 1;
+        for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+            int sx = (x * sx256) / 256;
+            src_x_table[x] = (uint16_t)((sx >= width) ? wm1 : sx);
+        }
+    }
+
     uint32_t buf_offset = (active_buf == 0) ? NV_BUF0_OFFSET : NV_BUF1_OFFSET;
     volatile uint16_t* dst = (volatile uint16_t*)(ddr_base + buf_offset);
 
@@ -133,9 +148,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             const uint16_t* src_row = (const uint16_t*)(src + src_y * pitch);
             volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
             for (int x = 0; x < NV_FRAME_WIDTH; x++) {
-                int src_x = (x * sx256) / 256;
-                if (src_x >= width) src_x = width - 1;
-                uint16_t px = src_row[src_x];
+                uint16_t px = src_row[src_x_table[x]];  /* Step 18 */
                 uint16_t r5 = px & 0x001F;
                 uint16_t g6 = px & 0x07E0;
                 uint16_t b5 = (px & 0xF800) >> 11;
@@ -153,9 +166,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             if (src_y >= height) src_y = height - 1;
             const uint8_t* row = src + src_y * pitch;
             for (int x = 0; x < NV_FRAME_WIDTH; x++) {
-                int src_x = (x * sx256) / 256;
-                if (src_x >= width) src_x = width - 1;
-                uint8_t idx = row[src_x];
+                uint8_t idx = row[src_x_table[x]];  /* Step 18 */
                 uint8_t r = pal[idx * 3 + 0];
                 uint8_t g = pal[idx * 3 + 1];
                 uint8_t b = pal[idx * 3 + 2];
@@ -172,9 +183,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             if (src_y >= height) src_y = height - 1;
             const uint8_t* row = src + src_y * pitch;
             for (int x = 0; x < NV_FRAME_WIDTH; x++) {
-                int src_x = (x * sx256) / 256;
-                if (src_x >= width) src_x = width - 1;
-                int i = src_x * 4;
+                int i = src_x_table[x] * 4;  /* Step 18 */
                 uint8_t r = row[i + 0];
                 uint8_t g = row[i + 1];
                 uint8_t b = row[i + 2];
