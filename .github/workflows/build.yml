@@ -53,6 +53,20 @@ jobs:
             git add games/OpenBOR/OpenBOR_7533
             git commit -m "CI: rebuild ARM binary for ${{ github.sha }}"
             git push
+            # Trigger MiSTer_Frontier DB rebuild so db.json reflects the new
+            # binary hash promptly (prevents update_all hash-mismatch failures
+            # in the window between binary push and the daily DB cron).
+            # Requires DISPATCH_TOKEN secret (fine-grained PAT with Actions
+            # write permission on MiSTer_Frontier). If unset, just warns.
+            if [ -n "${{ secrets.MISTER_FRONTIER_DISPATCH_TOKEN }}" ]; then
+              echo "Triggering MiSTer_Frontier DB rebuild..."
+              GH_TOKEN="${{ secrets.MISTER_FRONTIER_DISPATCH_TOKEN }}" \
+                gh workflow run "Build Custom Database" -R MiSTerOrganize/MiSTer_Frontier \
+                || echo "WARN: DB dispatch failed (token may be expired)"
+            else
+              echo "WARN: MISTER_FRONTIER_DISPATCH_TOKEN not set -- skipping DB auto-dispatch."
+              echo "      Add this PAT secret to close the db.json staleness window."
+            fi
           else
             echo "ARM binary unchanged."
           fi
