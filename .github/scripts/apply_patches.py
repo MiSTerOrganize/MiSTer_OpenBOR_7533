@@ -1652,6 +1652,9 @@ endif
         "static unsigned int _mister_o9_vwait_ms = 0;\n"
         "static unsigned int _mister_o9_vcopy_ms = 0;\n"
         "static unsigned int _mister_o9_audio_ms = 0;\n"
+        "/* MiSTer 2026-05-27 TEMPORARY SUB-PROFILE v10 (REVERT AFTER MEASURED): */\n"
+        "/* spriteq_draw timer to confirm the ~6 ms/frame unmeasured rem. */\n"
+        "static unsigned int _mister_o10_spriteq_ms = 0;\n"
         "\n"
         "void update(int ingame, int usevwait)\n"
         "{\n"
@@ -1758,13 +1761,14 @@ endif
         "                       _mister_se_anim_ms,\n"
         "                       _mister_se_coll_ms,\n"
         "                       _mister_se_arr_ms);\n"
-        "                /* SUB-PROFILE v9 — REVERT AFTER MEASURED — outer-loop breakdown. */\n"
-        "                printf(\"[OTH] input=%ums keysc=%ums vwait=%ums vcopy=%ums audio=%ums\\n\",\n"
+        "                /* SUB-PROFILE v9+v10 — REVERT AFTER MEASURED — outer-loop breakdown. */\n"
+        "                printf(\"[OTH] input=%ums keysc=%ums vwait=%ums vcopy=%ums audio=%ums spriteq=%ums\\n\",\n"
         "                       _mister_o9_input_ms,\n"
         "                       _mister_o9_keysc_ms,\n"
         "                       _mister_o9_vwait_ms,\n"
         "                       _mister_o9_vcopy_ms,\n"
-        "                       _mister_o9_audio_ms);\n"
+        "                       _mister_o9_audio_ms,\n"
+        "                       _mister_o10_spriteq_ms);\n"
         "                _mister_fps_frames = 0;\n"
         "                _mister_fps_entity_ms = 0;\n"
         "                _mister_fps_render_ms = 0;\n"
@@ -1779,6 +1783,7 @@ endif
         "                _mister_o9_vwait_ms = 0;\n"
         "                _mister_o9_vcopy_ms = 0;\n"
         "                _mister_o9_audio_ms = 0;\n"
+        "                _mister_o10_spriteq_ms = 0;\n"
         "                _mister_fps_t_last_print = _now_ms;\n"
         "            }\n"
         "        }\n"
@@ -1977,6 +1982,26 @@ endif
     )
     ob = strict_replace(ob, o9_audio_old, o9_audio_new,
                         'Step 13x: SUB-PROFILE v9 timer around sound_update_music()')
+
+    # -- TEMPORARY SUB-PROFILE v10 2026-05-27 (REVERT AFTER MEASURED).
+    # Times spriteq_draw() — the post-tick sprite-rasterization-to-vscreen call
+    # that we infer is responsible for the ~6 ms/frame unmeasured remainder in
+    # the [FPS] 'other' bucket on JL Legacy. If v10 measurement confirms it,
+    # spriteq_draw becomes the next optimization target. If it's smaller than
+    # expected, something else in update() (post-while-loop scaffolding) is
+    # eating frame budget that we haven't identified.
+    o10_spriteq_old = (
+        "    spriteq_draw(vscreen, 0, MIN_INT, MAX_INT, 0, 0); // notice, always draw sprites at the very end of other methods"
+    )
+    o10_spriteq_new = (
+        "    {\n"
+        "        unsigned int _o10_t0 = timer_gettick();  /* TEMP SUB-PROFILE v10 */\n"
+        "        spriteq_draw(vscreen, 0, MIN_INT, MAX_INT, 0, 0); // notice, always draw sprites at the very end of other methods\n"
+        "        _mister_o10_spriteq_ms += timer_gettick() - _o10_t0;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, o10_spriteq_old, o10_spriteq_new,
+                        'Step 13y: SUB-PROFILE v10 timer around spriteq_draw() inside update()')
 
     print("  TEMPORARY per-frame profile inserted (5 patches: globals + entity/render/script timers + [FPS] printf gated on ingame==1 && !_pause)")
     print("  TEMPORARY SUB-PROFILE v8 inserted (3 strict_replace patches inside update_ents() — adds [SUB] entity-internal breakdown line)")
