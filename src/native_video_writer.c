@@ -255,6 +255,19 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
         return;  /* unsupported format, skip frame */
     }
 
+    /* Step 20 (2026-05-27) defensive barrier: ensure ALL pixel writes
+     * (scalar, uint64_t-packed, OR NEON 128-bit) drain to DDR3 BEFORE
+     * the FPGA sees the new ctrl word and starts reading the buffer we
+     * just finished writing. The double-buffer flip already protects
+     * against most tearing (FPGA reads OPPOSITE buffer from the one we
+     * write), but NEON stores can drain through the write-combine buffer
+     * at a different rate than scalar stores -- if ctrl is updated before
+     * the buffer fully drains AND the FPGA pipeline races ahead, the very
+     * first lines of the new frame could read partially-written pixels.
+     * __sync_synchronize() generates ARMv7 DMB SY (full memory barrier);
+     * costs ~2 cycles, negligible. */
+    __sync_synchronize();
+
     /* Flip control word */
     frame_counter++;
     volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
