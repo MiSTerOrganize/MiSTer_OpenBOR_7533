@@ -2226,6 +2226,145 @@ endif
     write(spq_path, spq)
     print("  TEMPORARY SUB-PROFILE v11 inserted (2 patches in spriteq.c — adds [SPQ] sort/putsprite/putother breakdown)")
 
+    # ── Step 22 (2026-05-27): scalar tightening of palette-LUT inner loops ─────────
+    #
+    # MOTIVATION (from v9/v10/v11/v12 diagnostic cycles):
+    #   - Avengers 36.9 fps: putscreen=9.78 ms/frame, putsprite=8.54 ms/frame
+    #     (combined ~68% of frame budget)
+    #   - He-Man 13.6 fps: putsprite=56.5 ms/frame (77% of frame, 80 sprites x 710us)
+    #   - putother on Avengers is 99.3% putscreen (v12 [SP2] breakdown)
+    #
+    # Both hot paths share the SAME shape:
+    #   dst[i] = palette[src[i]]    -- byte-indexed 256x4-byte LUT, memory-bandwidth bound
+    #
+    # ARMv7 Cortex-A9 NEON VTBL has 32-byte table-size limit; our LUT is 1024 bytes.
+    # Vectorizing the LUT itself is complex with capped gain due to DDR3 bandwidth.
+    # The cleanest safe win is scalar micro-optimization: 4x unroll + prefetch +
+    # forward iteration for HW prefetcher friendliness.
+    #
+    # NO CONTACT WITH v3.10 LOCKED PALETTE PATH: these are inner-loop tightenings
+    # in spritex8p32.c and screen32.c. The LOCKED palette discriminator lives in
+    # sprite.c::putsprite_ex (lines ~605-640). Inner loops only consume the
+    # palette pointer; they do not decide which palette to use.
+    #
+    # EXPECTED GAIN: 1.15-1.25x on inner loop = +3-5 fps across all PAKs.
+
+    # Step 22a: scalar tightening of putsprite_ in spritex8p32.c
+    print("Patching spritex8p32.c (Step 22a: scalar tightening of putsprite_ inner loop)...")
+    sp32_path = os.path.join(obor, 'source/gamelib/spritex8p32.c')
+    sp32 = read(sp32_path)
+
+    putsprite_inner_old = (
+        "            if((lx + count) > xmax)\n"
+        "            {\n"
+        "                count = xmax - lx;\n"
+        "            }\n"
+        "            for(; count > 0; count--)\n"
+        "            {\n"
+        "                dest[lx++] = palette[*data++];\n"
+        "            }\n"
+        "            //u32pcpy(dest+lx, data, palette, count);\n"
+        "            //lx+=count;\n"
+        "            //data+=count;"
+    )
+    putsprite_inner_new = (
+        "            if((lx + count) > xmax)\n"
+        "            {\n"
+        "                count = xmax - lx;\n"
+        "            }\n"
+        "            /* Step 22 (2026-05-27): 4x unroll + prefetch for palette LUT.\n"
+        "             * Inner loop is memory-bandwidth bound on ARMv7 Cortex-A9.\n"
+        "             * 4-pixel unroll lets compiler interleave load/lookup/store. */\n"
+        "            __builtin_prefetch(data + 32, 0, 0);\n"
+        "            while(count >= 4)\n"
+        "            {\n"
+        "                unsigned p0 = palette[data[0]];\n"
+        "                unsigned p1 = palette[data[1]];\n"
+        "                unsigned p2 = palette[data[2]];\n"
+        "                unsigned p3 = palette[data[3]];\n"
+        "                dest[lx]     = p0;\n"
+        "                dest[lx + 1] = p1;\n"
+        "                dest[lx + 2] = p2;\n"
+        "                dest[lx + 3] = p3;\n"
+        "                lx    += 4;\n"
+        "                data  += 4;\n"
+        "                count -= 4;\n"
+        "            }\n"
+        "            for(; count > 0; count--)\n"
+        "            {\n"
+        "                dest[lx++] = palette[*data++];\n"
+        "            }"
+    )
+    sp32 = strict_replace(sp32, putsprite_inner_old, putsprite_inner_new,
+                          'Step 22a: putsprite_ inner LUT 4x unroll + prefetch')
+    write(sp32_path, sp32)
+    print("  spritex8p32.c: putsprite_ inner LUT loop tightened (4x unroll + prefetch).")
+
+    # Step 22b: scalar tightening of putscreenx8p32 in screen32.c
+    print("Patching screen32.c (Step 22b: scalar tightening of putscreenx8p32 no-blend no-key path)...")
+    sc32_path = os.path.join(obor, 'source/gamelib/screen32.c')
+    sc32 = read(sc32_path)
+
+    putscreen_inner_old = (
+        "        else // without colorkey\n"
+        "        {\n"
+        "            // Copy data\n"
+        "            do\n"
+        "            {\n"
+        "                //u32pcpy(dp, sp, remap, cw);\n"
+        "                i = cw - 1;\n"
+        "                do\n"
+        "                {\n"
+        "                    dp[i] = remap[sp[i]];\n"
+        "                }\n"
+        "                while(i--);\n"
+        "                sp += sw;\n"
+        "                dp += dw;\n"
+        "            }\n"
+        "            while(--ch);\n"
+        "        }"
+    )
+    putscreen_inner_new = (
+        "        else // without colorkey\n"
+        "        {\n"
+        "            /* Step 22 (2026-05-27): forward iteration (HW-prefetcher friendly)\n"
+        "             * + 4x unroll + per-line PLD prefetch. Inner loop is the\n"
+        "             * dominant Avengers putscreen cost (9.78 ms/frame at 36.9 fps;\n"
+        "             * 99.3%% of putother bucket per v12 [SP2] breakdown).\n"
+        "             *\n"
+        "             * Original loop iterated BACKWARDS (i = cw-1 ... while(i--))\n"
+        "             * which defeats the Cortex-A9 hardware prefetcher. Forward\n"
+        "             * iteration lets prefetcher walk source bytes linearly. */\n"
+        "            do\n"
+        "            {\n"
+        "                int j;\n"
+        "                __builtin_prefetch(sp + sw, 0, 0);\n"
+        "                for(j = 0; j + 4 <= cw; j += 4)\n"
+        "                {\n"
+        "                    unsigned p0 = remap[sp[j]];\n"
+        "                    unsigned p1 = remap[sp[j + 1]];\n"
+        "                    unsigned p2 = remap[sp[j + 2]];\n"
+        "                    unsigned p3 = remap[sp[j + 3]];\n"
+        "                    dp[j]     = p0;\n"
+        "                    dp[j + 1] = p1;\n"
+        "                    dp[j + 2] = p2;\n"
+        "                    dp[j + 3] = p3;\n"
+        "                }\n"
+        "                for(; j < cw; j++)\n"
+        "                {\n"
+        "                    dp[j] = remap[sp[j]];\n"
+        "                }\n"
+        "                sp += sw;\n"
+        "                dp += dw;\n"
+        "            }\n"
+        "            while(--ch);\n"
+        "        }"
+    )
+    sc32 = strict_replace(sc32, putscreen_inner_old, putscreen_inner_new,
+                          'Step 22b: putscreenx8p32 no-blend no-key forward iter + 4x unroll + prefetch')
+    write(sc32_path, sc32)
+    print("  screen32.c: putscreenx8p32 no-blend no-key path tightened (forward iter + 4x unroll + prefetch).")
+
     # ── 4. Step 4 v2 (sprite.c bypass) — RESTORED in v3.7 (2026-05-20).
     #
     # WHY THIS WAS RESTORED:
