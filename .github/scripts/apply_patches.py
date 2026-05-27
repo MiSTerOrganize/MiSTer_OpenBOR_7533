@@ -1655,6 +1655,13 @@ endif
         "/* MiSTer 2026-05-27 TEMPORARY SUB-PROFILE v10 (REVERT AFTER MEASURED): */\n"
         "/* spriteq_draw timer to confirm the ~6 ms/frame unmeasured rem. */\n"
         "static unsigned int _mister_o10_spriteq_ms = 0;\n"
+        "/* MiSTer 2026-05-27 TEMPORARY SUB-PROFILE v11 (REVERT AFTER MEASURED): */\n"
+        "/* spriteq_draw internal breakdown: identify which putsprite variant */\n"
+        "/* dominates on wide-source PAKs. Non-static so spriteq.c can extern. */\n"
+        "unsigned int _mister_o11_sort_ms = 0;\n"
+        "unsigned int _mister_o11_putsprite_ms = 0;\n"
+        "unsigned int _mister_o11_putsprite_count = 0;\n"
+        "unsigned int _mister_o11_putother_ms = 0;\n"
         "\n"
         "void update(int ingame, int usevwait)\n"
         "{\n"
@@ -1769,6 +1776,12 @@ endif
         "                       _mister_o9_vcopy_ms,\n"
         "                       _mister_o9_audio_ms,\n"
         "                       _mister_o10_spriteq_ms);\n"
+        "                /* SUB-PROFILE v11 — REVERT AFTER MEASURED — spriteq internal. */\n"
+        "                printf(\"[SPQ] sort=%ums putsprite=%ums (%u calls) putother=%ums\\n\",\n"
+        "                       _mister_o11_sort_ms,\n"
+        "                       _mister_o11_putsprite_ms,\n"
+        "                       _mister_o11_putsprite_count,\n"
+        "                       _mister_o11_putother_ms);\n"
         "                _mister_fps_frames = 0;\n"
         "                _mister_fps_entity_ms = 0;\n"
         "                _mister_fps_render_ms = 0;\n"
@@ -1784,6 +1797,10 @@ endif
         "                _mister_o9_vcopy_ms = 0;\n"
         "                _mister_o9_audio_ms = 0;\n"
         "                _mister_o10_spriteq_ms = 0;\n"
+        "                _mister_o11_sort_ms = 0;\n"
+        "                _mister_o11_putsprite_ms = 0;\n"
+        "                _mister_o11_putsprite_count = 0;\n"
+        "                _mister_o11_putother_ms = 0;\n"
         "                _mister_fps_t_last_print = _now_ms;\n"
         "            }\n"
         "        }\n"
@@ -2015,6 +2032,159 @@ endif
 
     write(ob_path, ob)
     print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 — line-29499 fallback intact, no struct mods).")
+
+    # -- TEMPORARY SUB-PROFILE v11 2026-05-27 (REVERT AFTER MEASURED) on spriteq.c.
+    # Times the inner calls of spriteq_draw() to identify which dispatch
+    # (putsprite vs putscreen vs putpixel/line/box) dominates on Avengers
+    # (20 ms/frame spriteq) and He-Man (68 ms/frame spriteq). Globals are
+    # DEFINED in openbor.c (extended v9/v10 block above); spriteq.c just
+    # extern-references and increments them. Output: [SPQ] line alongside
+    # existing [FPS]/[SUB]/[OTH].
+    spq_path = os.path.join(obor, 'source/gamelib/spriteq.c')
+    spq = read(spq_path)
+
+    # Patch v11.1: add timer.h include + extern decls of v11 globals.
+    spq_includes_old = (
+        "#include <stdio.h>\n"
+        "#include \"types.h\"\n"
+        "#include \"screen.h\"\n"
+        "#include \"sprite.h\"\n"
+        "#include \"draw.h\"\n"
+        "#include \"globals.h\"\n"
+    )
+    spq_includes_new = (
+        "#include <stdio.h>\n"
+        "#include \"types.h\"\n"
+        "#include \"screen.h\"\n"
+        "#include \"sprite.h\"\n"
+        "#include \"draw.h\"\n"
+        "#include \"globals.h\"\n"
+        "#include \"timer.h\"  /* TEMP SUB-PROFILE v11 — timer_gettick() */\n"
+        "\n"
+        "/* TEMPORARY SUB-PROFILE v11 (REVERT AFTER MEASURED). */\n"
+        "/* Globals DEFINED in openbor.c v9/v10 globals block. */\n"
+        "extern unsigned int _mister_o11_sort_ms;\n"
+        "extern unsigned int _mister_o11_putsprite_ms;\n"
+        "extern unsigned int _mister_o11_putsprite_count;\n"
+        "extern unsigned int _mister_o11_putother_ms;\n"
+    )
+    spq = strict_replace(spq, spq_includes_old, spq_includes_new,
+                        'v11.1: spriteq.c add timer.h + extern v11 globals')
+
+    # Patch v11.2: wrap the body of spriteq_draw with timer pairs around
+    # spriteq_sort + putsprite + putscreen/dot/line/box (grouped as
+    # 'putother' since they're rare).
+    spq_body_old = (
+        "void spriteq_draw(s_screen *screen, int newonly, int minz, int maxz, int dx, int dy)\n"
+        "{\n"
+        "    int i, x, y;\n"
+        "\n"
+        "    spriteq_sort();\n"
+        "\n"
+        "    for(i = 0; i < spritequeue_len; i++)\n"
+        "    {\n"
+        "        if((newonly && spriteq_locked && order[i] < queue + spriteq_old_len) || order[i]->z < minz || order[i]->z > maxz)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        x = order[i]->x + dx;\n"
+        "        y = order[i]->y + dy;\n"
+        "\n"
+        "        switch(order[i]->type)\n"
+        "        {\n"
+        "        case SQT_SPRITE: // sprite\n"
+        "\n"
+        "            if(order[i]->params[0])// determin if the sprite's center should be readjusted;\n"
+        "            {\n"
+        "                ((s_sprite *)(order[i]->frame))->centerx = order[i]->params[1];\n"
+        "                ((s_sprite *)(order[i]->frame))->centery = order[i]->params[2];\n"
+        "            }\n"
+        "            putsprite(x, y, order[i]->frame, screen, &(order[i]->drawmethod));\n"
+        "            break;\n"
+        "        case SQT_SCREEN: // draw a screen instead of sprite\n"
+        "            putscreen(screen, (s_screen *)(order[i]->frame), x, y, &(order[i]->drawmethod));\n"
+        "            break;\n"
+        "        case SQT_DOT:\n"
+        "            putpixel(x, y, order[i]->params[0], screen, &(order[i]->drawmethod));\n"
+        "            break;\n"
+        "        case SQT_LINE:\n"
+        "            putline(x, y, order[i]->params[1] + dx, order[i]->params[2] + dy, order[i]->params[0], screen, &(order[i]->drawmethod));\n"
+        "            break;\n"
+        "        case SQT_BOX:\n"
+        "            putbox(x, y, order[i]->params[1], order[i]->params[2], order[i]->params[0], screen, &(order[i]->drawmethod));\n"
+        "            break;\n"
+        "        default:\n"
+        "            continue;\n"
+        "        }\n"
+        "    }\n"
+        "}"
+    )
+    spq_body_new = (
+        "void spriteq_draw(s_screen *screen, int newonly, int minz, int maxz, int dx, int dy)\n"
+        "{\n"
+        "    int i, x, y;\n"
+        "    unsigned int _o11_t0;  /* TEMP SUB-PROFILE v11 */\n"
+        "\n"
+        "    _o11_t0 = timer_gettick();\n"
+        "    spriteq_sort();\n"
+        "    _mister_o11_sort_ms += timer_gettick() - _o11_t0;\n"
+        "\n"
+        "    for(i = 0; i < spritequeue_len; i++)\n"
+        "    {\n"
+        "        if((newonly && spriteq_locked && order[i] < queue + spriteq_old_len) || order[i]->z < minz || order[i]->z > maxz)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        x = order[i]->x + dx;\n"
+        "        y = order[i]->y + dy;\n"
+        "\n"
+        "        switch(order[i]->type)\n"
+        "        {\n"
+        "        case SQT_SPRITE: // sprite\n"
+        "\n"
+        "            if(order[i]->params[0])// determin if the sprite's center should be readjusted;\n"
+        "            {\n"
+        "                ((s_sprite *)(order[i]->frame))->centerx = order[i]->params[1];\n"
+        "                ((s_sprite *)(order[i]->frame))->centery = order[i]->params[2];\n"
+        "            }\n"
+        "            _o11_t0 = timer_gettick();\n"
+        "            putsprite(x, y, order[i]->frame, screen, &(order[i]->drawmethod));\n"
+        "            _mister_o11_putsprite_ms += timer_gettick() - _o11_t0;\n"
+        "            _mister_o11_putsprite_count++;\n"
+        "            break;\n"
+        "        case SQT_SCREEN: // draw a screen instead of sprite\n"
+        "            _o11_t0 = timer_gettick();\n"
+        "            putscreen(screen, (s_screen *)(order[i]->frame), x, y, &(order[i]->drawmethod));\n"
+        "            _mister_o11_putother_ms += timer_gettick() - _o11_t0;\n"
+        "            break;\n"
+        "        case SQT_DOT:\n"
+        "            _o11_t0 = timer_gettick();\n"
+        "            putpixel(x, y, order[i]->params[0], screen, &(order[i]->drawmethod));\n"
+        "            _mister_o11_putother_ms += timer_gettick() - _o11_t0;\n"
+        "            break;\n"
+        "        case SQT_LINE:\n"
+        "            _o11_t0 = timer_gettick();\n"
+        "            putline(x, y, order[i]->params[1] + dx, order[i]->params[2] + dy, order[i]->params[0], screen, &(order[i]->drawmethod));\n"
+        "            _mister_o11_putother_ms += timer_gettick() - _o11_t0;\n"
+        "            break;\n"
+        "        case SQT_BOX:\n"
+        "            _o11_t0 = timer_gettick();\n"
+        "            putbox(x, y, order[i]->params[1], order[i]->params[2], order[i]->params[0], screen, &(order[i]->drawmethod));\n"
+        "            _mister_o11_putother_ms += timer_gettick() - _o11_t0;\n"
+        "            break;\n"
+        "        default:\n"
+        "            continue;\n"
+        "        }\n"
+        "    }\n"
+        "}"
+    )
+    spq = strict_replace(spq, spq_body_old, spq_body_new,
+                        'v11.2: spriteq_draw inner timer pairs around sort + putsprite + putother')
+
+    write(spq_path, spq)
+    print("  TEMPORARY SUB-PROFILE v11 inserted (2 patches in spriteq.c — adds [SPQ] sort/putsprite/putother breakdown)")
 
     # ── 4. Step 4 v2 (sprite.c bypass) — RESTORED in v3.7 (2026-05-20).
     #
