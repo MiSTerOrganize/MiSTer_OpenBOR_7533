@@ -744,6 +744,45 @@ endif
     write(obs_path_k, obs_k)
     print("  Step 32: openbor_killentity now validates script-supplied pointer (TMNT-RP continue crash fix)")
 
+    # ── Step 33 (2026-05-28): NULL-check ent_list[i] in kill_entity loop ──
+    # User reported TMNT-RP continue-from-save still SIGSEGVing AFTER Step 32.
+    # Step 32 validated the ent passed to openbor_killentity (it was in
+    # ent_list[]). But the crash was DEEPER -- inside kill_entity's loop
+    # that walks ent_list[] to detach references to the victim. The loop's
+    # check `if (ent_list[i]->exists)` derefs ent_list[i] without NULL-check.
+    # When ent_list[] has stale NULL slots after save/restore, this loop
+    # crashes at offset_of(exists) in entity struct (= 0x42c -- matches
+    # crash fault address). Line 29712 already has the defensive form
+    # `if (ent_list[i] && ent_list[i]->exists)`; this fixes kill_entity
+    # (line 24650) by mirroring that defense.
+    print("Patching openbor.c (Step 33: NULL-check ent_list[i] in kill_entity loop)...")
+    kentloop_old = (
+        "    for(i = 0; i < ent_max; i++)\n"
+        "    {\n"
+        "        if(ent_list[i]->exists)\n"
+        "        {\n"
+        "            // kill all minions\n"
+        "            self = ent_list[i];\n"
+        "            if(self->parent == victim)"
+    )
+    kentloop_new = (
+        "    for(i = 0; i < ent_max; i++)\n"
+        "    {\n"
+        "        /* MiSTer Step 33 (2026-05-28): NULL-check ent_list[i] before deref. */\n"
+        "        /* Cart save/restore can leave stale NULL slots in ent_list; without */\n"
+        "        /* this guard kill_entity SIGSEGV'd at NULL->exists (= addr 0x42c). */\n"
+        "        if(ent_list[i] && ent_list[i]->exists)\n"
+        "        {\n"
+        "            // kill all minions\n"
+        "            self = ent_list[i];\n"
+        "            if(self->parent == victim)"
+    )
+    ob_k33 = read(ob_path_g)
+    ob_k33 = strict_replace(ob_k33, kentloop_old, kentloop_new,
+                             'Step 33: kill_entity loop NULL-checks ent_list[i]')
+    write(ob_path_g, ob_k33)
+    print("  Step 33: kill_entity loop now NULL-safe against stale ent_list[] slots")
+
     # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
     # Avengers - United Battle Force (and likely other late-build PAKs)
     # call getentityproperty(self, "dot") in scripts. v7533 renamed
