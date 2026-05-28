@@ -486,6 +486,62 @@ endif
     write(os.path.join(obor, 'openbor.c'), obor_c)
     print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
 
+    # ── Step 31 (2026-05-28): Respect cart's subject_to_gravity 0 for TYPE_NONE
+    #
+    # Stock OpenBOR v7533's ent_default_init() at line ~23625 forcefully RE-ADDS
+    # MOVE_CONFIG_SUBJECT_TO_GRAVITY to ALL TYPE_NONE entities at spawn time,
+    # overriding the cart's `subject_to_gravity 0` directive (which the parser
+    # correctly cleared during cart loading).
+    #
+    # Fixes TWO bugs at once:
+    #   1. Captain America's freespecial4 (Avengers UBF) — shield is TYPE_NONE
+    #      with subject_to_gravity 0. Without this fix, shield gets gravity'd to
+    #      ground before reaching screen edges, Cap stuck waiting for ShieldC=0.
+    #   2. Aliens Clash gravity regression (task #28) — sun + bullets are
+    #      TYPE_NONE projectile-style entities that should not fall.
+    #
+    # The cart's `subject_to_gravity 0` parser logic correctly clears the flag
+    # during parse (engine line 13442 case CMD_MODEL_SUBJECT_TO_GRAVITY).
+    # We just need to stop overwriting it at spawn time.
+    #
+    # Diagnostic confirmed via [SHIELDPOS] trace (efa18b7b binary):
+    #   - shield spawned with vel.y = 0
+    #   - frame 1: vel.y = -0.1 (gravity applied despite cart's setting)
+    #   - frames 8-30: vel.y drops -0.2 -> -1.0 (gravity accumulating)
+    #   - frame 120: shield hits ground y=0, velocity zeroes, stuck forever
+    #
+    # Safe in other PAKs: any TYPE_NONE entity that needs gravity by default
+    # can explicitly set `subject_to_gravity 1`. Most TYPE_NONE entities are
+    # items/effects/projectiles that don't want default gravity anyway.
+    print("Patching openbor.c (Step 31: respect cart subject_to_gravity for TYPE_NONE)...")
+    ob_path_g = os.path.join(obor, 'openbor.c')
+    ob_g = read(ob_path_g)
+    gravity_old = (
+        "    case TYPE_NONE:\n"
+        "        e->nograb = 1;\n"
+        "        e->nograb_default = e->nograb;\n"
+        "        \n"
+        "        //e->base=e->position.y; //complained?\n"
+        "        e->modeldata.move_config_flags |= (MOVE_CONFIG_NO_ADJUST_BASE | MOVE_CONFIG_SUBJECT_TO_GRAVITY);"
+    )
+    gravity_new = (
+        "    case TYPE_NONE:\n"
+        "        e->nograb = 1;\n"
+        "        e->nograb_default = e->nograb;\n"
+        "        \n"
+        "        //e->base=e->position.y; //complained?\n"
+        "        /* MiSTer Step 31 (2026-05-28): respect cart's subject_to_gravity 0.\n"
+        "         * Stock engine FORCED gravity flag here, overriding the cart's\n"
+        "         * directive. Fixes Cap super shield freeze (Avengers UBF) +\n"
+        "         * Aliens Clash gravity regression (task #28). Carts that need\n"
+        "         * gravity by default must explicitly set `subject_to_gravity 1`. */\n"
+        "        e->modeldata.move_config_flags |= MOVE_CONFIG_NO_ADJUST_BASE;"
+    )
+    ob_g = strict_replace(ob_g, gravity_old, gravity_new,
+                          'Step 31: respect cart subject_to_gravity 0 for TYPE_NONE in ent_default_init')
+    write(ob_path_g, ob_g)
+    print("  Step 31: TYPE_NONE entities now respect cart's subject_to_gravity directive")
+
     # ── TEMPORARY DIAG (2026-05-28): shield position/velocity trace ─────────
     # Companion to ShieldC trace. Logs shield entity's position+velocity each
     # frame from inside update_ents. Goal: confirm whether velocity is non-zero
