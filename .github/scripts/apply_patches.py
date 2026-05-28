@@ -486,36 +486,81 @@ endif
     write(os.path.join(obor, 'openbor.c'), obor_c)
     print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
 
-    # ── Step 31 (2026-05-28): Respect cart's subject_to_gravity 0 for TYPE_NONE
+    # ── Step 31 v2 (2026-05-28): Respect cart's EXPLICIT subject_to_gravity 0
     #
     # Stock OpenBOR v7533's ent_default_init() at line ~23625 forcefully RE-ADDS
-    # MOVE_CONFIG_SUBJECT_TO_GRAVITY to ALL TYPE_NONE entities at spawn time,
-    # overriding the cart's `subject_to_gravity 0` directive (which the parser
-    # correctly cleared during cart loading).
+    # MOVE_CONFIG_SUBJECT_TO_GRAVITY to ALL TYPE_NONE entities at spawn time.
+    # This OVERRIDES the cart's `subject_to_gravity 0` directive — but it's also
+    # the DEFAULT BEHAVIOR many carts rely on without explicit opt-in.
     #
-    # Fixes TWO bugs at once:
-    #   1. Captain America's freespecial4 (Avengers UBF) — shield is TYPE_NONE
-    #      with subject_to_gravity 0. Without this fix, shield gets gravity'd to
-    #      ground before reaching screen edges, Cap stuck waiting for ShieldC=0.
-    #   2. Aliens Clash gravity regression (task #28) — sun + bullets are
-    #      TYPE_NONE projectile-style entities that should not fall.
+    # Step 31 v1 (commit 832996a) BLINDLY removed the forced gravity. This
+    # fixed Cap super shield freeze AND Aliens Clash sun+bullets, but BROKE
+    # backward compatibility for carts whose enemy bullets relied on default
+    # forced gravity without declaring `subject_to_gravity 1` explicitly.
+    # User reported: "some enemies that should be shooting bullets don't shoot
+    # bullets" after Step 31 v1.
     #
-    # The cart's `subject_to_gravity 0` parser logic correctly clears the flag
-    # during parse (engine line 13442 case CMD_MODEL_SUBJECT_TO_GRAVITY).
-    # We just need to stop overwriting it at spawn time.
+    # Step 31 v2 (this version) is smarter: track whether cart's parser saw an
+    # EXPLICIT `subject_to_gravity` directive. Only skip the forced-gravity-add
+    # in ent_default_init if explicitly set.
     #
-    # Diagnostic confirmed via [SHIELDPOS] trace (efa18b7b binary):
-    #   - shield spawned with vel.y = 0
-    #   - frame 1: vel.y = -0.1 (gravity applied despite cart's setting)
-    #   - frames 8-30: vel.y drops -0.2 -> -1.0 (gravity accumulating)
-    #   - frame 120: shield hits ground y=0, velocity zeroes, stuck forever
+    # Implementation:
+    #   1. Add END-of-s_model field `int gravity_directive_seen` (default 0).
+    #      END placement avoids offset shifts that would regress other patches.
+    #   2. In CMD_MODEL_SUBJECT_TO_GRAVITY parser, set newchar->gravity_directive_seen = 1.
+    #   3. In ent_default_init TYPE_NONE case: only force-add gravity if !gravity_directive_seen.
     #
-    # Safe in other PAKs: any TYPE_NONE entity that needs gravity by default
-    # can explicitly set `subject_to_gravity 1`. Most TYPE_NONE entities are
-    # items/effects/projectiles that don't want default gravity anyway.
-    print("Patching openbor.c (Step 31: respect cart subject_to_gravity for TYPE_NONE)...")
+    # Behavior matrix:
+    #   - Cart says `subject_to_gravity 0` → flag cleared by parser, seen=1,
+    #     ent_default_init skips force-add → no gravity ✓ (our shield, sun, etc)
+    #   - Cart says `subject_to_gravity 1` → flag set by parser, seen=1,
+    #     ent_default_init skips force-add → flag stays as parser set it ✓
+    #   - Cart silent → flag at parse-default (0 if MOVE_CONFIG_NONE), seen=0,
+    #     ent_default_init force-adds → gravity ON (matches stock behavior) ✓
+    # NOTE: Step 31 v2's gravity_directive_seen field is added to s_model END
+    # later in this script (extending the v3.10 has_palette_directive patch).
+    # Parser + ent_default_init patches below use the field — both go into
+    # openbor.c which is compiled AFTER apply_patches.py finishes, so the
+    # field needs to exist by then. The openbor.h s_model extension at the
+    # v3.10 section ensures that.
+
+    print("Patching openbor.c (Step 31 v2: parser sets gravity_directive_seen)...")
     ob_path_g = os.path.join(obor, 'openbor.c')
     ob_g = read(ob_path_g)
+    parser_old = (
+        "            case CMD_MODEL_SUBJECT_TO_GRAVITY:\n"
+        "                \n"
+        "                /* Legacy code allowed -1 or 0 for False.  */\n"
+        "                if (GET_INT_ARG(1) > 0)\n"
+        "                {\n"
+        "                    newchar->move_config_flags |= MOVE_CONFIG_SUBJECT_TO_GRAVITY;\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    newchar->move_config_flags &= ~MOVE_CONFIG_SUBJECT_TO_GRAVITY;\n"
+        "                }\n"
+        "\n"
+        "                break;"
+    )
+    parser_new = (
+        "            case CMD_MODEL_SUBJECT_TO_GRAVITY:\n"
+        "                \n"
+        "                /* Legacy code allowed -1 or 0 for False.  */\n"
+        "                if (GET_INT_ARG(1) > 0)\n"
+        "                {\n"
+        "                    newchar->move_config_flags |= MOVE_CONFIG_SUBJECT_TO_GRAVITY;\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    newchar->move_config_flags &= ~MOVE_CONFIG_SUBJECT_TO_GRAVITY;\n"
+        "                }\n"
+        "                newchar->gravity_directive_seen = 1; /* MiSTer Step 31 v2: gate ent_default_init force-gravity */\n"
+        "\n"
+        "                break;"
+    )
+    ob_g = strict_replace(ob_g, parser_old, parser_new,
+                          'Step 31 v2: parser marks gravity_directive_seen')
+
     gravity_old = (
         "    case TYPE_NONE:\n"
         "        e->nograb = 1;\n"
@@ -530,17 +575,20 @@ endif
         "        e->nograb_default = e->nograb;\n"
         "        \n"
         "        //e->base=e->position.y; //complained?\n"
-        "        /* MiSTer Step 31 (2026-05-28): respect cart's subject_to_gravity 0.\n"
-        "         * Stock engine FORCED gravity flag here, overriding the cart's\n"
-        "         * directive. Fixes Cap super shield freeze (Avengers UBF) +\n"
-        "         * Aliens Clash gravity regression (task #28). Carts that need\n"
-        "         * gravity by default must explicitly set `subject_to_gravity 1`. */\n"
-        "        e->modeldata.move_config_flags |= MOVE_CONFIG_NO_ADJUST_BASE;"
+        "        /* MiSTer Step 31 v2 (2026-05-28): respect cart's EXPLICIT subject_to_gravity. */\n"
+        "        /* If cart's parser saw the directive (regardless of value), respect what it set. */\n"
+        "        /* If cart was silent, keep stock OpenBOR's default of forcing gravity ON for TYPE_NONE. */\n"
+        "        /* Fixes Cap super shield freeze + Aliens Clash sun/bullets WITHOUT breaking carts */\n"
+        "        /* that rely on default forced gravity for enemy bullets etc. */\n"
+        "        e->modeldata.move_config_flags |= MOVE_CONFIG_NO_ADJUST_BASE;\n"
+        "        if (!e->modeldata.gravity_directive_seen) {\n"
+        "            e->modeldata.move_config_flags |= MOVE_CONFIG_SUBJECT_TO_GRAVITY;\n"
+        "        }"
     )
     ob_g = strict_replace(ob_g, gravity_old, gravity_new,
-                          'Step 31: respect cart subject_to_gravity 0 for TYPE_NONE in ent_default_init')
+                          'Step 31 v2: ent_default_init only force-gravity if cart was silent on directive')
     write(ob_path_g, ob_g)
-    print("  Step 31: TYPE_NONE entities now respect cart's subject_to_gravity directive")
+    print("  Step 31 v2: ent_default_init now respects cart's explicit subject_to_gravity directive")
 
     # ── TEMPORARY DIAG (2026-05-28): shield position/velocity trace ─────────
     # Companion to ShieldC trace. Logs shield entity's position+velocity each
@@ -946,8 +994,10 @@ endif
     # legacy PAKs (declare `remap` only, no `palette`) keep the bypass
     # = sprite->palette per-frame (canonical for ATOV).
     s_model_v310_old = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n} s_model;"
-    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n} s_model;"
-    obh = strict_replace(obh, s_model_v310_old, s_model_v310_new, 'v3.10: add has_palette_directive to s_model END')
+    # Step 31 v2 (2026-05-28): also add gravity_directive_seen field at the END.
+    # END placement preserves the no-offset-shift safety pattern of v3.9/v3.10.
+    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n    int gravity_directive_seen; /* MiSTer Step 31 v2: set by CMD_MODEL_SUBJECT_TO_GRAVITY parser; gates ent_default_init force-gravity for TYPE_NONE */\n} s_model;"
+    obh = strict_replace(obh, s_model_v310_old, s_model_v310_new, 'v3.10 + Step 31 v2: add has_palette_directive AND gravity_directive_seen to s_model END')
     write(obh_path, obh)
     print("  s_model.has_palette_directive added at struct end (v3.10)")
 
