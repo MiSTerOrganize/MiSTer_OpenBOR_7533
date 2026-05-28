@@ -153,20 +153,22 @@ endif
     # Add MISTER_NATIVE_VIDEO CFLAGS. v7533 uses SDL2 natively; no
     # -DSDL2 needed (no codepaths gate on it).
     #
-    # Step 25 (v3.1 perf, 2026-05-27): upgrade -O1 -> -O2 + funroll-loops + LTO.
+    # Step 25 (v3.1 perf, 2026-05-27): upgrade -O1 -> -O2 + funroll-loops.
     # Original choice of -O1 was to dodge GCC aggressive-loop UB in 4086's
     # openbor.c. The cleaner fix is explicit -fno-aggressive-loop-optimizations
     # at -O2 — keeps the protection while enabling -O2's broader inlining,
     # vectorization, and register allocation. -funroll-loops gives further
     # gain on the palette LUT inner loops which are the hot path.
-    # -flto enables link-time optimization for cross-TU inlining (extra
-    # 2-5% on inner loops that span source files).
-    # Expected gain: 10-25% engine-wide speedup vs -O1 baseline.
+    # NOTE: -flto was tried but pulled — link-time optimization can surface
+    # latent ODR/visibility issues on this engine codebase; the marginal
+    # 2-5% gain isn't worth the LOW-MEDIUM risk. Revisit if measurement
+    # shows leftover ceiling.
+    # Expected gain: 10-20% engine-wide speedup vs -O1 baseline.
     mf = strict_replace(
         mf,
         "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif",
-        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O2 -fno-aggressive-loop-optimizations -funroll-loops -flto -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nLDFLAGS        += -flto\nendif",
-        'Makefile MISTER_NATIVE_VIDEO CFLAGS injection (Step 25: -O2 + funroll-loops + LTO)'
+        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O2 -fno-aggressive-loop-optimizations -funroll-loops -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nendif",
+        'Makefile MISTER_NATIVE_VIDEO CFLAGS injection (Step 25: -O2 + funroll-loops)'
     )
 
     # Add native_video_writer.o and native_audio_writer.o to objects.
