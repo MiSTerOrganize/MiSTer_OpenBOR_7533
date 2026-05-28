@@ -827,22 +827,27 @@ endif
     )
     rangebase_new = (
         "                newanim->range = (s_range){\n"
-        "                    /* MiSTer Step 34 (2026-05-28): restore 4086's permissive */\n"
-        "                    /* base default. 7533 derived this from jumpheight (= +-40 */\n"
-        "                    /* for jumpheight=4), which fails platform-mounted enemies */\n"
+        "                    /* MiSTer Step 34 v2 (2026-05-28): restore 4086's permissive */\n"
+        "                    /* base AND y defaults. 7533 derived BOTH from jumpheight */\n"
+        "                    /* (= +-40 for jumpheight=4); fails platform-mounted enemies */\n"
         "                    /* targeting ground players in legacy carts (Aliens Clash). */\n"
-        "                    /* Cart's explicit `rangebase A B` directive still overrides. */\n"
+        "                    /* Both checks gate AI in check_range_target_all -- restoring */\n"
+        "                    /* just base wasn't enough, y check also fails (position.y */\n"
+        "                    /* diff for platform-vs-ground entities). */\n"
+        "                    /* 4086 had both at [-1000, +1000] (openbor.c af23dc9c lines */\n"
+        "                    /* 8484-8487). Cart explicit `rangeb A B` / `rangea A B` */\n"
+        "                    /* directives still override (parser writes after default). */\n"
         "                    .base = {.max = 1000, .min = -1000 },\n"
         "                    .x = {.max = range_default_jumpheight_max, .min = (newanim->range.x.min) ? newanim->range.x.min : -10 },\n"
-        "                    .y = {.max = range_default_jumpheight_max, .min = -range_default_jumpheight_min },\n"
+        "                    .y = {.max = 1000, .min = -1000 },\n"
         "                    .z = {.max = range_default_grabdistance, .min = -range_default_grabdistance }\n"
         "                };"
     )
     ob_k34 = read(ob_path_g)
     ob_k34 = strict_replace(ob_k34, rangebase_old, rangebase_new,
-                             'Step 34: range.base default restored to 4086 permissive +-1000')
+                             'Step 34 v2: range.base AND range.y defaults restored to 4086 permissive +-1000')
     write(ob_path_g, ob_k34)
-    print("  Step 34: range.base default = [-1000, +1000] (was [-jumpheight*10, +jumpheight*20])")
+    print("  Step 34 v2: range.base AND range.y defaults = [-1000, +1000] (was both jumpheight-derived)")
 
     # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
     # Avengers - United Battle Force (and likely other late-build PAKs)
