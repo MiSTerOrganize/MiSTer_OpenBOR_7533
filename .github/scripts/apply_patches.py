@@ -783,6 +783,67 @@ endif
     write(ob_path_g, ob_k33)
     print("  Step 33: kill_entity loop now NULL-safe against stale ent_list[] slots")
 
+    # ── Step 34 (2026-05-28): restore 4086's permissive range.base default ─
+    # User reported Aliens Clash platform-mounted Prin shooters don't fire,
+    # while ground-level Prin shooters work fine. Same enemy type, different
+    # behavior by altitude. Confirmed on hardware with 4086 vs 7533.
+    #
+    # Root cause: when looking for an attack target, OpenBOR's
+    # check_range_target_base rejects targets whose `base` (ground reference)
+    # differs from the acting entity's `base` by more than the animation's
+    # range.base.{min,max} window.
+    #
+    # 4086 default (openbor.c af23dc9c lines 8486-8487):
+    #     newanim->range.min.base = -1000;
+    #     newanim->range.max.base = 1000;
+    # = always ±1000 regardless of jumpheight. Platform layouts up to 1000
+    # units of altitude difference work transparently.
+    #
+    # 7533 default (openbor.c v7533 line 14716):
+    #     .base = {.max = jumpheight*20, .min = -jumpheight*10 }
+    # = derived from jumpheight (default 4). For a default-jumpheight enemy:
+    # base range = [-40, +80]. Aliens Clash platforms ~50 units high put the
+    # ground player at base-diff = -50, outside the lower bound -40 -> target
+    # never found -> enemy never attacks.
+    #
+    # Aliens Clash was authored against 4086 era when this defaulted to
+    # ±1000. Cart's character.txt doesn't explicitly call `rangebase` so
+    # 7533's tighter default applies. Fix: restore 4086's ±1000 default.
+    #
+    # Carts that explicitly set `rangebase A B` per anim still get their
+    # cart-set values (parser writes to range.base.{min,max} after this
+    # default assignment). This patch only changes the FALLBACK.
+    #
+    # Doesn't touch .x .y .z defaults -- those remain at jumpheight*20.
+    # User reported only the platform-shooter issue, not any X/Y/Z issues.
+    print("Patching openbor.c (Step 34: restore 4086 permissive range.base default)...")
+    rangebase_old = (
+        "                newanim->range = (s_range){\n"
+        "                    .base = {.max = range_default_jumpheight_max, .min = -range_default_jumpheight_min },\n"
+        "                    .x = {.max = range_default_jumpheight_max, .min = (newanim->range.x.min) ? newanim->range.x.min : -10 },\n"
+        "                    .y = {.max = range_default_jumpheight_max, .min = -range_default_jumpheight_min },\n"
+        "                    .z = {.max = range_default_grabdistance, .min = -range_default_grabdistance }\n"
+        "                };"
+    )
+    rangebase_new = (
+        "                newanim->range = (s_range){\n"
+        "                    /* MiSTer Step 34 (2026-05-28): restore 4086's permissive */\n"
+        "                    /* base default. 7533 derived this from jumpheight (= +-40 */\n"
+        "                    /* for jumpheight=4), which fails platform-mounted enemies */\n"
+        "                    /* targeting ground players in legacy carts (Aliens Clash). */\n"
+        "                    /* Cart's explicit `rangebase A B` directive still overrides. */\n"
+        "                    .base = {.max = 1000, .min = -1000 },\n"
+        "                    .x = {.max = range_default_jumpheight_max, .min = (newanim->range.x.min) ? newanim->range.x.min : -10 },\n"
+        "                    .y = {.max = range_default_jumpheight_max, .min = -range_default_jumpheight_min },\n"
+        "                    .z = {.max = range_default_grabdistance, .min = -range_default_grabdistance }\n"
+        "                };"
+    )
+    ob_k34 = read(ob_path_g)
+    ob_k34 = strict_replace(ob_k34, rangebase_old, rangebase_new,
+                             'Step 34: range.base default restored to 4086 permissive +-1000')
+    write(ob_path_g, ob_k34)
+    print("  Step 34: range.base default = [-1000, +1000] (was [-jumpheight*10, +jumpheight*20])")
+
     # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
     # Avengers - United Battle Force (and likely other late-build PAKs)
     # call getentityproperty(self, "dot") in scripts. v7533 renamed
