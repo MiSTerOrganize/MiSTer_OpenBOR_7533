@@ -575,148 +575,68 @@ endif
         "        e->nograb_default = e->nograb;\n"
         "        \n"
         "        //e->base=e->position.y; //complained?\n"
-        "        /* MiSTer Step 31 v2 (2026-05-28): respect cart's EXPLICIT subject_to_gravity. */\n"
-        "        /* If cart's parser saw the directive (regardless of value), respect what it set. */\n"
-        "        /* If cart was silent, keep stock OpenBOR's default of forcing gravity ON for TYPE_NONE. */\n"
-        "        /* Fixes Cap super shield freeze + Aliens Clash sun/bullets WITHOUT breaking carts */\n"
-        "        /* that rely on default forced gravity for enemy bullets etc. */\n"
-        "        e->modeldata.move_config_flags |= MOVE_CONFIG_NO_ADJUST_BASE;\n"
+        "        /* MiSTer Step 31 v3 (2026-05-28): respect cart's EXPLICIT directives for BOTH */\n"
+        "        /* subject_to_gravity AND no_adjust_base. If cart's parser saw the directive */\n"
+        "        /* (regardless of value), respect what it set. If cart was silent on a given */\n"
+        "        /* directive, keep stock OpenBOR's default of forcing that flag ON for TYPE_NONE. */\n"
+        "        /* v2 fixed gravity for Cap shield + sun + bullets; v3 extends to no_adjust_base */\n"
+        "        /* so platform-mounted Prin shooters in Aliens Clash fire correctly (EShot has */\n"
+        "        /* no_adjust_base 0). */\n"
+        "        if (!e->modeldata.no_adjust_base_directive_seen) {\n"
+        "            e->modeldata.move_config_flags |= MOVE_CONFIG_NO_ADJUST_BASE;\n"
+        "        }\n"
         "        if (!e->modeldata.gravity_directive_seen) {\n"
         "            e->modeldata.move_config_flags |= MOVE_CONFIG_SUBJECT_TO_GRAVITY;\n"
         "        }"
     )
     ob_g = strict_replace(ob_g, gravity_old, gravity_new,
-                          'Step 31 v2: ent_default_init only force-gravity if cart was silent on directive')
+                          'Step 31 v3: ent_default_init only force-flags if cart was silent on directive')
     write(ob_path_g, ob_g)
-    print("  Step 31 v2: ent_default_init now respects cart's explicit subject_to_gravity directive")
+    print("  Step 31 v3: ent_default_init now respects cart's explicit subject_to_gravity AND no_adjust_base directives")
 
-    # ── TEMPORARY DIAG (2026-05-28): shield position/velocity trace ─────────
-    # Companion to ShieldC trace. Logs shield entity's position+velocity each
-    # frame from inside update_ents. Goal: confirm whether velocity is non-zero
-    # (shield should be moving) and position is advancing.
-    # REVERT AFTER MEASURED.
-    print("Patching openbor.c (TEMPORARY DIAG shield pos/vel trace)...")
-    ob_path_pos = os.path.join(obor, 'openbor.c')
-    ob_pos = read(ob_path_pos)
-
-    pos_diag_old = (
-        "                self->movex += self->velocity.x * self->speedmul * (100.0 / GAME_SPEED);\n"
-        "                self->movez += self->velocity.z * self->speedmul * (100.0 / GAME_SPEED);\n"
-    )
-    pos_diag_new = (
-        pos_diag_old +
-        "                /* TEMPORARY DIAG (2026-05-28): shield pos/vel trace for Cap freeze. */\n"
-        "                /* REVERT AFTER MEASURED. */\n"
-        "                {\n"
-        "                    static unsigned int _shield_frame = 0;\n"
-        "                    if (self->modeldata.name && strcasecmp(self->modeldata.name, \"shield\") == 0) {\n"
-        "                        _shield_frame++;\n"
-        "                        if (_shield_frame <= 30 || _shield_frame % 60 == 0) {\n"
-        "                            fprintf(stderr, \"[SHIELDPOS] f=%u pos=(%.1f,%.1f,%.1f) vel=(%.1f,%.1f,%.1f) movex=%.2f movez=%.2f animpos=%d\\n\",\n"
-        "                                _shield_frame,\n"
-        "                                self->position.x, self->position.y, self->position.z,\n"
-        "                                self->velocity.x, self->velocity.y, self->velocity.z,\n"
-        "                                self->movex, self->movez,\n"
-        "                                self->animpos);\n"
-        "                            fflush(stderr);\n"
-        "                        }\n"
-        "                    }\n"
-        "                }\n"
-    )
-    ob_pos = strict_replace(ob_pos, pos_diag_old, pos_diag_new,
-                            'TEMPORARY DIAG: shield position/velocity trace in update_ents')
-    write(ob_path_pos, ob_pos)
-    print("  TEMPORARY DIAG: shield position/velocity trace injected (REVERT AFTER MEASURED)")
-
-    # ── TEMPORARY DIAG (2026-05-28): Cap freespecial4 freeze investigation ─
-    # Instrument system_setglobalvar / system_getglobalvar to log every
-    # "ShieldC" set/get with rate-limited heartbeat. Lets us trace WHEN
-    # the shield script stops running (no more ShieldC=1 sets) and whether
-    # Cap's checkShield is still reading.
-    #
-    # Output format:
-    #   [SHIELDC] SET <val> (set#=N get#=N)
-    #   [SHIELDC] GET (set#=N get#=N last_set=<val>)
-    #
-    # Heartbeat every 30 calls keeps log volume manageable.
-    # REVERT AFTER MEASURED.
-    print("Patching openborscript.c (TEMPORARY DIAG ShieldC trace)...")
-    obs_path_diag = os.path.join(obor, 'openborscript.c')
-    obs_diag = read(obs_path_diag)
-
-    # Inject diagnostic globals at top (after includes).
-    diag_globals_old = (
-        "HRESULT system_getglobalvar(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
-        "{\n"
-        "    LONG ltemp;\n"
-        "    ScriptVariant *ptmpvar;\n"
-    )
-    diag_globals_new = (
-        "/* TEMPORARY DIAG (2026-05-28): ShieldC trace for Cap freespecial4 freeze. */\n"
-        "/* REVERT AFTER MEASURED. */\n"
-        "static int _mister_shield_last = -999;\n"
-        "static unsigned int _mister_shield_set_count = 0;\n"
-        "static unsigned int _mister_shield_get_count = 0;\n"
+    # ── Step 31 v3 (2026-05-28): parser patch for CMD_MODEL_NO_ADJUST_BASE ──
+    # Sister to the CMD_MODEL_SUBJECT_TO_GRAVITY parser patch above.
+    # Sets newchar->no_adjust_base_directive_seen = 1 whenever the cart's
+    # character.txt declares `no_adjust_base N`, regardless of value.
+    # ent_default_init then respects the parser-set flag value instead of
+    # blindly force-setting it for TYPE_NONE.
+    print("Patching openbor.c (Step 31 v3: parser sets no_adjust_base_directive_seen)...")
+    parser_nab_old = (
+        "            case CMD_MODEL_NO_ADJUST_BASE:\n"
         "\n"
-        "HRESULT system_getglobalvar(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
-        "{\n"
-        "    LONG ltemp;\n"
-        "    ScriptVariant *ptmpvar;\n"
-        "    /* TEMPORARY DIAG: log every ShieldC get with heartbeat. */\n"
-        "    if (paramCount == 1 && varlist[0]->vt == VT_STR) {\n"
-        "        const char *_name = (const char*)StrCache_Get(varlist[0]->strVal);\n"
-        "        if (_name && strcmp(_name, \"ShieldC\") == 0) {\n"
-        "            _mister_shield_get_count++;\n"
-        "            if (_mister_shield_get_count <= 5 || _mister_shield_get_count % 60 == 0) {\n"
-        "                fprintf(stderr, \"[SHIELDC] GET (set#=%u get#=%u last_set=%d)\\n\",\n"
-        "                        _mister_shield_set_count, _mister_shield_get_count, _mister_shield_last);\n"
-        "                fflush(stderr);\n"
-        "            }\n"
-        "        }\n"
-        "    }\n"
+        "                /* Legacy code allowed -1 or 0 for False.  */\n"
+        "                if (GET_INT_ARG(1) > 0)\n"
+        "                {\n"
+        "                    newchar->move_config_flags |= MOVE_CONFIG_NO_ADJUST_BASE;\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    newchar->move_config_flags &= ~MOVE_CONFIG_NO_ADJUST_BASE;\n"
+        "                }\n"
+        "\n"
+        "                break;"
     )
-    obs_diag = strict_replace(obs_diag, diag_globals_old, diag_globals_new,
-                              'TEMPORARY DIAG: ShieldC get trace + globals')
-
-    # Inject diagnostic into system_setglobalvar.
-    diag_set_old = (
-        "HRESULT system_setglobalvar(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
-        "{\n"
-        "    LONG ltemp;\n"
-        "    if(paramCount < 2)\n"
-        "    {\n"
-        "        goto sgv_error;\n"
-        "    }\n"
+    parser_nab_new = (
+        "            case CMD_MODEL_NO_ADJUST_BASE:\n"
+        "\n"
+        "                /* Legacy code allowed -1 or 0 for False.  */\n"
+        "                if (GET_INT_ARG(1) > 0)\n"
+        "                {\n"
+        "                    newchar->move_config_flags |= MOVE_CONFIG_NO_ADJUST_BASE;\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    newchar->move_config_flags &= ~MOVE_CONFIG_NO_ADJUST_BASE;\n"
+        "                }\n"
+        "                newchar->no_adjust_base_directive_seen = 1; /* MiSTer Step 31 v3: gate ent_default_init force-set */\n"
+        "\n"
+        "                break;"
     )
-    diag_set_new = (
-        "HRESULT system_setglobalvar(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
-        "{\n"
-        "    LONG ltemp;\n"
-        "    if(paramCount < 2)\n"
-        "    {\n"
-        "        goto sgv_error;\n"
-        "    }\n"
-        "    /* TEMPORARY DIAG: log every ShieldC set with change detection + heartbeat. */\n"
-        "    if (varlist[0]->vt == VT_STR) {\n"
-        "        const char *_name = (const char*)StrCache_Get(varlist[0]->strVal);\n"
-        "        if (_name && strcmp(_name, \"ShieldC\") == 0) {\n"
-        "            LONG _curval = 0;\n"
-        "            ScriptVariant_IntegerValue(varlist[1], &_curval);\n"
-        "            _mister_shield_set_count++;\n"
-        "            if ((int)_curval != _mister_shield_last || _mister_shield_set_count <= 5 || _mister_shield_set_count % 60 == 0) {\n"
-        "                fprintf(stderr, \"[SHIELDC] SET %ld (set#=%u get#=%u)\\n\",\n"
-        "                        (long)_curval, _mister_shield_set_count, _mister_shield_get_count);\n"
-        "                fflush(stderr);\n"
-        "                _mister_shield_last = (int)_curval;\n"
-        "            }\n"
-        "        }\n"
-        "    }\n"
-    )
-    obs_diag = strict_replace(obs_diag, diag_set_old, diag_set_new,
-                              'TEMPORARY DIAG: ShieldC set trace')
-
-    write(obs_path_diag, obs_diag)
-    print("  TEMPORARY DIAG: ShieldC trace instrumentation injected (REVERT AFTER MEASURED)")
+    ob_g = read(ob_path_g)
+    ob_g = strict_replace(ob_g, parser_nab_old, parser_nab_new,
+                          'Step 31 v3: parser marks no_adjust_base_directive_seen')
+    write(ob_path_g, ob_g)
+    print("  Step 31 v3: CMD_MODEL_NO_ADJUST_BASE parser now records directive_seen")
 
     # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
     # Avengers - United Battle Force (and likely other late-build PAKs)
@@ -995,9 +915,10 @@ endif
     # = sprite->palette per-frame (canonical for ATOV).
     s_model_v310_old = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n} s_model;"
     # Step 31 v2 (2026-05-28): also add gravity_directive_seen field at the END.
+    # Step 31 v3 (2026-05-28): also add no_adjust_base_directive_seen field.
     # END placement preserves the no-offset-shift safety pattern of v3.9/v3.10.
-    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n    int gravity_directive_seen; /* MiSTer Step 31 v2: set by CMD_MODEL_SUBJECT_TO_GRAVITY parser; gates ent_default_init force-gravity for TYPE_NONE */\n} s_model;"
-    obh = strict_replace(obh, s_model_v310_old, s_model_v310_new, 'v3.10 + Step 31 v2: add has_palette_directive AND gravity_directive_seen to s_model END')
+    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n    int gravity_directive_seen; /* MiSTer Step 31 v2: set by CMD_MODEL_SUBJECT_TO_GRAVITY parser; gates ent_default_init force-gravity for TYPE_NONE */\n    int no_adjust_base_directive_seen; /* MiSTer Step 31 v3: set by CMD_MODEL_NO_ADJUST_BASE parser; gates ent_default_init force-no-adjust-base for TYPE_NONE */\n} s_model;"
+    obh = strict_replace(obh, s_model_v310_old, s_model_v310_new, 'v3.10 + Step 31 v2 + v3: add directive_seen fields to s_model END')
     write(obh_path, obh)
     print("  s_model.has_palette_directive added at struct end (v3.10)")
 
