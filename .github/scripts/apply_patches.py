@@ -164,15 +164,23 @@ endif
     # 2-5% gain isn't worth the LOW-MEDIUM risk. Revisit if measurement
     # shows leftover ceiling.
     # Expected gain: 10-20% engine-wide speedup vs -O1 baseline.
-    # Step 25 (v3.1 perf) flags expanded with G+H (2026-05-28):
-    #   -fno-plt: emit direct calls (no PLT thunks) — saves indirect-call cycles
-    #   -fno-semantic-interposition: allow inlining of own functions across TUs
-    # Both are LOW risk for statically-linked binaries with no symbol overriding.
+    # Step 25 (v3.1 perf) flags (final, 2026-05-28):
+    #   -O2 + -fno-aggressive-loop-optimizations (protect against UB at openbor.c)
+    #   -funroll-loops (helps palette LUT inner loops)
+    #   -fno-plt (direct calls; saves indirect-call cycles)
+    #   -fno-semantic-interposition (enables own-function inlining)
+    #   -flto (link-time optimization for cross-TU inlining)
+    #
+    # -flto was initially dropped out of caution but the f39311f CI run
+    # (26549762603, 25m38s) proved it builds successfully in our codebase.
+    # Risk reclassified LOW based on empirical success. Cheap closing
+    # optimization (2-5% additional, mostly helps when bottleneck is
+    # cross-source-file inlining like spriteq.c -> sprite.c -> spritex8p32.c).
     mf = strict_replace(
         mf,
         "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif",
-        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O2 -fno-aggressive-loop-optimizations -funroll-loops -fno-plt -fno-semantic-interposition -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nendif",
-        'Makefile MISTER_NATIVE_VIDEO CFLAGS injection (Step 25: -O2 + funroll + fno-plt + fno-semantic-interposition)'
+        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O2 -fno-aggressive-loop-optimizations -funroll-loops -fno-plt -fno-semantic-interposition -flto -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nLDFLAGS        += -flto\nendif",
+        'Makefile MISTER_NATIVE_VIDEO CFLAGS injection (Step 25 final: -O2 + funroll + fno-plt + fno-semantic-interposition + LTO)'
     )
 
     # Add native_video_writer.o and native_audio_writer.o to objects.
