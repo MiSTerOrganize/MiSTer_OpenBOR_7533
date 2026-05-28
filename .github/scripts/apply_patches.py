@@ -486,6 +486,96 @@ endif
     write(os.path.join(obor, 'openbor.c'), obor_c)
     print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
 
+    # ── TEMPORARY DIAG (2026-05-28): Cap freespecial4 freeze investigation ─
+    # Instrument system_setglobalvar / system_getglobalvar to log every
+    # "ShieldC" set/get with rate-limited heartbeat. Lets us trace WHEN
+    # the shield script stops running (no more ShieldC=1 sets) and whether
+    # Cap's checkShield is still reading.
+    #
+    # Output format:
+    #   [SHIELDC] SET <val> (set#=N get#=N)
+    #   [SHIELDC] GET (set#=N get#=N last_set=<val>)
+    #
+    # Heartbeat every 30 calls keeps log volume manageable.
+    # REVERT AFTER MEASURED.
+    print("Patching openborscript.c (TEMPORARY DIAG ShieldC trace)...")
+    obs_path_diag = os.path.join(obor, 'openborscript.c')
+    obs_diag = read(obs_path_diag)
+
+    # Inject diagnostic globals at top (after includes).
+    diag_globals_old = (
+        "HRESULT system_getglobalvar(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
+        "{\n"
+        "    LONG ltemp;\n"
+        "    ScriptVariant *ptmpvar;\n"
+    )
+    diag_globals_new = (
+        "/* TEMPORARY DIAG (2026-05-28): ShieldC trace for Cap freespecial4 freeze. */\n"
+        "/* REVERT AFTER MEASURED. */\n"
+        "static int _mister_shield_last = -999;\n"
+        "static unsigned int _mister_shield_set_count = 0;\n"
+        "static unsigned int _mister_shield_get_count = 0;\n"
+        "\n"
+        "HRESULT system_getglobalvar(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
+        "{\n"
+        "    LONG ltemp;\n"
+        "    ScriptVariant *ptmpvar;\n"
+        "    /* TEMPORARY DIAG: log every ShieldC get with heartbeat. */\n"
+        "    if (paramCount == 1 && varlist[0]->vt == VT_STR) {\n"
+        "        const char *_name = (const char*)StrCache_Get(varlist[0]->strVal);\n"
+        "        if (_name && strcmp(_name, \"ShieldC\") == 0) {\n"
+        "            _mister_shield_get_count++;\n"
+        "            if (_mister_shield_get_count <= 5 || _mister_shield_get_count % 60 == 0) {\n"
+        "                fprintf(stderr, \"[SHIELDC] GET (set#=%u get#=%u last_set=%d)\\n\",\n"
+        "                        _mister_shield_set_count, _mister_shield_get_count, _mister_shield_last);\n"
+        "                fflush(stderr);\n"
+        "            }\n"
+        "        }\n"
+        "    }\n"
+    )
+    obs_diag = strict_replace(obs_diag, diag_globals_old, diag_globals_new,
+                              'TEMPORARY DIAG: ShieldC get trace + globals')
+
+    # Inject diagnostic into system_setglobalvar.
+    diag_set_old = (
+        "HRESULT system_setglobalvar(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
+        "{\n"
+        "    LONG ltemp;\n"
+        "    if(paramCount < 2)\n"
+        "    {\n"
+        "        goto sgv_error;\n"
+        "    }\n"
+    )
+    diag_set_new = (
+        "HRESULT system_setglobalvar(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
+        "{\n"
+        "    LONG ltemp;\n"
+        "    if(paramCount < 2)\n"
+        "    {\n"
+        "        goto sgv_error;\n"
+        "    }\n"
+        "    /* TEMPORARY DIAG: log every ShieldC set with change detection + heartbeat. */\n"
+        "    if (varlist[0]->vt == VT_STR) {\n"
+        "        const char *_name = (const char*)StrCache_Get(varlist[0]->strVal);\n"
+        "        if (_name && strcmp(_name, \"ShieldC\") == 0) {\n"
+        "            LONG _curval = 0;\n"
+        "            ScriptVariant_IntegerValue(varlist[1], &_curval);\n"
+        "            _mister_shield_set_count++;\n"
+        "            if ((int)_curval != _mister_shield_last || _mister_shield_set_count <= 5 || _mister_shield_set_count % 60 == 0) {\n"
+        "                fprintf(stderr, \"[SHIELDC] SET %ld (set#=%u get#=%u)\\n\",\n"
+        "                        (long)_curval, _mister_shield_set_count, _mister_shield_get_count);\n"
+        "                fflush(stderr);\n"
+        "                _mister_shield_last = (int)_curval;\n"
+        "            }\n"
+        "        }\n"
+        "    }\n"
+    )
+    obs_diag = strict_replace(obs_diag, diag_set_old, diag_set_new,
+                              'TEMPORARY DIAG: ShieldC set trace')
+
+    write(obs_path_diag, obs_diag)
+    print("  TEMPORARY DIAG: ShieldC trace instrumentation injected (REVERT AFTER MEASURED)")
+
     # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
     # Avengers - United Battle Force (and likely other late-build PAKs)
     # call getentityproperty(self, "dot") in scripts. v7533 renamed
@@ -1324,12 +1414,9 @@ endif
         "    return;\n"
         "}"
     )
-    # TEMPORARY DIAG (2026-05-28): Step 14 REVERTED for Cap freespecial4
-    # freeze bisect. REVERT AFTER MEASURED — restore strict_replace call
-    # below once we know whether Step 14 caused the Cap freeze.
-    # ob = strict_replace(ob, bp14_old, bp14_new,
-    #                     'Step 14: B+E entity-collision optimization (filter non-collidable + 256px rect cull)')
-    print("  Step 14: SKIPPED (TEMPORARY DIAG bisect) -- REVERT AFTER MEASURED")
+    ob = strict_replace(ob, bp14_old, bp14_new,
+                        'Step 14: B+E entity-collision optimization (filter non-collidable + 256px rect cull)')
+    print("  Step 14: B+E entity-collision cull -- expected 5-10x speedup on arrange bucket")
 
     # -- Step 15 (2026-05-26): Path 1 reorder of normal_find_target() loop body.
     #
@@ -1443,11 +1530,9 @@ endif
         "            }\n"
         "        }"
     )
-    # TEMPORARY DIAG (2026-05-28): Step 15 REVERTED for Cap freespecial4 freeze
-    # bisect. REVERT AFTER MEASURED.
-    # ob = strict_replace(ob, pf15_old, pf15_new,
-    #                     'Step 15: Path 1 reorder of normal_find_target() loop body (cheap-first)')
-    print("  Step 15: SKIPPED (TEMPORARY DIAG bisect) -- REVERT AFTER MEASURED")
+    ob = strict_replace(ob, pf15_old, pf15_new,
+                        'Step 15: Path 1 reorder of normal_find_target() loop body (cheap-first)')
+    print("  Step 15: normal_find_target() cheap-first reorder (no behavior change)")
 
     # -- Step 16 (2026-05-26): three small zero-risk mechanical refactors.
     #
@@ -1537,10 +1622,8 @@ endif
         "            continue;\n"
         "        }"
     )
-    # TEMPORARY DIAG (2026-05-28): Step 16a REVERTED for Cap freespecial4 freeze
-    # bisect. REVERT AFTER MEASURED.
-    # ob = strict_replace(ob, s16a_old, s16a_new,
-    #                     'Step 16a: do_attack invariant hoist + B-style pre-filter')
+    ob = strict_replace(ob, s16a_old, s16a_new,
+                        'Step 16a: do_attack invariant hoist + B-style pre-filter')
 
     # Patch 16b: block_find_target short-circuit chain reorder cheap-first.
     s16b_old = (
@@ -1571,10 +1654,8 @@ endif
         "            && collision_attack_find_no_block_on_frame(attacker->animation, attacker->animpos, 1) != NULL // Valid blockable attack. (moved down -- expensive)\n"
         "            )"
     )
-    # TEMPORARY DIAG (2026-05-28): Step 16b REVERTED for Cap freespecial4 freeze
-    # bisect. REVERT AFTER MEASURED.
-    # ob = strict_replace(ob, s16b_old, s16b_new,
-    #                     'Step 16b: block_find_target short-circuit reorder cheap-first')
+    ob = strict_replace(ob, s16b_old, s16b_new,
+                        'Step 16b: block_find_target short-circuit reorder cheap-first')
 
     # Patch 16c: find_ent_here -- hoist grab-distance invariants out of loop.
     s16c_old = (
@@ -1623,12 +1704,12 @@ endif
         "    return NULL;\n"
         "}"
     )
-    # TEMPORARY DIAG (2026-05-28): Step 16c REVERTED for Cap freespecial4 freeze
-    # bisect. REVERT AFTER MEASURED.
-    # ob = strict_replace(ob, s16c_old, s16c_new,
-    #                     'Step 16c: find_ent_here grab-distance invariant hoist')
+    ob = strict_replace(ob, s16c_old, s16c_new,
+                        'Step 16c: find_ent_here grab-distance invariant hoist')
 
-    print("  Step 16a/b/c: SKIPPED (TEMPORARY DIAG bisect) -- REVERT AFTER MEASURED")
+    print("  Step 16a: do_attack invariant hoist + B-style pre-filter")
+    print("  Step 16b: block_find_target short-circuit reorder cheap-first")
+    print("  Step 16c: find_ent_here grab-distance invariant hoist")
 
     # -- Step 17 (2026-05-26): RE-INTRODUCED FPS profile + SUB-PROFILE v8.
     # Goal: measure post-Step 14/15/16 fps lift across the 7-PAK regression set
