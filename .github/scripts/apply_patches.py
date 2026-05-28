@@ -638,6 +638,112 @@ endif
     write(ob_path_g, ob_g)
     print("  Step 31 v3: CMD_MODEL_NO_ADJUST_BASE parser now records directive_seen")
 
+    # ── Step 32 (2026-05-28): defensive entity-pointer validation in script bridge ─
+    # Crash investigation: TMNT Rescue Palooza "Continue from save" SIGSEGV in
+    # kill_entity+0xe7, called from script's killentity() via openbor_killentity.
+    # The save+continue flow restored a level where a scroll-spawn script holds
+    # a STALE entity pointer (entity at that address was freed, memory reused).
+    # The script bridge only checked `ent == NULL`; the !exists check inside
+    # kill_entity then read garbage from freed memory because the pointer was
+    # non-NULL but pointed at scrambled bytes. SIGSEGV at offset 0x428.
+    #
+    # Fix: validate the script-supplied entity pointer is in ent_list[] before
+    # calling kill_entity. If stale, silently no-op -- cart misses one kill
+    # but gameplay continues. Far better than crashing to black screen.
+    #
+    # Validation is O(ent_max). ent_max is typically a few hundred even on
+    # heavy PAKs; negligible cost (called only from script).
+    #
+    # Same use-after-free pattern likely affects other script bridges that
+    # take entity pointers (changeentityproperty, getentityproperty etc.).
+    # Those haven't crashed yet -- adding validation only where the crash
+    # actually surfaced. Future failures can extend the validation pattern.
+    print("Patching openborscript.c (Step 32: validate killentity pointer)...")
+    obs_path_k = os.path.join(obor, 'openborscript.c')
+    obs_k = read(obs_path_k)
+    killent_old = (
+        "//killentity(entity)\n"
+        "HRESULT openbor_killentity(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
+        "{\n"
+        "    entity *ent = NULL;\n"
+        "    e_kill_entity_trigger trigger = KILL_ENTITY_TRIGGER_SCRIPT_KILLENTITY_UNDEFINED;\n"
+        "    if(paramCount < 1)\n"
+        "    {\n"
+        "        *pretvar = NULL;\n"
+        "        return E_FAIL;\n"
+        "    }\n"
+        "\n"
+        "    ScriptVariant_ChangeType(*pretvar, VT_INTEGER);\n"
+        "\n"
+        "    ent = (entity *)(varlist[0])->ptrVal; //retrieve the entity\n"
+        "    if(ent == NULL)\n"
+        "    {\n"
+        "        (*pretvar)->lVal = (LONG)0;\n"
+        "        return S_OK;\n"
+        "    }\n"
+        "\n"
+        "    // Get the saves directory\n"
+        "    if (paramCount >= 2)\n"
+        "    {\n"
+        "        trigger = (e_kill_entity_trigger)(varlist[1])->lVal; // Reason to kill entity.\n"
+        "    }\n"
+        "\n"
+        "    kill_entity(ent, trigger);"
+    )
+    killent_new = (
+        "//killentity(entity)\n"
+        "HRESULT openbor_killentity(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
+        "{\n"
+        "    /* MiSTer Step 32 (2026-05-28): externs for stale-pointer validation. */\n"
+        "    extern entity **ent_list;\n"
+        "    int _mister_i;\n"
+        "    int _mister_valid;\n"
+        "    entity *ent = NULL;\n"
+        "    e_kill_entity_trigger trigger = KILL_ENTITY_TRIGGER_SCRIPT_KILLENTITY_UNDEFINED;\n"
+        "    if(paramCount < 1)\n"
+        "    {\n"
+        "        *pretvar = NULL;\n"
+        "        return E_FAIL;\n"
+        "    }\n"
+        "\n"
+        "    ScriptVariant_ChangeType(*pretvar, VT_INTEGER);\n"
+        "\n"
+        "    ent = (entity *)(varlist[0])->ptrVal; //retrieve the entity\n"
+        "    if(ent == NULL)\n"
+        "    {\n"
+        "        (*pretvar)->lVal = (LONG)0;\n"
+        "        return S_OK;\n"
+        "    }\n"
+        "\n"
+        "    /* MiSTer Step 32 (2026-05-28): defensive stale-pointer validation. */\n"
+        "    /* Cart scripts can hold STALE entity pointers after save/continue restore: */\n"
+        "    /* the original entity was freed, its memory was reused for something else, */\n"
+        "    /* and the script still has the old address in a variable. Old code only */\n"
+        "    /* checked ent==NULL then dereferenced ent->exists inside kill_entity, */\n"
+        "    /* reading garbage from freed memory -> SIGSEGV (TMNT Rescue Palooza */\n"
+        "    /* continue-from-save). Validate ent is in ent_list[] before deref. */\n"
+        "    _mister_valid = 0;\n"
+        "    for (_mister_i = 0; _mister_i < ent_max; _mister_i++) {\n"
+        "        if (ent_list[_mister_i] == ent) { _mister_valid = 1; break; }\n"
+        "    }\n"
+        "    if (!_mister_valid || !ent->exists) {\n"
+        "        (*pretvar)->lVal = (LONG)0;\n"
+        "        return S_OK;\n"
+        "    }\n"
+        "\n"
+        "    // Get the saves directory\n"
+        "    if (paramCount >= 2)\n"
+        "    {\n"
+        "        trigger = (e_kill_entity_trigger)(varlist[1])->lVal; // Reason to kill entity.\n"
+        "    }\n"
+        "\n"
+        "    kill_entity(ent, trigger);"
+    )
+    obs_k = strict_replace(obs_k, killent_old, killent_new,
+                           'Step 32: openbor_killentity validates ent in ent_list[] before kill_entity')
+    write(obs_path_k, obs_k)
+    print("  Step 32: openbor_killentity now validates script-supplied pointer (TMNT-RP continue crash fix)")
+
     # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
     # Avengers - United Battle Force (and likely other late-build PAKs)
     # call getentityproperty(self, "dot") in scripts. v7533 renamed
