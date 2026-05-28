@@ -2378,6 +2378,84 @@ endif
     write(sc32_path, sc32)
     print("  screen32.c: putscreenx8p32 no-blend no-key path tightened (forward iter + 4x unroll + prefetch).")
 
+    # ── Step 23 (v3.1 perf, 2026-05-27): background pre-decode 8 -> 32bpp ────────
+    #
+    # MOTIVATION (v12 [SP2] measurement on Avengers):
+    #   - putscreen = 99.3% of putother bucket (9.78 ms/frame = 36% of budget)
+    #   - 2.17 calls/frame x 4519 us each = full-frame background blits
+    #
+    # Stock OpenBOR 7533 loads 8bpp backgrounds and renders them via
+    # putscreenx8p32's per-pixel palette LUT every frame. Avengers' 480x272
+    # background is ~130K pixels per blit; the LUT alone dominates.
+    #
+    # Step 23 pre-decodes the background ONCE at load_background time:
+    # walk 8bpp source bytes through palette LUT, write 32bpp result.
+    # putscreen subsequently sees src->pixelformat == PIXEL_32 (matches
+    # dest's PIXEL_32 on 7533) and routes to blendscreen32's memcpy
+    # fast path (screen32.c:322-332) — 4-10x faster than per-pixel LUT.
+    #
+    # SAFE IN MISTER BUILD:
+    #   - background->palette read post-load only at line 4040-4045
+    #     (cache_background_replace) which is gated by #ifdef CACHE_BACKGROUNDS
+    #     — our MISTER build does NOT define CACHE_BACKGROUNDS
+    #   - allocscreen(PIXEL_32) sets palette=NULL but no other code reads it
+    #   - Visual output identical: same per-pixel palette lookup, just done
+    #     once at load instead of every frame
+    #
+    # EXPECTED GAIN: Avengers -8-9 ms/frame (37 -> ~50 fps), He-Man -5-6 ms/frame.
+    print("Patching openbor.c (Step 23: load_background pre-decode 8 -> 32bpp)...")
+    ob_path_step23 = os.path.join(obor, 'openbor.c')
+    ob_step23 = read(ob_path_step23)
+
+    step23_old = (
+        "    // If background is 8bit color depth, use its color\n"
+        "    // table to populate the global and global neon palettes.\n"
+        "    if (background->pixelformat == PIXEL_x8)\n"
+        "    {\n"
+        "        memcpy(pal, background->palette, PAL_BYTES);\n"
+        "        memcpy(neontable, pal, PAL_BYTES);\n"
+        "    }"
+    )
+    step23_new = (
+        "    // If background is 8bit color depth, use its color\n"
+        "    // table to populate the global and global neon palettes.\n"
+        "    if (background->pixelformat == PIXEL_x8)\n"
+        "    {\n"
+        "        memcpy(pal, background->palette, PAL_BYTES);\n"
+        "        memcpy(neontable, pal, PAL_BYTES);\n"
+        "\n"
+        "        /* Step 23 (v3.1 perf, 2026-05-27): pre-decode 8bpp -> 32bpp.\n"
+        "         * v12 [SP2] showed putscreen is 99% of putother bucket on\n"
+        "         * Avengers (9.78 ms/frame). Pre-decoding at load time routes\n"
+        "         * putscreen to blendscreen32 memcpy fast path (screen32.c\n"
+        "         * lines 322-332) instead of per-pixel palette LUT in\n"
+        "         * putscreenx8p32. Safe: post-load background->palette is\n"
+        "         * only read by #ifdef CACHE_BACKGROUNDS code path which\n"
+        "         * MISTER build does not define. */\n"
+        "        {\n"
+        "            s_screen *bg32 = allocscreen(background->width, background->height, PIXEL_32);\n"
+        "            if (bg32)\n"
+        "            {\n"
+        "                unsigned *dst32 = (unsigned *)bg32->data;\n"
+        "                unsigned char *src8 = (unsigned char *)background->data;\n"
+        "                unsigned *pal_u32 = (unsigned *)background->palette;\n"
+        "                int total = background->width * background->height;\n"
+        "                int i;\n"
+        "                for (i = 0; i < total; i++)\n"
+        "                {\n"
+        "                    dst32[i] = pal_u32[src8[i]];\n"
+        "                }\n"
+        "                freescreen(&background);\n"
+        "                background = bg32;\n"
+        "            }\n"
+        "        }\n"
+        "    }"
+    )
+    ob_step23 = strict_replace(ob_step23, step23_old, step23_new,
+                                'Step 23: load_background pre-decode 8 -> 32bpp')
+    write(ob_path_step23, ob_step23)
+    print("  openbor.c: load_background pre-decodes 8bpp -> 32bpp; putscreen routes to memcpy fast path.")
+
     # ── 4. Step 4 v2 (sprite.c bypass) — RESTORED in v3.7 (2026-05-20).
     #
     # WHY THIS WAS RESTORED:
