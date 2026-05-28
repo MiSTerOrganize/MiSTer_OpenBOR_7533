@@ -153,18 +153,20 @@ endif
     # Add MISTER_NATIVE_VIDEO CFLAGS. v7533 uses SDL2 natively; no
     # -DSDL2 needed (no codepaths gate on it).
     #
-    # Step 25 (v3.1 perf, 2026-05-27): upgrade -O1 -> -O2 + funroll-loops.
+    # Step 25 (v3.1 perf, 2026-05-27): upgrade -O1 -> -O2 + funroll-loops + LTO.
     # Original choice of -O1 was to dodge GCC aggressive-loop UB in 4086's
     # openbor.c. The cleaner fix is explicit -fno-aggressive-loop-optimizations
     # at -O2 — keeps the protection while enabling -O2's broader inlining,
     # vectorization, and register allocation. -funroll-loops gives further
     # gain on the palette LUT inner loops which are the hot path.
-    # Expected gain: 10-20% engine-wide speedup vs -O1 baseline.
+    # -flto enables link-time optimization for cross-TU inlining (extra
+    # 2-5% on inner loops that span source files).
+    # Expected gain: 10-25% engine-wide speedup vs -O1 baseline.
     mf = strict_replace(
         mf,
         "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif",
-        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O2 -fno-aggressive-loop-optimizations -funroll-loops -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nendif",
-        'Makefile MISTER_NATIVE_VIDEO CFLAGS injection (Step 25: -O2 + funroll-loops)'
+        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O2 -fno-aggressive-loop-optimizations -funroll-loops -flto -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nLDFLAGS        += -flto\nendif",
+        'Makefile MISTER_NATIVE_VIDEO CFLAGS injection (Step 25: -O2 + funroll-loops + LTO)'
     )
 
     # Add native_video_writer.o and native_audio_writer.o to objects.
@@ -2256,10 +2258,20 @@ endif
     #
     # EXPECTED GAIN: 1.15-1.25x on inner loop = +3-5 fps across all PAKs.
 
-    # Step 22a: scalar tightening of putsprite_ in spritex8p32.c
-    print("Patching spritex8p32.c (Step 22a: scalar tightening of putsprite_ inner loop)...")
+    # Step 22a + Step 26: scalar tightening + NEON destination stores in putsprite_
+    print("Patching spritex8p32.c (Step 22a + Step 26: scalar tightening + NEON dest stores in putsprite_)...")
     sp32_path = os.path.join(obor, 'source/gamelib/spritex8p32.c')
     sp32 = read(sp32_path)
+
+    # Step 26 (v3.1, 2026-05-27): add arm_neon.h include for vst1q_u32.
+    # Guard with __ARM_NEON so non-NEON builds (none currently, but defensive)
+    # fall back to the scalar 4x unroll path.
+    sp32 = strict_replace(
+        sp32,
+        "#include \"types.h\"",
+        "#include \"types.h\"\n#ifdef __ARM_NEON\n#include <arm_neon.h>\n#endif",
+        'Step 26: arm_neon.h include in spritex8p32.c'
+    )
 
     putsprite_inner_old = (
         "            if((lx + count) > xmax)\n"
@@ -2292,10 +2304,17 @@ endif
         "                unsigned p1 = palette[data[1]];\n"
         "                unsigned p2 = palette[data[2]];\n"
         "                unsigned p3 = palette[data[3]];\n"
+        "#ifdef __ARM_NEON\n"
+        "                /* Step 26 (v3.1): NEON 128-bit store consolidates 4 STRs */\n"
+        "                /* into one VST1.32. Saves ~3 cycles per 4-pixel iter. */\n"
+        "                /* Dest is u32-aligned (sufficient for unaligned VST1.32). */\n"
+        "                vst1q_u32((uint32_t *)&dest[lx], (uint32x4_t){p0, p1, p2, p3});\n"
+        "#else\n"
         "                dest[lx]     = p0;\n"
         "                dest[lx + 1] = p1;\n"
         "                dest[lx + 2] = p2;\n"
         "                dest[lx + 3] = p3;\n"
+        "#endif\n"
         "                lx    += 4;\n"
         "                data  += 4;\n"
         "                count -= 4;\n"
@@ -2310,10 +2329,18 @@ endif
     write(sp32_path, sp32)
     print("  spritex8p32.c: putsprite_ inner LUT loop tightened (4x unroll + prefetch).")
 
-    # Step 22b: scalar tightening of putscreenx8p32 in screen32.c
-    print("Patching screen32.c (Step 22b: scalar tightening of putscreenx8p32 no-blend no-key path)...")
+    # Step 22b + Step 26: scalar tightening + NEON destination stores in putscreenx8p32
+    print("Patching screen32.c (Step 22b + Step 26: scalar tightening + NEON dest stores in putscreenx8p32)...")
     sc32_path = os.path.join(obor, 'source/gamelib/screen32.c')
     sc32 = read(sc32_path)
+
+    # Step 26 (v3.1): arm_neon.h include for vst1q_u32.
+    sc32 = strict_replace(
+        sc32,
+        "#include <stdio.h>\n#include <string.h>\n#include \"types.h\"",
+        "#include <stdio.h>\n#include <string.h>\n#include \"types.h\"\n#ifdef __ARM_NEON\n#include <arm_neon.h>\n#endif",
+        'Step 26: arm_neon.h include in screen32.c'
+    )
 
     putscreen_inner_old = (
         "        else // without colorkey\n"
@@ -2358,10 +2385,15 @@ endif
         "                    unsigned p1 = remap[sp[j + 1]];\n"
         "                    unsigned p2 = remap[sp[j + 2]];\n"
         "                    unsigned p3 = remap[sp[j + 3]];\n"
+        "#ifdef __ARM_NEON\n"
+        "                    /* Step 26 (v3.1): NEON 128-bit store. */\n"
+        "                    vst1q_u32((uint32_t *)&dp[j], (uint32x4_t){p0, p1, p2, p3});\n"
+        "#else\n"
         "                    dp[j]     = p0;\n"
         "                    dp[j + 1] = p1;\n"
         "                    dp[j + 2] = p2;\n"
         "                    dp[j + 3] = p3;\n"
+        "#endif\n"
         "                }\n"
         "                for(; j < cw; j++)\n"
         "                {\n"
