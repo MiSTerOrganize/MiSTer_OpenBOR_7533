@@ -23,12 +23,18 @@
  * Copyright (C) 2026 MiSTer Organize -- GPL-3.0
  */
 
+/* Step J (v3.1 perf): _GNU_SOURCE for pthread_setaffinity_np + CPU_SET. */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE 1
+#endif
+
 #include "sblaster.h"
 #include "soundmix.h"
 #include "sdlport.h"
 #include "native_audio_writer.h"
 
 #include <pthread.h>
+#include <sched.h>  /* Step J: CPU_ZERO / CPU_SET / cpu_set_t */
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,6 +69,19 @@ static void *audio_thread_fn(void *arg) {
     (void)arg;
     static int16_t in_buf[IN_FRAMES_PER_TICK * 2];   /* stereo S16 @ 44.1 kHz from engine */
     static int16_t out_buf[MISTER_AUDIO_CHUNK * 2];  /* stereo S16 @ 48 kHz for DDR3      */
+
+    /* Step J (v3.1 perf, 2026-05-28): pin audio thread to core 0.
+     * Engine + keepalive run on core 1 via taskset 0x02 in _handler.sh
+     * (Step 29). Without this, audio thread inherits core 1 affinity
+     * and competes with the render thread. Pinning to core 0 separates
+     * the workloads. Audio thread is light (~6.7 ticks/sec, each ~3ms)
+     * so it shares core 0 happily with kernel + Master_Daemon. */
+    {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(0, &cpuset);
+        pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
+    }
 
     /* 16.16 step per output sample: (44100 << 16) / 48000 = 60211.
      * Cast to uint64_t before shift to avoid the int32 overflow trap. */

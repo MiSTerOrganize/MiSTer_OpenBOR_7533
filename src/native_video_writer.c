@@ -178,21 +178,39 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                     vst1q_u16((uint16_t*)(dst_row + x), out);
                 }
             } else {
-                /* Scalar fallback with uint64_t-packed writes (4 px per
-                 * store). Handles squish via src_x_table; same bit-exact
-                 * output as the original scalar loop. */
-                for (int x = 0; x < NV_FRAME_WIDTH; x += 4) {
-                    uint16_t p0 = src_row[src_x_table[x + 0]];
-                    uint16_t p1 = src_row[src_x_table[x + 1]];
-                    uint16_t p2 = src_row[src_x_table[x + 2]];
-                    uint16_t p3 = src_row[src_x_table[x + 3]];
-                    p0 = ((p0 & 0x001F) << 11) | (p0 & 0x07E0) | ((p0 & 0xF800) >> 11);
-                    p1 = ((p1 & 0x001F) << 11) | (p1 & 0x07E0) | ((p1 & 0xF800) >> 11);
-                    p2 = ((p2 & 0x001F) << 11) | (p2 & 0x07E0) | ((p2 & 0xF800) >> 11);
-                    p3 = ((p3 & 0x001F) << 11) | (p3 & 0x07E0) | ((p3 & 0xF800) >> 11);
-                    uint64_t packed = ((uint64_t)p0) | ((uint64_t)p1 << 16)
-                                    | ((uint64_t)p2 << 32) | ((uint64_t)p3 << 48);
-                    *(volatile uint64_t*)(dst_row + x) = packed;
+                /* Step K (v3.1 perf, 2026-05-28): NEON wide-source squish.
+                 * For non-320 source widths (Avengers 480, He-Man 960, etc.)
+                 * the Step 20 fast path can't fire — squish via src_x_table
+                 * is needed. ARM NEON has no efficient gather, so the 8
+                 * indexed loads stay scalar, but the BGR565->RGB565 convert
+                 * + store goes through NEON for ~2-3x speedup on the
+                 * inner loop.
+                 *
+                 * Expected: Avengers vcopy 4.5 -> ~1.5-2 ms/frame
+                 *           He-Man vcopy 6.1 -> ~3-4 ms/frame */
+                const uint16x8_t mask_r = vdupq_n_u16(0x001F);
+                const uint16x8_t mask_g = vdupq_n_u16(0x07E0);
+                const uint16x8_t mask_b = vdupq_n_u16(0xF800);
+                for (int x = 0; x < NV_FRAME_WIDTH; x += 8) {
+                    /* 8 scalar indexed loads (NEON has no gather on ARMv7). */
+                    uint16_t gather[8] __attribute__((aligned(16)));
+                    gather[0] = src_row[src_x_table[x + 0]];
+                    gather[1] = src_row[src_x_table[x + 1]];
+                    gather[2] = src_row[src_x_table[x + 2]];
+                    gather[3] = src_row[src_x_table[x + 3]];
+                    gather[4] = src_row[src_x_table[x + 4]];
+                    gather[5] = src_row[src_x_table[x + 5]];
+                    gather[6] = src_row[src_x_table[x + 6]];
+                    gather[7] = src_row[src_x_table[x + 7]];
+                    /* NEON convert BGR565 -> RGB565 (same as Step 20 fast path). */
+                    uint16x8_t px = vld1q_u16(gather);
+                    uint16x8_t r = vandq_u16(px, mask_r);
+                    uint16x8_t g = vandq_u16(px, mask_g);
+                    uint16x8_t b = vandq_u16(px, mask_b);
+                    uint16x8_t r_shifted = vshlq_n_u16(r, 11);
+                    uint16x8_t b_shifted = vshrq_n_u16(b, 11);
+                    uint16x8_t out = vorrq_u16(vorrq_u16(r_shifted, g), b_shifted);
+                    vst1q_u16((uint16_t*)(dst_row + x), out);
                 }
             }
         }
