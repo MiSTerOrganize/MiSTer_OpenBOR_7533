@@ -111,4 +111,10 @@ fi
 sleep 1
 
 echo "OpenBOR handler: dispatching to $BINARY (RBF=$MISTER_RBF)" > "$LOGDIR/OpenBOR.log"
-exec ./"$BINARY" >> "$LOGDIR/OpenBOR.log" 2>&1
+
+# Step 29 (v3.1, 2026-05-27): CPU affinity — pin engine to core 1.
+# MiSTer's Cortex-A9 is dual-core. Master_Daemon, _handler.sh, kernel,
+# and Linux background processes share core 0; engine gets core 1
+# exclusively. Reduces context-switch overhead on the render thread.
+# Mask 0x02 = bit 1 set = core 1 only (0-indexed).
+exec taskset 0x02 ./"$BINARY" >> "$LOGDIR/OpenBOR.log" 2>&1

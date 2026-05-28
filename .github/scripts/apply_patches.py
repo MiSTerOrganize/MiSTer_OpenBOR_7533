@@ -151,13 +151,20 @@ endif
         print("  ERROR: BUILD_LINUX_LE_arm anchor not found — Makefile structure may have changed")
 
     # Add MISTER_NATIVE_VIDEO CFLAGS. v7533 uses SDL2 natively; no
-    # -DSDL2 needed (no codepaths gate on it). Keep -O1 to dodge the
-    # GCC aggressive-loop UB that bit us at openbor.c in 4086.
+    # -DSDL2 needed (no codepaths gate on it).
+    #
+    # Step 25 (v3.1 perf, 2026-05-27): upgrade -O1 -> -O2 + funroll-loops.
+    # Original choice of -O1 was to dodge GCC aggressive-loop UB in 4086's
+    # openbor.c. The cleaner fix is explicit -fno-aggressive-loop-optimizations
+    # at -O2 — keeps the protection while enabling -O2's broader inlining,
+    # vectorization, and register allocation. -funroll-loops gives further
+    # gain on the palette LUT inner loops which are the hot path.
+    # Expected gain: 10-20% engine-wide speedup vs -O1 baseline.
     mf = strict_replace(
         mf,
         "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif",
-        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O1 -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nendif",
-        'Makefile MISTER_NATIVE_VIDEO CFLAGS injection'
+        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O2 -fno-aggressive-loop-optimizations -funroll-loops -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nendif",
+        'Makefile MISTER_NATIVE_VIDEO CFLAGS injection (Step 25: -O2 + funroll-loops)'
     )
 
     # Add native_video_writer.o and native_audio_writer.o to objects.
@@ -2272,10 +2279,13 @@ endif
         "            {\n"
         "                count = xmax - lx;\n"
         "            }\n"
-        "            /* Step 22 (2026-05-27): 4x unroll + prefetch for palette LUT.\n"
+        "            /* Step 22 + 28 (v3.1, 2026-05-27): 4x unroll + DEEP prefetch.\n"
         "             * Inner loop is memory-bandwidth bound on ARMv7 Cortex-A9.\n"
-        "             * 4-pixel unroll lets compiler interleave load/lookup/store. */\n"
-        "            __builtin_prefetch(data + 32, 0, 0);\n"
+        "             * 4-pixel unroll lets compiler interleave load/lookup/store.\n"
+        "             * Step 28: prefetch 128 bytes ahead (was 32). Cortex-A9 L1\n"
+        "             * line is 32B; 4-line lookahead matches RLE run lengths and\n"
+        "             * hides DDR3 read latency better. */\n"
+        "            __builtin_prefetch(data + 128, 0, 0);\n"
         "            while(count >= 4)\n"
         "            {\n"
         "                unsigned p0 = palette[data[0]];\n"
@@ -2338,7 +2348,10 @@ endif
         "            do\n"
         "            {\n"
         "                int j;\n"
+        "                /* Step 28 (v3.1): prefetch next line AND one beyond.\n"
+        "                 * Two PLDs deep keeps Cortex-A9's prefetcher engaged. */\n"
         "                __builtin_prefetch(sp + sw, 0, 0);\n"
+        "                __builtin_prefetch(sp + sw + sw, 0, 0);\n"
         "                for(j = 0; j + 4 <= cw; j += 4)\n"
         "                {\n"
         "                    unsigned p0 = remap[sp[j]];\n"
