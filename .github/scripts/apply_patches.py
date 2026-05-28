@@ -1324,9 +1324,12 @@ endif
         "    return;\n"
         "}"
     )
-    ob = strict_replace(ob, bp14_old, bp14_new,
-                        'Step 14: B+E entity-collision optimization (filter non-collidable + 256px rect cull)')
-    print("  Step 14: B+E entity-collision cull -- expected 5-10x speedup on arrange bucket")
+    # TEMPORARY DIAG (2026-05-28): Step 14 REVERTED for Cap freespecial4
+    # freeze bisect. REVERT AFTER MEASURED — restore strict_replace call
+    # below once we know whether Step 14 caused the Cap freeze.
+    # ob = strict_replace(ob, bp14_old, bp14_new,
+    #                     'Step 14: B+E entity-collision optimization (filter non-collidable + 256px rect cull)')
+    print("  Step 14: SKIPPED (TEMPORARY DIAG bisect) -- REVERT AFTER MEASURED")
 
     # -- Step 15 (2026-05-26): Path 1 reorder of normal_find_target() loop body.
     #
@@ -1440,9 +1443,11 @@ endif
         "            }\n"
         "        }"
     )
-    ob = strict_replace(ob, pf15_old, pf15_new,
-                        'Step 15: Path 1 reorder of normal_find_target() loop body (cheap-first)')
-    print("  Step 15: normal_find_target() cheap-first reorder (no behavior change)")
+    # TEMPORARY DIAG (2026-05-28): Step 15 REVERTED for Cap freespecial4 freeze
+    # bisect. REVERT AFTER MEASURED.
+    # ob = strict_replace(ob, pf15_old, pf15_new,
+    #                     'Step 15: Path 1 reorder of normal_find_target() loop body (cheap-first)')
+    print("  Step 15: SKIPPED (TEMPORARY DIAG bisect) -- REVERT AFTER MEASURED")
 
     # -- Step 16 (2026-05-26): three small zero-risk mechanical refactors.
     #
@@ -1532,8 +1537,10 @@ endif
         "            continue;\n"
         "        }"
     )
-    ob = strict_replace(ob, s16a_old, s16a_new,
-                        'Step 16a: do_attack invariant hoist + B-style pre-filter')
+    # TEMPORARY DIAG (2026-05-28): Step 16a REVERTED for Cap freespecial4 freeze
+    # bisect. REVERT AFTER MEASURED.
+    # ob = strict_replace(ob, s16a_old, s16a_new,
+    #                     'Step 16a: do_attack invariant hoist + B-style pre-filter')
 
     # Patch 16b: block_find_target short-circuit chain reorder cheap-first.
     s16b_old = (
@@ -1564,8 +1571,10 @@ endif
         "            && collision_attack_find_no_block_on_frame(attacker->animation, attacker->animpos, 1) != NULL // Valid blockable attack. (moved down -- expensive)\n"
         "            )"
     )
-    ob = strict_replace(ob, s16b_old, s16b_new,
-                        'Step 16b: block_find_target short-circuit reorder cheap-first')
+    # TEMPORARY DIAG (2026-05-28): Step 16b REVERTED for Cap freespecial4 freeze
+    # bisect. REVERT AFTER MEASURED.
+    # ob = strict_replace(ob, s16b_old, s16b_new,
+    #                     'Step 16b: block_find_target short-circuit reorder cheap-first')
 
     # Patch 16c: find_ent_here -- hoist grab-distance invariants out of loop.
     s16c_old = (
@@ -1614,12 +1623,12 @@ endif
         "    return NULL;\n"
         "}"
     )
-    ob = strict_replace(ob, s16c_old, s16c_new,
-                        'Step 16c: find_ent_here grab-distance invariant hoist')
+    # TEMPORARY DIAG (2026-05-28): Step 16c REVERTED for Cap freespecial4 freeze
+    # bisect. REVERT AFTER MEASURED.
+    # ob = strict_replace(ob, s16c_old, s16c_new,
+    #                     'Step 16c: find_ent_here grab-distance invariant hoist')
 
-    print("  Step 16a: do_attack invariant hoist + B-style pre-filter")
-    print("  Step 16b: block_find_target short-circuit reorder cheap-first")
-    print("  Step 16c: find_ent_here grab-distance invariant hoist")
+    print("  Step 16a/b/c: SKIPPED (TEMPORARY DIAG bisect) -- REVERT AFTER MEASURED")
 
     # -- Step 17 (2026-05-26): RE-INTRODUCED FPS profile + SUB-PROFILE v8.
     # Goal: measure post-Step 14/15/16 fps lift across the 7-PAK regression set
