@@ -486,6 +486,44 @@ endif
     write(os.path.join(obor, 'openbor.c'), obor_c)
     print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
 
+    # ── TEMPORARY DIAG (2026-05-28): shield position/velocity trace ─────────
+    # Companion to ShieldC trace. Logs shield entity's position+velocity each
+    # frame from inside update_ents. Goal: confirm whether velocity is non-zero
+    # (shield should be moving) and position is advancing.
+    # REVERT AFTER MEASURED.
+    print("Patching openbor.c (TEMPORARY DIAG shield pos/vel trace)...")
+    ob_path_pos = os.path.join(obor, 'openbor.c')
+    ob_pos = read(ob_path_pos)
+
+    pos_diag_old = (
+        "                self->movex += self->velocity.x * self->speedmul * (100.0 / GAME_SPEED);\n"
+        "                self->movez += self->velocity.z * self->speedmul * (100.0 / GAME_SPEED);\n"
+    )
+    pos_diag_new = (
+        pos_diag_old +
+        "                /* TEMPORARY DIAG (2026-05-28): shield pos/vel trace for Cap freeze. */\n"
+        "                /* REVERT AFTER MEASURED. */\n"
+        "                {\n"
+        "                    static unsigned int _shield_frame = 0;\n"
+        "                    if (self->modeldata.name && strcasecmp(self->modeldata.name, \"shield\") == 0) {\n"
+        "                        _shield_frame++;\n"
+        "                        if (_shield_frame <= 30 || _shield_frame % 60 == 0) {\n"
+        "                            fprintf(stderr, \"[SHIELDPOS] f=%u pos=(%.1f,%.1f,%.1f) vel=(%.1f,%.1f,%.1f) movex=%.2f movez=%.2f animpos=%d\\n\",\n"
+        "                                _shield_frame,\n"
+        "                                self->position.x, self->position.y, self->position.z,\n"
+        "                                self->velocity.x, self->velocity.y, self->velocity.z,\n"
+        "                                self->movex, self->movez,\n"
+        "                                self->animpos);\n"
+        "                            fflush(stderr);\n"
+        "                        }\n"
+        "                    }\n"
+        "                }\n"
+    )
+    ob_pos = strict_replace(ob_pos, pos_diag_old, pos_diag_new,
+                            'TEMPORARY DIAG: shield position/velocity trace in update_ents')
+    write(ob_path_pos, ob_pos)
+    print("  TEMPORARY DIAG: shield position/velocity trace injected (REVERT AFTER MEASURED)")
+
     # ── TEMPORARY DIAG (2026-05-28): Cap freespecial4 freeze investigation ─
     # Instrument system_setglobalvar / system_getglobalvar to log every
     # "ShieldC" set/get with rate-limited heartbeat. Lets us trace WHEN
