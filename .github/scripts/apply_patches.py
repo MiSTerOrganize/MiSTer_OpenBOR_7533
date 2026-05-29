@@ -937,6 +937,91 @@ endif
     print("  Step 36: kill_entity entry validates victim (catches recursive stale-pointer entry)")
     print("  Step 38: kill_entity entry also defends victim->parent + victim->subentity (TMNT-RP save-restore crash)")
 
+    # ── Step 39 TEMPORARY DIAG (2026-05-29): bounded checkpoint logging in
+    # kill_entity body. Steps 36+37+38 did NOT fix TMNT-RP save-game-continue
+    # SIGSEGV (still crashing at kill_entity+0x363 = same source-level site as
+    # before Step 38, just shifted by Step 38's added bytes). Hypothesis about
+    # victim->parent + victim->subentity was WRONG. Need ground-truth data.
+    #
+    # Approach: bounded (_diag_call < 10) fprintf+fflush at checkpoints A
+    # through K through the function body. Each prints CP label + key pointer
+    # values. After crash, LAST logged CP tells which code block faulted.
+    # REVERT AFTER MEASURED.
+    print("Patching openbor.c (Step 39 TEMPORARY DIAG: kill_entity checkpoint logging)...")
+    diag_block_old = (
+        "    execute_onkill_script(victim, trigger);\n"
+        "\n"
+        "    ent_unlink(victim);\n"
+        "    victim->weapent = NULL;\n"
+        "    victim->energy_state.health_current = 0;\n"
+        "    victim->exists = 0;\n"
+        "    ent_count--;\n"
+        "\n"
+        "    //UT: caution, script function killentity calls this\n"
+        "    clear_all_scripts(victim->scripts, 1);\n"
+        "\n"
+        "    if(victim->parent && victim->parent->subentity == victim)\n"
+        "    {\n"
+        "        victim->parent->subentity = NULL;\n"
+        "    }\n"
+        "    victim->parent = NULL;\n"
+        "    if(victim->modeldata.summonkill)\n"
+        "    {\n"
+        "        attack = emptyattack;\n"
+        "        attack.attack_type = ATK_SUB_ENTITY_PARENT_KILL;\n"
+        "        attack.dropv = default_model_dropv;\n"
+        "    }\n"
+        "\n"
+        "    defense_object = defense_find_current_object(self, NULL, attack.attack_type);"
+    )
+    diag_block_new = (
+        "    /* MiSTer Step 39 TEMPORARY DIAG (REVERT AFTER MEASURED) ─────────────── */\n"
+        "    /* Bounded checkpoint logging to pin save-game SIGSEGV site in kill_entity */\n"
+        "    /* body. Last logged CP before crash tells us which block faulted.        */\n"
+        "    { static int _diag_call = 0; if (_diag_call < 10) { _diag_call++; \\\n"
+        "      fprintf(stderr, \"[KE %d] CP=A entry-done victim=%p parent=%p sub=%p scripts=%p modeldata.summonkill=%d exists=%d\\n\", \\\n"
+        "        _diag_call, (void*)victim, (void*)victim->parent, (void*)victim->subentity, (void*)victim->scripts, victim->modeldata.summonkill, victim->exists); \\\n"
+        "      fflush(stderr); } }\n"
+        "\n"
+        "    execute_onkill_script(victim, trigger);\n"
+        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=B post-execute_onkill_script\\n\"); fflush(stderr); } }\n"
+        "\n"
+        "    ent_unlink(victim);\n"
+        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=C post-ent_unlink\\n\"); fflush(stderr); } }\n"
+        "    victim->weapent = NULL;\n"
+        "    victim->energy_state.health_current = 0;\n"
+        "    victim->exists = 0;\n"
+        "    ent_count--;\n"
+        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=D post-direct-writes scripts=%p\\n\", (void*)victim->scripts); fflush(stderr); } }\n"
+        "\n"
+        "    //UT: caution, script function killentity calls this\n"
+        "    clear_all_scripts(victim->scripts, 1);\n"
+        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=E post-clear_all_scripts parent=%p\\n\", (void*)victim->parent); fflush(stderr); } }\n"
+        "\n"
+        "    if(victim->parent && victim->parent->subentity == victim)\n"
+        "    {\n"
+        "        { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=E2 in-parent-check parent=%p\\n\", (void*)victim->parent); fflush(stderr); } }\n"
+        "        victim->parent->subentity = NULL;\n"
+        "    }\n"
+        "    victim->parent = NULL;\n"
+        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=F post-parent-clear summonkill=%d\\n\", victim->modeldata.summonkill); fflush(stderr); } }\n"
+        "    if(victim->modeldata.summonkill)\n"
+        "    {\n"
+        "        attack = emptyattack;\n"
+        "        attack.attack_type = ATK_SUB_ENTITY_PARENT_KILL;\n"
+        "        attack.dropv = default_model_dropv;\n"
+        "    }\n"
+        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=G pre-defense_find self=%p\\n\", (void*)self); fflush(stderr); } }\n"
+        "\n"
+        "    defense_object = defense_find_current_object(self, NULL, attack.attack_type);\n"
+        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=H post-defense_find defense_object=%p subentity=%p\\n\", (void*)defense_object, (void*)victim->subentity); fflush(stderr); } }"
+    )
+    ob_k39 = read(ob_path_g)
+    ob_k39 = strict_replace(ob_k39, diag_block_old, diag_block_new,
+                             'Step 39 TEMPORARY DIAG: bounded kill_entity checkpoint logging')
+    write(ob_path_g, ob_k39)
+    print("  Step 39 TEMPORARY DIAG: bounded checkpoints A-H injected in kill_entity body (REVERT AFTER MEASURED)")
+
     # ── Step 34 (2026-05-28): restore 4086's permissive range.base default ─
     # User reported Aliens Clash platform-mounted Prin shooters don't fire,
     # while ground-level Prin shooters work fine. Same enemy type, different
