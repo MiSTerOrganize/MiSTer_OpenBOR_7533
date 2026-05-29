@@ -744,6 +744,218 @@ endif
     write(obs_path_k, obs_k)
     print("  Step 32: openbor_killentity now validates script-supplied pointer (TMNT-RP continue crash fix)")
 
+    # ── TEMPORARY DIAG (2026-05-29): TMNT-RP roster unlock investigation ────
+    # User reports cart's update.c-based unlock mechanism shows all 60+
+    # characters selectable from fresh game on our 7533. Static analysis says
+    # the engine has all required APIs (alwaysupdate, execute_updatescripts,
+    # changemodelproperty case 4 = selectable, in_selectscreen openborvariant,
+    # get/setglobalvar) and they match what the bundled TMNT_Rescue_Palooza.exe
+    # uses. Runtime instrumentation needed to find where the chain breaks.
+    #
+    # REVERT AFTER MEASURED.
+    #
+    # Patches log:
+    # 1. execute_updatescripts() — every 60th call (1Hz), log in_selectscreen
+    # 2. changemodelproperty() case 4 (selectable) — every call (rare event)
+    # 3. load_playable_list() — every call (rare event, sees select.txt parse)
+    # 4. system_setglobalvar/getglobalvar — only for unlock-tracking char names
+    print("Patching openbor.c (TEMPORARY DIAG: TMNT-RP update.c + select-screen trace)...")
+    ob_diag_path = os.path.join(obor, 'openbor.c')
+    ob_diag = read(ob_diag_path)
+
+    # Patch 1: execute_updatescripts() — log call rate + in_selectscreen state
+    updiag_es_old = (
+        "void execute_updatescripts()\n"
+        "{\n"
+        "    if(Script_IsInitialized(&update_script))\n"
+        "    {\n"
+        "        Script_Execute(&(update_script));\n"
+        "    }\n"
+        "    if(level && Script_IsInitialized(&(level->update_script)))\n"
+        "    {\n"
+        "        Script_Execute(&(level->update_script));\n"
+        "    }\n"
+        "}"
+    )
+    updiag_es_new = (
+        "void execute_updatescripts()\n"
+        "{\n"
+        "    /* TEMPORARY DIAG (2026-05-29): TMNT-RP unlock investigation. REVERT AFTER MEASURED. */\n"
+        "    {\n"
+        "        static unsigned int _updiag_es_calls = 0;\n"
+        "        _updiag_es_calls++;\n"
+        "        if (_updiag_es_calls <= 5 || _updiag_es_calls % 60 == 0) {\n"
+        "            fprintf(stderr, \"[UPDIAG] execute_updatescripts call#%u init=%d in_select=%d alwaysupdate=%d ingame=%d _pause=%d\\n\",\n"
+        "                    _updiag_es_calls, Script_IsInitialized(&update_script),\n"
+        "                    (screen_status & IN_SCREEN_SELECT) ? 1 : 0,\n"
+        "                    alwaysupdate, ingame, _pause);\n"
+        "            fflush(stderr);\n"
+        "        }\n"
+        "    }\n"
+        "    if(Script_IsInitialized(&update_script))\n"
+        "    {\n"
+        "        Script_Execute(&(update_script));\n"
+        "    }\n"
+        "    if(level && Script_IsInitialized(&(level->update_script)))\n"
+        "    {\n"
+        "        Script_Execute(&(level->update_script));\n"
+        "    }\n"
+        "}"
+    )
+    ob_diag = strict_replace(ob_diag, updiag_es_old, updiag_es_new,
+                              'TEMPORARY DIAG: execute_updatescripts call+state trace')
+
+    # Patch 2: load_playable_list — log when called (sees select.txt parse)
+    updiag_lpl_old = (
+        "    for(i = 1; (value = GET_ARG(i))[0]; i++)\n"
+        "    {\n"
+        "        playermodels = findmodel(value);\n"
+        "        //if(playermodels == NULL) borShutdown(1, \"Player model '%s' is not loaded.\\n\", value);\n"
+        "        index = get_cached_model_index(playermodels->name);\n"
+        "        if(index == -1)\n"
+        "        {\n"
+        "            borShutdown(1, \"Player model '%s' is not cached.\\n\", value);\n"
+        "        }\n"
+        "        model_cache[index].selectable = 1;\n"
+        "    }\n"
+        "\n"
+        "    return;\n"
+        "}"
+    )
+    updiag_lpl_new = (
+        "    /* TEMPORARY DIAG (2026-05-29): TMNT-RP unlock investigation. REVERT AFTER MEASURED. */\n"
+        "    {\n"
+        "        int _updiag_lpl_count = 0;\n"
+        "        for(i = 1; (value = GET_ARG(i))[0]; i++) _updiag_lpl_count++;\n"
+        "        fprintf(stderr, \"[UPDIAG] load_playable_list called: about to set %d models selectable=1 (after reset_playable_list(0))\\n\", _updiag_lpl_count);\n"
+        "        fflush(stderr);\n"
+        "    }\n"
+        "    for(i = 1; (value = GET_ARG(i))[0]; i++)\n"
+        "    {\n"
+        "        playermodels = findmodel(value);\n"
+        "        //if(playermodels == NULL) borShutdown(1, \"Player model '%s' is not loaded.\\n\", value);\n"
+        "        index = get_cached_model_index(playermodels->name);\n"
+        "        if(index == -1)\n"
+        "        {\n"
+        "            borShutdown(1, \"Player model '%s' is not cached.\\n\", value);\n"
+        "        }\n"
+        "        model_cache[index].selectable = 1;\n"
+        "    }\n"
+        "\n"
+        "    return;\n"
+        "}"
+    )
+    ob_diag = strict_replace(ob_diag, updiag_lpl_old, updiag_lpl_new,
+                              'TEMPORARY DIAG: load_playable_list call trace')
+
+    write(ob_diag_path, ob_diag)
+    print("  TEMPORARY DIAG: execute_updatescripts + load_playable_list traces injected (REVERT AFTER MEASURED)")
+
+    # Patch 3 + 4: changemodelproperty case 4 + setglobalvar/getglobalvar in openborscript.c
+    print("Patching openborscript.c (TEMPORARY DIAG: changemodelproperty selectable + globalvar trace)...")
+    obs_diag_path = os.path.join(obor, 'openborscript.c')
+    obs_diag = read(obs_diag_path)
+
+    # Patch 3: changemodelproperty case 4 (selectable) — log every call
+    updiag_cmp_old = (
+        "        if(SUCCEEDED(ScriptVariant_IntegerValue(varlist[2], &ltemp)))\n"
+        "        {\n"
+        "            model_cache[iArg].selectable = (LONG)ltemp;\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            (*pretvar)->lVal = (LONG)0;\n"
+        "        }\n"
+        "        break;\n"
+        "    }\n"
+        "    }\n"
+        "\n"
+        "    return S_OK;\n"
+        "}"
+    )
+    updiag_cmp_new = (
+        "        if(SUCCEEDED(ScriptVariant_IntegerValue(varlist[2], &ltemp)))\n"
+        "        {\n"
+        "            model_cache[iArg].selectable = (LONG)ltemp;\n"
+        "            /* TEMPORARY DIAG (2026-05-29): TMNT-RP unlock investigation. REVERT AFTER MEASURED. */\n"
+        "            {\n"
+        "                static unsigned int _updiag_cmp_calls = 0;\n"
+        "                _updiag_cmp_calls++;\n"
+        "                if (_updiag_cmp_calls <= 50 || _updiag_cmp_calls % 200 == 0) {\n"
+        "                    extern int models_cached;\n"
+        "                    const char *_name = (iArg >= 0 && iArg < models_cached && model_cache[iArg].model)\n"
+        "                                        ? model_cache[iArg].model->name : \"NULL\";\n"
+        "                    fprintf(stderr, \"[UPDIAG] changemodelproperty(idx=%d, prop=4, val=%ld) model='%s' call#%u\\n\",\n"
+        "                            iArg, (long)ltemp, _name, _updiag_cmp_calls);\n"
+        "                    fflush(stderr);\n"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            (*pretvar)->lVal = (LONG)0;\n"
+        "        }\n"
+        "        break;\n"
+        "    }\n"
+        "    }\n"
+        "\n"
+        "    return S_OK;\n"
+        "}"
+    )
+    obs_diag = strict_replace(obs_diag, updiag_cmp_old, updiag_cmp_new,
+                               'TEMPORARY DIAG: changemodelproperty case 4 selectable trace')
+
+    # Patch 4: system_setglobalvar — log for character unlock names only
+    updiag_sgv_old = (
+        "HRESULT system_setglobalvar(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
+        "{\n"
+        "    LONG ltemp;\n"
+        "    if(paramCount < 2)\n"
+        "    {\n"
+        "        goto sgv_error;\n"
+        "    }\n"
+        "\n"
+        "    ScriptVariant_ChangeType(*pretvar, VT_INTEGER);\n"
+        "\n"
+        "    if(varlist[0]->vt == VT_STR)\n"
+        "    {\n"
+        "        (*pretvar)->lVal = (LONG)Varlist_SetByName(&global_var_list, StrCache_Get(varlist[0]->strVal), varlist[1]);\n"
+        "    }"
+    )
+    updiag_sgv_new = (
+        "HRESULT system_setglobalvar(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
+        "{\n"
+        "    LONG ltemp;\n"
+        "    if(paramCount < 2)\n"
+        "    {\n"
+        "        goto sgv_error;\n"
+        "    }\n"
+        "\n"
+        "    ScriptVariant_ChangeType(*pretvar, VT_INTEGER);\n"
+        "\n"
+        "    /* TEMPORARY DIAG (2026-05-29): TMNT-RP unlock investigation. REVERT AFTER MEASURED. */\n"
+        "    if (varlist[0]->vt == VT_STR) {\n"
+        "        const char *_nm = (const char*)StrCache_Get(varlist[0]->strVal);\n"
+        "        if (_nm && (strcasecmp(_nm, \"april\") == 0 || strcasecmp(_nm, \"casey\") == 0 ||\n"
+        "                    strcasecmp(_nm, \"usagi\") == 0 || strcasecmp(_nm, \"mona\") == 0 ||\n"
+        "                    strcasecmp(_nm, \"splin\") == 0 || strcasecmp(_nm, \"irma\") == 0)) {\n"
+        "            LONG _v = 0;\n"
+        "            ScriptVariant_IntegerValue(varlist[1], &_v);\n"
+        "            fprintf(stderr, \"[UPDIAG] setglobalvar('%s', %ld)\\n\", _nm, (long)_v);\n"
+        "            fflush(stderr);\n"
+        "        }\n"
+        "    }\n"
+        "    if(varlist[0]->vt == VT_STR)\n"
+        "    {\n"
+        "        (*pretvar)->lVal = (LONG)Varlist_SetByName(&global_var_list, StrCache_Get(varlist[0]->strVal), varlist[1]);\n"
+        "    }"
+    )
+    obs_diag = strict_replace(obs_diag, updiag_sgv_old, updiag_sgv_new,
+                               'TEMPORARY DIAG: system_setglobalvar trace for unlock-tracking names')
+
+    write(obs_diag_path, obs_diag)
+    print("  TEMPORARY DIAG: changemodelproperty + setglobalvar traces injected (REVERT AFTER MEASURED)")
+
     # ── Step 33 (2026-05-28): NULL-check ent_list[i] in kill_entity loop ──
     # User reported TMNT-RP continue-from-save still SIGSEGVing AFTER Step 32.
     # Step 32 validated the ent passed to openbor_killentity (it was in
