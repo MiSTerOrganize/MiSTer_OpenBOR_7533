@@ -905,13 +905,37 @@ endif
         "        if (!_mister_k_valid || !victim->exists) {\n"
         "            return;\n"
         "        }\n"
+        "    }\n"
+        "    /* MiSTer Step 38 (2026-05-29): defend victim->parent and victim->subentity   */\n"
+        "    /* against stale-pointer derefs in body. Step 36 validated victim itself, but */\n"
+        "    /* line 24299 derefs victim->parent->subentity, and lines 24317-22 deref      */\n"
+        "    /* victim->subentity->{parent, energy_state.health_current, takedamage} +     */\n"
+        "    /* recurses. Save/restore can leave these fields pointing at freed memory.    */\n"
+        "    /* Walk ent_list[] for each; NULL if not found. Existing NULL guards in the   */\n"
+        "    /* body then behave correctly. Cost: 2x O(ent_max) walks, not hot path.       */\n"
+        "    if (victim->parent) {\n"
+        "        int _mister_p_valid = 0;\n"
+        "        int _mister_p_i;\n"
+        "        for (_mister_p_i = 0; _mister_p_i < ent_max; _mister_p_i++) {\n"
+        "            if (ent_list[_mister_p_i] == victim->parent) { _mister_p_valid = 1; break; }\n"
+        "        }\n"
+        "        if (!_mister_p_valid) { victim->parent = NULL; }\n"
+        "    }\n"
+        "    if (victim->subentity) {\n"
+        "        int _mister_s_valid = 0;\n"
+        "        int _mister_s_i;\n"
+        "        for (_mister_s_i = 0; _mister_s_i < ent_max; _mister_s_i++) {\n"
+        "            if (ent_list[_mister_s_i] == victim->subentity) { _mister_s_valid = 1; break; }\n"
+        "        }\n"
+        "        if (!_mister_s_valid) { victim->subentity = NULL; }\n"
         "    }"
     )
     ob_k36 = read(ob_path_g)
     ob_k36 = strict_replace(ob_k36, kent_entry_old, kent_entry_new,
-                             'Step 36: kill_entity entry validates victim against ent_list[]')
+                             'Step 36+38: kill_entity entry validates victim + child pointers (parent, subentity)')
     write(ob_path_g, ob_k36)
     print("  Step 36: kill_entity entry validates victim (catches recursive stale-pointer entry)")
+    print("  Step 38: kill_entity entry also defends victim->parent + victim->subentity (TMNT-RP save-restore crash)")
 
     # ── Step 34 (2026-05-28): restore 4086's permissive range.base default ─
     # User reported Aliens Clash platform-mounted Prin shooters don't fire,
