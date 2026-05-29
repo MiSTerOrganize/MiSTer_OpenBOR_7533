@@ -843,6 +843,76 @@ endif
     write(ob_path_g, ob_k33)
     print("  Step 33: kill_entity loop now NULL-safe against stale ent_list[] slots")
 
+    # ── Step 36 (2026-05-29): validate victim at kill_entity ENTRY ─────────
+    # 2026-05-29 user reported TMNT-RP continue-from-save SIGSEGV REGRESSION
+    # after Steps 32+33 should have fixed it. Crash signature: kill_entity+0xed
+    # (slightly shifted from original +0xe7 by Step 33's added bytes), fault
+    # address 0x42c = offsetof(entity, exists).
+    #
+    # Root cause: kill_entity has a RECURSIVE call:
+    #   if(victim->modeldata.summonkill == 1 && victim->subentity)
+    #       kill_entity(self = victim->subentity, ...);
+    # If victim->subentity is a STALE pointer (entity freed, memory reused),
+    # the recursive call passes garbage. The recursive entry check
+    #   if(victim == NULL || !victim->exists)
+    # does NOT validate the pointer is in ent_list[] -- only checks NULL.
+    # Stale-non-NULL: NULL check passes, then !victim->exists derefs
+    # garbage+0x42c -> SIGSEGV.
+    #
+    # Step 32 only validated SCRIPT entry into openbor_killentity. Step 33 only
+    # NULL-checked the internal loop. The recursive entry from victim->subentity
+    # bypasses BOTH defenses.
+    #
+    # Fix: validate victim against ent_list[] at the TOP of kill_entity itself.
+    # Catches script entry AND every recursive internal call. Silent return on
+    # stale: caller's intent is fulfilled if entity is already gone.
+    # Cost: O(ent_max) per call, negligible (not per-frame).
+    print("Patching openbor.c (Step 36: validate victim at kill_entity entry)...")
+    kent_entry_old = (
+        "void kill_entity(entity *victim, e_kill_entity_trigger trigger)\n"
+        "{\n"
+        "    int i = 0;\n"
+        "    s_attack attack;\n"
+        "    s_defense* defense_object = NULL;\n"
+        "    entity *tempent = self;\n"
+        "\n"
+        "    if(victim == NULL || !victim->exists)\n"
+        "    {\n"
+        "        return;\n"
+        "    }"
+    )
+    kent_entry_new = (
+        "void kill_entity(entity *victim, e_kill_entity_trigger trigger)\n"
+        "{\n"
+        "    int i = 0;\n"
+        "    s_attack attack;\n"
+        "    s_defense* defense_object = NULL;\n"
+        "    entity *tempent = self;\n"
+        "\n"
+        "    /* MiSTer Step 36 (2026-05-29): validate victim is in ent_list[] before deref. */\n"
+        "    /* Catches stale-pointer entry from recursive kill_entity(victim->subentity,...) */\n"
+        "    /* call. Step 32 only validated script entry; Step 33 only NULL-checked loop. */\n"
+        "    if(victim == NULL)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    {\n"
+        "        int _mister_k_i;\n"
+        "        int _mister_k_valid = 0;\n"
+        "        for (_mister_k_i = 0; _mister_k_i < ent_max; _mister_k_i++) {\n"
+        "            if (ent_list[_mister_k_i] == victim) { _mister_k_valid = 1; break; }\n"
+        "        }\n"
+        "        if (!_mister_k_valid || !victim->exists) {\n"
+        "            return;\n"
+        "        }\n"
+        "    }"
+    )
+    ob_k36 = read(ob_path_g)
+    ob_k36 = strict_replace(ob_k36, kent_entry_old, kent_entry_new,
+                             'Step 36: kill_entity entry validates victim against ent_list[]')
+    write(ob_path_g, ob_k36)
+    print("  Step 36: kill_entity entry validates victim (catches recursive stale-pointer entry)")
+
     # ── Step 34 (2026-05-28): restore 4086's permissive range.base default ─
     # User reported Aliens Clash platform-mounted Prin shooters don't fire,
     # while ground-level Prin shooters work fine. Same enemy type, different
