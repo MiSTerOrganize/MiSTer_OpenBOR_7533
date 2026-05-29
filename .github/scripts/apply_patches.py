@@ -1235,6 +1235,115 @@ endif
     write(ob_path_g, ob_k37)
     print("  Step 37: death_try_sequence_damage now triggers set_death immediately when DEATH flag set + no anim fall (TMNT-RP explosion fix)")
 
+    # ── Step 41 TEMPORARY DIAG (2026-05-29): Raph respawn-goes-vertical-upward.
+    # User reports Step 37 v2 deploy introduced a regression: when player Raph
+    # dies and respawns, he goes vertical upward and disappears offscreen.
+    # Step 37 v2 has TYPE_PLAYER guards that SHOULD prevent firing on Raph
+    # (he has anim_fall + is TYPE_PLAYER), but something subtle breaks his
+    # respawn. Need ground-truth data via bounded DIAG.
+    #
+    # Three checkpoints:
+    # (a) Inside Step 37 v2's outer if-block: log type + animating when block
+    #     enters. If [RP-37] appears with type=PLAYER, my outer-if is firing
+    #     for players despite my reasoning -> Step 37 v3 must add outer guard.
+    # (b) In ent_default_init TYPE_PLAYER case: log entity position + velocity
+    #     at player creation (this is the respawn entry point).
+    # (c) In per-tick gravity calc: log position.y, velocity.y, animation
+    #     gravity flag, model gravity flag for TYPE_PLAYER (first 30 ticks).
+    #     This tells us whether gravity is being applied during respawn and
+    #     what's making Raph go upward instead of falling.
+    # REVERT AFTER MEASURED.
+    # Step 41 MUST run AFTER Step 37 because Step 41a anchors on Step 37's
+    # NEW pattern (the outer if-block that Step 37 just inserted).
+
+    # (a) DIAG inside Step 37 v2 outer if-block
+    print("Patching openbor.c (Step 41a TEMPORARY DIAG: detect if Step 37 v2 fires for players)...")
+    s41a_old = (
+        "    if (((death_sequence & DEATH_CONFIG_DEATH_AIR) || (death_sequence & DEATH_CONFIG_DEATH_GROUND))\n"
+        "        && !validanim(acting_entity, ANI_FALL))\n"
+        "    {\n"
+        "        acting_entity->velocity.x = 0;"
+    )
+    s41a_new = (
+        "    if (((death_sequence & DEATH_CONFIG_DEATH_AIR) || (death_sequence & DEATH_CONFIG_DEATH_GROUND))\n"
+        "        && !validanim(acting_entity, ANI_FALL))\n"
+        "    {\n"
+        "        /* MiSTer Step 41a TEMPORARY DIAG (REVERT AFTER MEASURED): detect */\n"
+        "        /* if this block fires for TYPE_PLAYER. If yes, Step 37 v2's TYPE_PLAYER */\n"
+        "        /* guard inside is insufficient and Step 37 v3 must add outer guard.   */\n"
+        "        { static int _d_37=0; if (_d_37 < 5) { _d_37++; \\\n"
+        "          fprintf(stderr, \"[RP-37 %d] OUTER-IF FIRED type=%d (PLAYER=%d) animating=%d health=%d\\n\", \\\n"
+        "            _d_37, acting_entity->modeldata.type, !!(acting_entity->modeldata.type & TYPE_PLAYER), \\\n"
+        "            acting_entity->animating, acting_entity->energy_state.health_current); \\\n"
+        "          fflush(stderr); } }\n"
+        "        acting_entity->velocity.x = 0;"
+    )
+    ob_s41a = read(ob_path_g)
+    ob_s41a = strict_replace(ob_s41a, s41a_old, s41a_new,
+                              'Step 41a TEMPORARY DIAG: detect Step 37 v2 firing for players')
+    write(ob_path_g, ob_s41a)
+    print("  Step 41a TEMPORARY DIAG: Step 37 v2 outer-if entry logged")
+
+    # (b) DIAG at ent_default_init TYPE_PLAYER case
+    print("Patching openbor.c (Step 41b TEMPORARY DIAG: log player ent_default_init)...")
+    s41b_old = (
+        "    case TYPE_PLAYER:\n"
+        "        //e->direction = (level->scrolldir != SCROLL_LEFT);\n"
+        "        e->takedamage = player_takedamage;\n"
+        "        e->think = player_think;\n"
+        "        e->trymove = player_trymove;"
+    )
+    s41b_new = (
+        "    case TYPE_PLAYER:\n"
+        "        /* MiSTer Step 41b TEMPORARY DIAG (REVERT AFTER MEASURED): log */\n"
+        "        /* player entity creation state for respawn diagnosis.        */\n"
+        "        { static int _d_init=0; if (_d_init < 5) { _d_init++; \\\n"
+        "          fprintf(stderr, \"[RI %d] ent_default_init PLAYER pos=(%.1f,%.1f,%.1f) vel=(%.2f,%.2f,%.2f) model_gravity=%d antigrav=%.2f animnum=%d\\n\", \\\n"
+        "            _d_init, e->position.x, e->position.y, e->position.z, \\\n"
+        "            e->velocity.x, e->velocity.y, e->velocity.z, \\\n"
+        "            !!(e->modeldata.move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY), \\\n"
+        "            e->modeldata.antigravity, e->animnum); \\\n"
+        "          fflush(stderr); } }\n"
+        "        //e->direction = (level->scrolldir != SCROLL_LEFT);\n"
+        "        e->takedamage = player_takedamage;\n"
+        "        e->think = player_think;\n"
+        "        e->trymove = player_trymove;"
+    )
+    ob_s41b = read(ob_path_g)
+    ob_s41b = strict_replace(ob_s41b, s41b_old, s41b_new,
+                              'Step 41b TEMPORARY DIAG: log player ent_default_init state')
+    write(ob_path_g, ob_s41b)
+    print("  Step 41b TEMPORARY DIAG: ent_default_init TYPE_PLAYER state logged")
+
+    # (c) DIAG at per-tick gravity calc for TYPE_PLAYER
+    print("Patching openbor.c (Step 41c TEMPORARY DIAG: log per-tick player gravity state)...")
+    s41c_old = (
+        "            // gravity, antigravity factors\n"
+        "            self->position.y += self->velocity.y * 100.0 / GAME_SPEED;"
+    )
+    s41c_new = (
+        "            // gravity, antigravity factors\n"
+        "            /* MiSTer Step 41c TEMPORARY DIAG (REVERT AFTER MEASURED): per-tick */\n"
+        "            /* gravity state for TYPE_PLAYER (first 30 ticks). Reveals whether  */\n"
+        "            /* Raph respawn entity has gravity applied (vel.y should DECREASE   */\n"
+        "            /* when going up due to gravity; if vel.y stays high or increases,  */\n"
+        "            /* gravity isn't reaching him).                                     */\n"
+        "            { static int _d_g=0; \\\n"
+        "              if ((self->modeldata.type & TYPE_PLAYER) && _d_g < 30) { _d_g++; \\\n"
+        "                fprintf(stderr, \"[RG %d] PLAYER pos.y=%.2f vel.y=%.3f anim_gravity=%d model_gravity=%d antigrav=%.2f animnum=%d animating=%d base=%.1f\\n\", \\\n"
+        "                  _d_g, self->position.y, self->velocity.y, \\\n"
+        "                  self->animation ? !!(self->animation->move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY) : -1, \\\n"
+        "                  !!(self->modeldata.move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY), \\\n"
+        "                  self->modeldata.antigravity, self->animnum, self->animating, self->base); \\\n"
+        "                fflush(stderr); } }\n"
+        "            self->position.y += self->velocity.y * 100.0 / GAME_SPEED;"
+    )
+    ob_s41c = read(ob_path_g)
+    ob_s41c = strict_replace(ob_s41c, s41c_old, s41c_new,
+                              'Step 41c TEMPORARY DIAG: per-tick player gravity state')
+    write(ob_path_g, ob_s41c)
+    print("  Step 41c TEMPORARY DIAG: per-tick gravity state for TYPE_PLAYER logged (first 30 ticks)")
+
     # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
     # Avengers - United Battle Force (and likely other late-build PAKs)
     # call getentityproperty(self, "dot") in scripts. v7533 renamed
