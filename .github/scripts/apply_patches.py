@@ -979,6 +979,87 @@ endif
     write(ob_path_g, ob_k34)
     print("  Step 34 v2: range.base AND range.y defaults = [-1000, +1000] (was both jumpheight-derived)")
 
+    # ── Step 37 (2026-05-29): restore 4086 instant-death semantics for carts
+    # without anim fall.
+    #
+    # User reported TMNT-RP enemies (foot ninja, mini_turret, bubblecopter)
+    # don't play their anim death on lethal damage -- just "poof" disappear
+    # without spawning the @cmd spawnbind "explosion_safe" sprite that the
+    # cart's anim death is designed to trigger. Pre-existing on MiSTer 7533
+    # since the start of TMNT-RP testing (not a Step 32/33/36 regression).
+    #
+    # Root cause: Damon Caskey 2023-03-28 refactor replaced 4086's direct
+    # path with the new DEATH_CONFIG_* bitmask flow:
+    #
+    # 4086 (openbor.c:~20342):
+    #   if(self->health <= 0 && self->modeldata.falldie == 1) {
+    #       set_death(self, ...);            // anim death plays IMMEDIATELY
+    #   } else { toss + set_fall, kill(self) if no fall anim }
+    #
+    # 7533 (openbor.c:~34397):
+    #   death_try_sequence_damage(acting_entity, death_config, DAMAGE);
+    #     -> sees (FALL_LIE_GROUND && acting_entity->animating) -> return 0
+    #   then caller does toss + set_fall(...);
+    #     -> entity has no anim fall defined -> set_fall returns 0
+    #     -> kill(self) called -> anim death NEVER plays
+    #
+    # All three affected TMNT-RP entity classes share:
+    #   - falldie 1 (sets DEATH_AIR | DEATH_GROUND flags)
+    #   - nodieblink 0/2/3 (declares post-fall behavior)
+    #   - NO anim fall defined (cart expects anim death to play directly)
+    #
+    # Fix: at the top of death_try_sequence_damage, if DEATH flag set AND
+    # entity has no valid ANI_FALL, trigger set_death immediately (mirror
+    # 4086 behavior). Modern carts WITH anim fall fall through to the
+    # existing DEATH_CONFIG_* flow unchanged.
+    #
+    # Pattern matches the family of Caskey-refactor-broke-legacy-cart fixes:
+    # Step 31 v2/v3 (subject_to_gravity / no_adjust_base directive_seen),
+    # Step 34 v2 (range default restoration),
+    # Step 35 (in_*screen openborvariant 0/1 normalize).
+    print("Patching openbor.c (Step 37: legacy instant-death for carts without anim fall)...")
+    dtsd_entry_old = (
+        "int death_try_sequence_damage(entity* acting_entity, e_death_config_flags death_sequence, e_death_sequence_acting_event acting_event)\n"
+        "{\n"
+        "    int result = 0;\n"
+        "    e_attack_types attack_type = acting_entity->last_damage_type;\n"
+        "    e_death_state death_state = acting_entity->death_state;\n"
+        "    \n"
+        "    if (death_state & DEATH_STATE_AIR)"
+    )
+    dtsd_entry_new = (
+        "int death_try_sequence_damage(entity* acting_entity, e_death_config_flags death_sequence, e_death_sequence_acting_event acting_event)\n"
+        "{\n"
+        "    int result = 0;\n"
+        "    e_attack_types attack_type = acting_entity->last_damage_type;\n"
+        "    e_death_state death_state = acting_entity->death_state;\n"
+        "\n"
+        "    /* MiSTer Step 37 (2026-05-29): legacy cart compat -- restore 4086's   */\n"
+        "    /* falldie==1 instant-death semantics for carts WITHOUT anim fall.     */\n"
+        "    /* Damon Caskey's 2023-03-28 refactor defers to fall-first via this    */\n"
+        "    /* function; carts authored before the refactor (TMNT Rescue Palooza,  */\n"
+        "    /* etc.) omit anim fall and expect anim death to play immediately on   */\n"
+        "    /* lethal damage. Without this guard, set_fall returns 0, kill() runs, */\n"
+        "    /* and anim death (with its @cmd spawnbind explosion sprite) NEVER     */\n"
+        "    /* plays. Modern carts with proper anim fall fall through unchanged.   */\n"
+        "    if (((death_sequence & DEATH_CONFIG_DEATH_AIR) || (death_sequence & DEATH_CONFIG_DEATH_GROUND))\n"
+        "        && !validanim(acting_entity, ANI_FALL))\n"
+        "    {\n"
+        "        acting_entity->velocity.x = 0;\n"
+        "        acting_entity->velocity.y = 0;\n"
+        "        acting_entity->velocity.z = 0;\n"
+        "        set_death(acting_entity, attack_type, 0);\n"
+        "        return 1;\n"
+        "    }\n"
+        "\n"
+        "    if (death_state & DEATH_STATE_AIR)"
+    )
+    ob_k37 = read(ob_path_g)
+    ob_k37 = strict_replace(ob_k37, dtsd_entry_old, dtsd_entry_new,
+                             'Step 37: death_try_sequence_damage instant-death early-return for carts without anim fall')
+    write(ob_path_g, ob_k37)
+    print("  Step 37: death_try_sequence_damage now triggers set_death immediately when DEATH flag set + no anim fall (TMNT-RP explosion fix)")
+
     # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
     # Avengers - United Battle Force (and likely other late-build PAKs)
     # call getentityproperty(self, "dot") in scripts. v7533 renamed
