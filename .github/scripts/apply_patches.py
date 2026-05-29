@@ -1022,6 +1022,55 @@ endif
     write(ob_path_g, ob_k39)
     print("  Step 39 TEMPORARY DIAG: bounded checkpoints A-H injected in kill_entity body (REVERT AFTER MEASURED)")
 
+    # ── Step 40 (2026-05-29): fix NULL self deref in kill_entity's
+    # defense_find_current_object call. Step 39 DIAG pinned the TMNT-RP
+    # save-game-continue SIGSEGV to this call:
+    #
+    #   [KE] CP=G pre-defense_find self=(nil)       <-- last log before crash
+    #   === CRASH: signal 11 at address 0x42c ===   R0=R1=R2=0
+    #
+    # Root cause: when kill_entity is called from the script bridge
+    # (cart's level-side spawn script via openbor_killentity ->
+    # kill_entity), the engine's global `self` pointer is NULL because
+    # the spawn script has no owner entity. defense_find_current_object
+    # derefs first arg's ->defense field; NULL self -> NULL->defense
+    # SIGSEGV.
+    #
+    # 4086 source has ZERO defense_find_current_object calls — this is a
+    # Damon Caskey v7533 addition that introduced the NULL deref risk.
+    #
+    # Fix: pass `victim` instead of `self`. victim is validated by Step 36
+    # (must be in ent_list[] and exists=1). Semantic is "find defense for
+    # entity being killed" which IS victim.
+    #
+    # This is the ACTUAL root cause of the TMNT-RP save-game crash that
+    # Steps 36+37+38 failed to fix.
+    print("Patching openbor.c (Step 40: fix kill_entity defense_find NULL self deref)...")
+    s40_diag_old = (
+        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=G pre-defense_find self=%p\\n\", (void*)self); fflush(stderr); } }\n"
+        "\n"
+        "    defense_object = defense_find_current_object(self, NULL, attack.attack_type);"
+    )
+    s40_diag_new = (
+        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=G pre-defense_find self=%p victim=%p\\n\", (void*)self, (void*)victim); fflush(stderr); } }\n"
+        "\n"
+        "    /* MiSTer Step 40 (2026-05-29): pass VICTIM not global self.       */\n"
+        "    /* When kill_entity is called from script bridge, global self can  */\n"
+        "    /* be NULL (cart's level-side spawn script has no owner entity).   */\n"
+        "    /* defense_find_current_object derefs first arg's ->defense field, */\n"
+        "    /* so NULL self -> SIGSEGV at offset_of(defense). victim is        */\n"
+        "    /* validated by Step 36 (in ent_list[] and exists=1). 4086 didn't  */\n"
+        "    /* have this function call at all; this is a 7533 Caskey addition  */\n"
+        "    /* that introduced the bug. Semantic: 'find defense for entity     */\n"
+        "    /* being killed' = victim, not the calling script's owner.         */\n"
+        "    defense_object = defense_find_current_object(victim, NULL, attack.attack_type);"
+    )
+    ob_k40 = read(ob_path_g)
+    ob_k40 = strict_replace(ob_k40, s40_diag_old, s40_diag_new,
+                             'Step 40: kill_entity defense_find_current_object uses victim not self (NULL deref fix)')
+    write(ob_path_g, ob_k40)
+    print("  Step 40: defense_find_current_object now uses victim (was self=NULL from script bridge) — TMNT-RP save-game crash root cause fix")
+
     # ── Step 34 (2026-05-28): restore 4086's permissive range.base default ─
     # User reported Aliens Clash platform-mounted Prin shooters don't fire,
     # while ground-level Prin shooters work fine. Same enemy type, different
