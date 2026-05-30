@@ -1402,6 +1402,108 @@ endif
     write(ob_path_g, ob_s44)
     print("  Step 44 TEMPORARY DIAG: SUBTYPE_ARROW entry + per-tick gravity log (REVERT AFTER MEASURED)")
 
+    # ── Step 45 (2026-05-30): auto-transition cart-spawned in-air arrows to ANI_FALL ────
+    # User-reported TMNT-RP construction-level rolling barrels float at spawn
+    # Y=130 (in air) instead of falling+bouncing+rolling like PC version.
+    # Step 44 DIAG pinned the cause:
+    #   - SUBTYPE_ARROW base auto-adjusts correctly to floor (56)
+    #   - SUBJECT_TO_GRAVITY is enabled on both model and animation
+    #   - BUT barrel stays in animnum=1 (ANI_IDLE) forever — never transitions
+    #     to its cart-defined `anim fall`
+    #   - vel.y oscillates 0 ↔ -0.05 every animation-frame transition (3-tick
+    #     cycle matches cart's `delay 10` per frame). At this rate the barrel
+    #     falls ~0.22 units per second → 5.6 MINUTES to reach floor.
+    #
+    # Cart's rolling_barrel.txt design intent (verified by inspecting cart):
+    #   subtype arrow + aironly 1 + anim fall (loop 0, bouncefactor 2, sound)
+    # Cart author authored anim fall + aironly explicitly = "this is a falling
+    # air entity, play fall anim on spawn."
+    #
+    # Stock OpenBOR (both 4086 + v7533) leaves SUBTYPE_ARROW entities in
+    # ANI_IDLE on spawn — doesn't auto-transition to ANI_FALL. PC TMNT-RP
+    # probably uses a custom-built engine (Damon Caskey routinely ships
+    # custom engines with carts) that auto-transitions.
+    #
+    # FIX: in SUBTYPE_ARROW case, after base assignment, transition to ANI_FALL
+    # if ALL FOUR cart-design signals are present (option C tightest gating):
+    #   (1) aironly_directive_seen  — cart declared `aironly 1` (air-only entity)
+    #   (2) position.y > 0          — actually spawned in air (not ground)
+    #   (3) !owner                  — level-spawned, not projectile-fired-by-entity
+    #   (4) validanim(e, ANI_FALL)  — cart explicitly authored a fall animation
+    #
+    # All 4 conditions are CART-AUTHOR'S EXPLICIT SIGNALS. Projectiles fired
+    # from launchers (have owner) and arrows without a fall anim are
+    # unaffected → no regression risk to standard arrow projectiles.
+    #
+    # Companion to Step 31 v2/v3 directive_seen pattern. Same defensive
+    # END-of-struct field placement (no offset shifts).
+    #
+    # Step 45a (s_model field) is added at the v3.10 block above.
+    # Step 45b: CMD_MODEL_AIRONLY parser sets aironly_directive_seen=1
+    # Step 45c: SUBTYPE_ARROW case auto-transitions to ANI_FALL when gated
+
+    # --- 45b: CMD_MODEL_AIRONLY parser sets the directive_seen flag ---
+    print("Patching openbor.c (Step 45b: CMD_MODEL_AIRONLY sets aironly_directive_seen)...")
+    s45b_old = (
+        "            case CMD_MODEL_AIRONLY:\t// Shadows display in air only?\n"
+        "\n"
+        "                tempInt = GET_INT_ARG(1);\n"
+        "\n"
+        "                newchar->shadow_config_flags = shadow_get_config_from_legacy_aironly(newchar->shadow_config_flags, tempInt);\n"
+        "                \n"
+        "                break;"
+    )
+    s45b_new = (
+        "            case CMD_MODEL_AIRONLY:\t// Shadows display in air only?\n"
+        "\n"
+        "                tempInt = GET_INT_ARG(1);\n"
+        "\n"
+        "                newchar->shadow_config_flags = shadow_get_config_from_legacy_aironly(newchar->shadow_config_flags, tempInt);\n"
+        "                if (tempInt > 0) newchar->aironly_directive_seen = 1; /* MiSTer Step 45: gate SUBTYPE_ARROW ANI_FALL auto-transition */\n"
+        "                \n"
+        "                break;"
+    )
+    ob_s45 = read(ob_path_g)
+    ob_s45 = strict_replace(ob_s45, s45b_old, s45b_new,
+                             'Step 45b: CMD_MODEL_AIRONLY sets aironly_directive_seen')
+
+    # --- 45c: SUBTYPE_ARROW case auto-transitions to ANI_FALL ---
+    # Anchor on the existing `e->speedmul = 2;\n            break;` at end of
+    # the SUBTYPE_ARROW block. Inject the transition BEFORE the break.
+    # NOTE: Step 44 DIAG (a) injected its log block right before this same
+    # break, so the current source has DIAG block + speedmul + break.
+    # We anchor on the DIAG block's tail + speedmul + break so our patch
+    # composes cleanly.
+    print("Patching openbor.c (Step 45c: SUBTYPE_ARROW auto-transitions to ANI_FALL)...")
+    s45c_old = (
+        "            } }\n"
+        "            /* ── end Step 44 DIAG (a) ─────────────────────────────────── */\n"
+        "            break;\n"
+    )
+    s45c_new = (
+        "            } }\n"
+        "            /* ── end Step 44 DIAG (a) ─────────────────────────────────── */\n"
+        "            /* MiSTer Step 45 (2026-05-30): auto-transition cart-spawned     */\n"
+        "            /* in-air arrows to ANI_FALL. TMNT-RP construction-level rolling */\n"
+        "            /* barrels declare `aironly 1` + `anim fall` and spawn at Y=130. */\n"
+        "            /* Stock leaves them in ANI_IDLE forever; gravity is enabled but */\n"
+        "            /* anim transitions reset vel.y so they barely fall. Gated on    */\n"
+        "            /* all 4 cart-design signals (option C tightest gating).         */\n"
+        "            if (e->modeldata.aironly_directive_seen\n"
+        "                && e->position.y > 0\n"
+        "                && !e->owner\n"
+        "                && validanim(e, ANI_FALL))\n"
+        "            {\n"
+        "                ent_set_anim(e, ANI_FALL, 0);\n"
+        "            }\n"
+        "            /* ── end Step 45 ──────────────────────────────────────────── */\n"
+        "            break;\n"
+    )
+    ob_s45 = strict_replace(ob_s45, s45c_old, s45c_new,
+                             'Step 45c: SUBTYPE_ARROW auto-transition to ANI_FALL')
+    write(ob_path_g, ob_s45)
+    print("  Step 45: SUBTYPE_ARROW auto-transitions to ANI_FALL when aironly+!owner+validanim ANI_FALL")
+
     # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
     # Avengers - United Battle Force (and likely other late-build PAKs)
     # call getentityproperty(self, "dot") in scripts. v7533 renamed
@@ -1681,8 +1783,8 @@ endif
     # Step 31 v2 (2026-05-28): also add gravity_directive_seen field at the END.
     # Step 31 v3 (2026-05-28): also add no_adjust_base_directive_seen field.
     # END placement preserves the no-offset-shift safety pattern of v3.9/v3.10.
-    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n    int gravity_directive_seen; /* MiSTer Step 31 v2: set by CMD_MODEL_SUBJECT_TO_GRAVITY parser; gates ent_default_init force-gravity for TYPE_NONE */\n    int no_adjust_base_directive_seen; /* MiSTer Step 31 v3: set by CMD_MODEL_NO_ADJUST_BASE parser; gates ent_default_init force-no-adjust-base for TYPE_NONE */\n} s_model;"
-    obh = strict_replace(obh, s_model_v310_old, s_model_v310_new, 'v3.10 + Step 31 v2 + v3: add directive_seen fields to s_model END')
+    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n    int gravity_directive_seen; /* MiSTer Step 31 v2: set by CMD_MODEL_SUBJECT_TO_GRAVITY parser; gates ent_default_init force-gravity for TYPE_NONE */\n    int no_adjust_base_directive_seen; /* MiSTer Step 31 v3: set by CMD_MODEL_NO_ADJUST_BASE parser; gates ent_default_init force-no-adjust-base for TYPE_NONE */\n    int aironly_directive_seen; /* MiSTer Step 45: set by CMD_MODEL_AIRONLY parser when arg>0; gates SUBTYPE_ARROW auto-transition to ANI_FALL */\n} s_model;"
+    obh = strict_replace(obh, s_model_v310_old, s_model_v310_new, 'v3.10 + Step 31 v2 + v3 + Step 45: add directive_seen fields to s_model END')
     write(obh_path, obh)
     print("  s_model.has_palette_directive added at struct end (v3.10)")
 
