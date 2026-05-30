@@ -1504,6 +1504,82 @@ endif
     write(ob_path_g, ob_s45)
     print("  Step 45: SUBTYPE_ARROW auto-transitions to ANI_FALL when aironly+!owner+validanim ANI_FALL")
 
+    # ── Step 46 (2026-05-30): landing transition ANI_FALL → ANI_IDLE + roll vel.x ────
+    # Step 45 made TMNT-RP rolling barrels fall (animnum=6 ANI_FALL, vel.y
+    # accumulating correctly). User hardware-verified barrels reach the ground.
+    # BUT they don't roll forward + scroll-lock prevents player from advancing.
+    #
+    # Root cause: cart's `anim fall` has `loop 0` (plays once). When the
+    # animation completes, engine sets `self->animating = ANIMATING_NONE` but
+    # does NOT auto-transition to idle. Engine `update_animation()` line 28396
+    # branch for loop-0 anims has no transition logic. So barrel stays stuck
+    # in ANI_FALL forever after the single-frame anim completes.
+    #
+    # Cart's design intent (visible in rolling_barrel.txt):
+    #   - anim idle = 4 frames + loop 1 + bouncefactor 2 + bbox + attack
+    #     (this is the ROLLING animation with attack hitbox)
+    #   - anim fall = 1 frame + loop 0 + bouncefactor 2
+    #     (this is the falling-then-bouncing animation)
+    # Cart expects post-landing transition: ANI_FALL → ANI_IDLE so the barrel
+    # rolls forward damaging the player.
+    #
+    # SUBTYPE_ARROW alone doesn't drive horizontal motion either — `arrow_move`
+    # only fires when cart declares `aimove arrow` (rolling_barrel.txt does
+    # NOT). And SUBTYPE_ARROW's init handler SKIPS `e->trymove = common_trymove`.
+    # So velocity.x stays at 0 unless explicitly set. PC TMNT-RP probably uses
+    # a custom-built engine with additional SUBTYPE_ARROW + aironly behavior.
+    #
+    # Step 46 fix: at the LANDING EVENT in check_gravity() (just before
+    # `self->hithead = NULL;`), if entity is SUBTYPE_ARROW + aironly + not
+    # already in ANI_IDLE + has ANI_IDLE defined + has speed.x > 0:
+    #   (a) transition to ANI_IDLE (the rolling animation)
+    #   (b) set vel.x = direction × speed.x so engine continues rolling
+    #
+    # Scroll-lock fix follow-on: once barrels roll, they exit the screen via
+    # cart's `offscreenkill 130` directive, count_ents drops, scroll-lock
+    # releases. No separate scroll-lock fix needed.
+    #
+    # Anchored on the END of the landing block (after checkdamageonlanding,
+    # before self->hithead = NULL).
+    print("Patching openbor.c (Step 46: landing transition ANI_FALL → ANI_IDLE + roll vel.x)...")
+    s46_old = (
+        "                        // Taking damage on a landing?\n"
+        "                        checkdamageonlanding(self);\n"
+        "\n"
+        "                        // in case landing, set hithead to NULL\n"
+        "                        self->hithead = NULL;\n"
+    )
+    s46_new = (
+        "                        // Taking damage on a landing?\n"
+        "                        checkdamageonlanding(self);\n"
+        "\n"
+        "                        /* MiSTer Step 46 (2026-05-30): aironly SUBTYPE_ARROW       */\n"
+        "                        /* transitions ANI_FALL -> ANI_IDLE on landing + sets       */\n"
+        "                        /* roll velocity. Cart's idle anim is the rolling state;    */\n"
+        "                        /* needs vel.x assigned because SUBTYPE_ARROW skips         */\n"
+        "                        /* common_trymove and no aimove arrow declared.             */\n"
+        "                        if (self->modeldata.subtype == SUBTYPE_ARROW\n"
+        "                            && self->modeldata.aironly_directive_seen\n"
+        "                            && self->animnum != ANI_IDLE\n"
+        "                            && validanim(self, ANI_IDLE)\n"
+        "                            && self->modeldata.speed.x > 0)\n"
+        "                        {\n"
+        "                            ent_set_anim(self, ANI_IDLE, 0);\n"
+        "                            self->velocity.x = (self->direction == DIRECTION_LEFT)\n"
+        "                                               ? -self->modeldata.speed.x\n"
+        "                                               : self->modeldata.speed.x;\n"
+        "                        }\n"
+        "                        /* ── end Step 46 ──────────────────────────────────── */\n"
+        "\n"
+        "                        // in case landing, set hithead to NULL\n"
+        "                        self->hithead = NULL;\n"
+    )
+    ob_s46 = read(ob_path_g)
+    ob_s46 = strict_replace(ob_s46, s46_old, s46_new,
+                             'Step 46: landing transition ANI_FALL → ANI_IDLE + roll vel.x')
+    write(ob_path_g, ob_s46)
+    print("  Step 46: landing event transitions aironly SUBTYPE_ARROW to ANI_IDLE + sets roll vel.x")
+
     # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
     # Avengers - United Battle Force (and likely other late-build PAKs)
     # call getentityproperty(self, "dot") in scripts. v7533 renamed
