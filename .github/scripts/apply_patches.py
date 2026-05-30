@@ -1299,6 +1299,109 @@ endif
     write(ob_path_g, ob_s42)
     print("  Step 42: TYPE_PLAYER force SUBJECT_TO_GRAVITY (hardware-verified — fixes Raph respawn-vertical)")
 
+    # ── Step 44 TEMPORARY DIAG (2026-05-29): SUBTYPE_ARROW base-lock investigation ───
+    # User reports TMNT-RP construction-level rolling barrels FLOAT at spawn Y=130
+    # (in air, above player) instead of falling+bouncing+rolling like PC version.
+    # Cart's rolling_barrel.txt: subtype arrow + aironly 1 + subject_to_hole 1
+    #                            + no_adjust_base 0 + subject_to_wall 1
+    # Level spawns at: coords X Z 130 (Y=130 above ground)
+    # Engine SUBTYPE_ARROW handler in ent_default_init (openbor.c:23194-23201) sets
+    # `e->base = e->position.y` for non-PROJECTILE_PRIME_BASE_FLOOR arrows --> locks
+    # at spawn altitude. IDENTICAL logic in Build 4086 (line 14515) and Build 6390
+    # (line 17335). PC TMNT-RP EXE behaves differently (barrels fall + bounce).
+    #
+    # This DIAG logs:
+    #   (A) Entry state at ent_default_init SUBTYPE_ARROW case END (after base set)
+    #       Bounded to 8 entries -- covers ~8 barrel spawns
+    #   (B) Per-tick gravity state for subtype-arrow entities
+    #       Bounded to 60 entries -- covers ~1 second @ 60fps
+    #
+    # CI auto-skip via TEMPORARY DIAG marker per [[no-diagnostic-binaries-in-db]].
+    # Binary deploys via WinSCP manual only; never enters db.json.
+    print("Patching openbor.c (Step 44 TEMPORARY DIAG: SUBTYPE_ARROW base-lock + per-tick gravity)...")
+
+    # --- 44a: entry-state DIAG at end of SUBTYPE_ARROW case in ent_default_init ---
+    s44a_old = (
+        "            e->nograb = 1;\n"
+        "            e->nograb_default = e->nograb;\n"
+        "            e->attacking = ATTACKING_ACTIVE;\n"
+        "            e->takedamage = arrow_takedamage;\n"
+        "            e->speedmul = 2;\n"
+        "            break;\n"
+    )
+    s44a_new = (
+        "            e->nograb = 1;\n"
+        "            e->nograb_default = e->nograb;\n"
+        "            e->attacking = ATTACKING_ACTIVE;\n"
+        "            e->takedamage = arrow_takedamage;\n"
+        "            e->speedmul = 2;\n"
+        "            /* MiSTer Step 44 TEMPORARY DIAG (REVERT AFTER MEASURED) ----- */\n"
+        "            /* Log SUBTYPE_ARROW entity entry state to investigate why    */\n"
+        "            /* TMNT-RP construction-level rolling barrels float at Y=130  */\n"
+        "            /* instead of falling+bouncing+rolling like PC version.       */\n"
+        "            { static int _d_bi=0; if (_d_bi < 8) { _d_bi++;\n"
+        "                fprintf(stderr, \"[BAR-INIT %d] name=%s pos=(%.1f,%.1f,%.1f) base=%.1f \"\n"
+        "                                \"projprime=0x%x model_grav=%d anim_grav=%d animnum=%d \"\n"
+        "                                \"speed.x=%.2f velocity.y=%.2f antigrav=%.3f\\n\",\n"
+        "                    _d_bi,\n"
+        "                    (e->model && e->model->name) ? e->model->name : \"(noname)\",\n"
+        "                    (double)e->position.x, (double)e->position.y, (double)e->position.z,\n"
+        "                    (double)e->base,\n"
+        "                    (unsigned)e->projectile_prime,\n"
+        "                    (e->modeldata.move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY) ? 1 : 0,\n"
+        "                    (e->animation && (e->animation->move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY)) ? 1 : 0,\n"
+        "                    e->animnum,\n"
+        "                    (double)e->modeldata.speed.x,\n"
+        "                    (double)e->velocity.y,\n"
+        "                    (double)e->modeldata.antigravity);\n"
+        "                fflush(stderr);\n"
+        "            } }\n"
+        "            /* ── end Step 44 DIAG (a) ─────────────────────────────────── */\n"
+        "            break;\n"
+    )
+    ob_s44 = read(ob_path_g)
+    ob_s44 = strict_replace(ob_s44, s44a_old, s44a_new,
+                             'Step 44 TEMPORARY DIAG (a): SUBTYPE_ARROW entry state log')
+
+    # --- 44b: per-tick DIAG before gravity application ---
+    # Filtered to subtype arrow entities only, bounded to 60 entries.
+    s44b_old = (
+        "            if(self->modeldata.move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY)\n"
+        "            {\n"
+        "                self->velocity.y += gravity * 100.0 / GAME_SPEED;\n"
+        "            }\n"
+    )
+    s44b_new = (
+        "            /* MiSTer Step 44 TEMPORARY DIAG (REVERT AFTER MEASURED) ----- */\n"
+        "            /* Per-tick log of subtype-arrow entity gravity state          */\n"
+        "            { static int _d_bg=0;\n"
+        "              if ((self->modeldata.subtype & SUBTYPE_ARROW) && _d_bg < 60) { _d_bg++;\n"
+        "                fprintf(stderr, \"[BAR-G %d] %s pos.y=%.2f vel.y=%.3f base=%.1f \"\n"
+        "                                \"model_grav=%d anim_grav=%d gravity_now=%.3f animnum=%d\\n\",\n"
+        "                    _d_bg,\n"
+        "                    (self->model && self->model->name) ? self->model->name : \"(noname)\",\n"
+        "                    (double)self->position.y,\n"
+        "                    (double)self->velocity.y,\n"
+        "                    (double)self->base,\n"
+        "                    (self->modeldata.move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY) ? 1 : 0,\n"
+        "                    (self->animation && (self->animation->move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY)) ? 1 : 0,\n"
+        "                    (double)gravity,\n"
+        "                    self->animnum);\n"
+        "                fflush(stderr);\n"
+        "              }\n"
+        "            }\n"
+        "            /* ── end Step 44 DIAG (b) ─────────────────────────────────── */\n"
+        "            if(self->modeldata.move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY)\n"
+        "            {\n"
+        "                self->velocity.y += gravity * 100.0 / GAME_SPEED;\n"
+        "            }\n"
+    )
+    ob_s44 = strict_replace(ob_s44, s44b_old, s44b_new,
+                             'Step 44 TEMPORARY DIAG (b): per-tick subtype-arrow gravity log')
+
+    write(ob_path_g, ob_s44)
+    print("  Step 44 TEMPORARY DIAG: SUBTYPE_ARROW entry + per-tick gravity log (REVERT AFTER MEASURED)")
+
     # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
     # Avengers - United Battle Force (and likely other late-build PAKs)
     # call getentityproperty(self, "dot") in scripts. v7533 renamed
