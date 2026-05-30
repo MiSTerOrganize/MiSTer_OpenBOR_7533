@@ -1561,6 +1561,60 @@ endif
     write(ob_path_g, ob_s47)
     print("  Step 47: aironly SUBTYPE_ARROW gets common_trymove (enables horizontal motion via movex)")
 
+    # ── Step 48 (2026-05-30): direct position.x update for aironly SUBTYPE_ARROW idle ──
+    # User reports barrels STILL roll in place after Step 47 (trymove assignment).
+    # trymove path may be failing for wall/collision/state reasons. Engine has
+    # multiple potential blockers in common_trymove (grab checks, Z bounds,
+    # wall checks, hole checks, base mismatch) — any could prevent motion for
+    # SUBTYPE_ARROW with unusual physics state.
+    #
+    # Direct approach: bypass trymove entirely. In check_gravity (which fires
+    # per tick per entity), if SUBTYPE_ARROW + aironly + ANI_IDLE + vel.x != 0,
+    # apply position.x += vel.x * 100/GAME_SPEED directly.
+    #
+    # Per [[no-false-found-it]] discipline: after Step 47's hypothesis-driven
+    # fix failed user verification, switch to a guaranteed-motion approach
+    # rather than another speculative trymove tweak.
+    #
+    # Risks: bypasses wall collision (cart's subject_to_wall ignored for X).
+    # But: cart's `offscreenkill 130` directive removes the barrel when it
+    # exits the screen by 130 pixels — so even passing through level boundary
+    # walls, barrel is killed shortly after.
+    #
+    # Anchor: inject in check_gravity, after gravity y-update. Adds ~5
+    # instructions per tick per SUBTYPE_ARROW entity (negligible cost).
+    print("Patching openbor.c (Step 48: direct position.x update for aironly SUBTYPE_ARROW idle)...")
+    s48_old = (
+        "            if(self->modeldata.move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY)\n"
+        "            {\n"
+        "                self->velocity.y += gravity * 100.0 / GAME_SPEED;\n"
+        "            }\n"
+    )
+    s48_new = (
+        "            if(self->modeldata.move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY)\n"
+        "            {\n"
+        "                self->velocity.y += gravity * 100.0 / GAME_SPEED;\n"
+        "            }\n"
+        "            /* MiSTer Step 48 (2026-05-30): direct position.x update for     */\n"
+        "            /* aironly SUBTYPE_ARROW in ANI_IDLE. Step 47 trymove path may   */\n"
+        "            /* fail (wall/grab/Z-bounds/etc.); bypass it for guaranteed      */\n"
+        "            /* rolling motion. Cart's offscreenkill 130 handles cleanup     */\n"
+        "            /* when barrel exits screen.                                     */\n"
+        "            if (self->modeldata.subtype == SUBTYPE_ARROW\n"
+        "                && self->modeldata.aironly_directive_seen\n"
+        "                && self->animnum == ANI_IDLE\n"
+        "                && self->velocity.x != 0.0f)\n"
+        "            {\n"
+        "                self->position.x += self->velocity.x * 100.0 / GAME_SPEED;\n"
+        "            }\n"
+        "            /* ── end Step 48 ──────────────────────────────────────────── */\n"
+    )
+    ob_s48 = read(ob_path_g)
+    ob_s48 = strict_replace(ob_s48, s48_old, s48_new,
+                             'Step 48: direct position.x for aironly SUBTYPE_ARROW idle')
+    write(ob_path_g, ob_s48)
+    print("  Step 48: direct position.x update bypasses trymove (guarantees rolling motion)")
+
     # ── Step 46 (2026-05-30): landing transition ANI_FALL → ANI_IDLE + roll vel.x ────
     # Step 45 made TMNT-RP rolling barrels fall (animnum=6 ANI_FALL, vel.y
     # accumulating correctly). User hardware-verified barrels reach the ground.
