@@ -1595,25 +1595,35 @@ endif
         "            {\n"
         "                self->velocity.y += gravity * 100.0 / GAME_SPEED;\n"
         "            }\n"
-        "            /* MiSTer Step 48 (2026-05-30): direct position.x update for     */\n"
-        "            /* aironly SUBTYPE_ARROW in ANI_IDLE. Step 47 trymove path may   */\n"
-        "            /* fail (wall/grab/Z-bounds/etc.); bypass it for guaranteed      */\n"
-        "            /* rolling motion. Cart's offscreenkill 130 handles cleanup     */\n"
-        "            /* when barrel exits screen.                                     */\n"
+        "            /* MiSTer Step 48 + Step 49 (2026-05-30): direct position.x      */\n"
+        "            /* update for aironly SUBTYPE_ARROW in ANI_IDLE. Step 47 trymove */\n"
+        "            /* path may fail; bypass it for guaranteed rolling motion.       */\n"
+        "            /*                                                                */\n"
+        "            /* Step 49: engine's rest-on-ground branch at openbor.c:27784   */\n"
+        "            /* zeroes vel.x because cart's anim idle has no per-frame move/  */\n"
+        "            /* axis.y directives. Re-establish rolling speed if zeroed so   */\n"
+        "            /* barrel keeps rolling after bouncing settles.                 */\n"
         "            if (self->modeldata.subtype == SUBTYPE_ARROW\n"
         "                && self->modeldata.aironly_directive_seen\n"
-        "                && self->animnum == ANI_IDLE\n"
-        "                && self->velocity.x != 0.0f)\n"
+        "                && self->animnum == ANI_IDLE)\n"
         "            {\n"
+        "                /* Step 49: re-establish vel.x if zeroed by engine */\n"
+        "                if (self->velocity.x == 0.0f && self->modeldata.speed.x > 0)\n"
+        "                {\n"
+        "                    self->velocity.x = (self->direction == DIRECTION_LEFT)\n"
+        "                                       ? -self->modeldata.speed.x\n"
+        "                                       : self->modeldata.speed.x;\n"
+        "                }\n"
+        "                /* Step 48: direct position update */\n"
         "                self->position.x += self->velocity.x * 100.0 / GAME_SPEED;\n"
         "            }\n"
-        "            /* ── end Step 48 ──────────────────────────────────────────── */\n"
+        "            /* ── end Step 48 + 49 ───────────────────────────────────── */\n"
     )
     ob_s48 = read(ob_path_g)
     ob_s48 = strict_replace(ob_s48, s48_old, s48_new,
-                             'Step 48: direct position.x for aironly SUBTYPE_ARROW idle')
+                             'Step 48 + 49: direct position.x + re-establish vel.x for aironly SUBTYPE_ARROW idle')
     write(ob_path_g, ob_s48)
-    print("  Step 48: direct position.x update bypasses trymove (guarantees rolling motion)")
+    print("  Step 48 + 49: direct position.x + re-establish vel.x after engine zero (guarantees continuous rolling)")
 
     # ── Step 46 (2026-05-30): landing transition ANI_FALL → ANI_IDLE + roll vel.x ────
     # Step 45 made TMNT-RP rolling barrels fall (animnum=6 ANI_FALL, vel.y
