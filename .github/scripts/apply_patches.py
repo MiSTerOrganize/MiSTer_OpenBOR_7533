@@ -1288,6 +1288,34 @@ endif
         "                                          | MOVE_CONFIG_SUBJECT_TO_SCREEN   \\\n"
         "                                          | MOVE_CONFIG_SUBJECT_TO_WALL);\n"
         "        e->modeldata.move_config_flags &= ~MOVE_CONFIG_NO_ADJUST_BASE;\n"
+        "        /* MiSTer Step 43 TEMPORARY DIAG (REVERT AFTER MEASURED): per-bit log */\n"
+        "        /* of move_config_flags for TYPE_PLAYER. Confirms all 10 Step 42 v2   */\n"
+        "        /* force-set bits are correct + records the 9 untouched bits. Bounded */\n"
+        "        /* to first 5 player spawns/respawns.                                  */\n"
+        "        { static int _d_flags=0; if (_d_flags < 5) { _d_flags++; \\\n"
+        "          unsigned long _mcf = (unsigned long)e->modeldata.move_config_flags; \\\n"
+        "          fprintf(stderr, \"[FLAGS %d] PLAYER pos=(%.1f,%.1f,%.1f) move_config=0x%lx [NO_ADJ_BASE=%d NO_COPY_FROM=%d NO_COPY_TO=%d NO_FLIP=%d NO_HIT_HEAD=%d NO_MOVE=%d PROJ_BASE_DIE=%d PROJ_WALL_BOUNCE=%d RUN_LAND=%d RUN_Z=%d SUB_BASEMAP=%d SUB_GRAVITY=%d SUB_HOLE=%d SUB_MAX_Z=%d SUB_MIN_Z=%d SUB_OBSTACLE=%d SUB_PLATFORM=%d SUB_SCREEN=%d SUB_WALL=%d]\\n\", \\\n"
+        "            _d_flags, e->position.x, e->position.y, e->position.z, _mcf, \\\n"
+        "            !!(_mcf & MOVE_CONFIG_NO_ADJUST_BASE), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_NO_COPY_FROM), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_NO_COPY_TO), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_NO_FLIP), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_NO_HIT_HEAD), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_NO_MOVE), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_PROJECTILE_BASE_DIE), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_PROJECTILE_WALL_BOUNCE), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_RUN_LAND), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_RUN_Z), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_SUBJECT_TO_BASEMAP), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_SUBJECT_TO_GRAVITY), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_SUBJECT_TO_HOLE), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_SUBJECT_TO_MAX_Z), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_SUBJECT_TO_MIN_Z), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_SUBJECT_TO_OBSTACLE), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_SUBJECT_TO_PLATFORM), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_SUBJECT_TO_SCREEN), \\\n"
+        "            !!(_mcf & MOVE_CONFIG_SUBJECT_TO_WALL)); \\\n"
+        "          fflush(stderr); } }\n"
         "        //e->direction = (level->scrolldir != SCROLL_LEFT);\n"
         "        e->takedamage = player_takedamage;\n"
         "        e->think = player_think;\n"
@@ -1295,7 +1323,7 @@ endif
     )
     ob_s42 = read(ob_path_g)
     ob_s42 = strict_replace(ob_s42, s42_old, s42_new,
-                             'Step 42: force SUBJECT_TO_GRAVITY for TYPE_PLAYER in ent_default_init')
+                             'Step 42 v2 + Step 43 DIAG: force player flags + log all 19 bits')
     write(ob_path_g, ob_s42)
     print("  Step 42: TYPE_PLAYER force SUBJECT_TO_GRAVITY (hardware-verified — fixes Raph respawn-vertical)")
 
