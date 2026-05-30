@@ -1504,6 +1504,63 @@ endif
     write(ob_path_g, ob_s45)
     print("  Step 45: SUBTYPE_ARROW auto-transitions to ANI_FALL when aironly+!owner+validanim ANI_FALL")
 
+    # ── Step 47 (2026-05-30): assign common_trymove for aironly SUBTYPE_ARROW ─────
+    # After Step 46 transitioned barrels to ANI_IDLE + set vel.x, user reports
+    # barrels roll IN PLACE — animation plays but no horizontal motion.
+    #
+    # Root cause: engine main loop at openbor.c:29293 accumulates
+    #   self->movex += self->velocity.x * speedmul * (100.0 / GAME_SPEED)
+    # per tick. So vel.x → movex correctly. But check_move() at line 29151 has
+    # a gate:
+    #   if (self->trymove) { ... call self->trymove(movex, movez) ... }
+    # SUBTYPE_ARROW init at openbor.c:23183-23207 SKIPS trymove assignment
+    # entirely (only the else-branch at 23211 sets e->trymove=common_trymove
+    # for non-arrow entities). So trymove=NULL → check_move's gate fails →
+    # movex accumulates but never applies to position.x → barrel rolls in
+    # place visually.
+    #
+    # Fix: in SUBTYPE_ARROW init, for cart-spawned aironly entities, assign
+    # trymove=common_trymove. Then check_move's gate passes, position updates
+    # from movex (driven by vel.x), and engine's wall/hole collision activates
+    # via cart's `subject_to_wall 1` + `subject_to_hole 1` directives.
+    #
+    # Standard arrow projectiles (no aironly_directive_seen) keep their
+    # trymove=NULL stock behavior — they rely on arrow_move (via aimove arrow
+    # declaration) which handles motion differently.
+    #
+    # Anchored at end of Step 45's block (just before `break;` in
+    # SUBTYPE_ARROW case).
+    print("Patching openbor.c (Step 47: assign common_trymove for aironly SUBTYPE_ARROW)...")
+    s47_old = (
+        "                ent_set_anim(e, ANI_FALL, 0);\n"
+        "            }\n"
+        "            /* ── end Step 45 ──────────────────────────────────────────── */\n"
+        "            break;\n"
+    )
+    s47_new = (
+        "                ent_set_anim(e, ANI_FALL, 0);\n"
+        "            }\n"
+        "            /* ── end Step 45 ──────────────────────────────────────────── */\n"
+        "            /* MiSTer Step 47 (2026-05-30): assign common_trymove for       */\n"
+        "            /* aironly SUBTYPE_ARROW. Engine SUBTYPE_ARROW init normally    */\n"
+        "            /* SKIPS trymove assignment (only the else-branch sets it).    */\n"
+        "            /* Without trymove, check_move's gate fails -> movex grows but */\n"
+        "            /* never applies to position.x. Result: vel.x set in Step 46  */\n"
+        "            /* but barrel rolls in place. Wire up trymove so engine moves */\n"
+        "            /* the entity per cart's subject_to_wall + subject_to_hole.   */\n"
+        "            if (e->modeldata.aironly_directive_seen && !e->trymove)\n"
+        "            {\n"
+        "                e->trymove = common_trymove;\n"
+        "            }\n"
+        "            /* ── end Step 47 ──────────────────────────────────────────── */\n"
+        "            break;\n"
+    )
+    ob_s47 = read(ob_path_g)
+    ob_s47 = strict_replace(ob_s47, s47_old, s47_new,
+                             'Step 47: assign common_trymove for aironly SUBTYPE_ARROW')
+    write(ob_path_g, ob_s47)
+    print("  Step 47: aironly SUBTYPE_ARROW gets common_trymove (enables horizontal motion via movex)")
+
     # ── Step 46 (2026-05-30): landing transition ANI_FALL → ANI_IDLE + roll vel.x ────
     # Step 45 made TMNT-RP rolling barrels fall (animnum=6 ANI_FALL, vel.y
     # accumulating correctly). User hardware-verified barrels reach the ground.
