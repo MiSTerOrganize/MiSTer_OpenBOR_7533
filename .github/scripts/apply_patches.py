@@ -1543,6 +1543,78 @@ endif
     write(obs_path_s56, obs_s56)
     print("  Step 56 v3 TEMPORARY DIAG: openbor_projectile self state log (REVERT AFTER MEASURED)")
 
+    # ── Step 57 (2026-05-31): rolling at-rest fix for aironly SUBTYPE_ARROW ─────
+    # User reported TMNT-RP construction barrels appear stuck on right side of
+    # screen — barrels DO roll a bit (Step 55 DIAG confirmed vel.x=-0.7 + pos.x
+    # decrementing 1.05/tick while airborne) but then halt. PC TMNT-RP rolls
+    # barrels across the entire screen in waves 1/2/3 smoothly.
+    #
+    # Root cause located at openbor.c::check_gravity:27784. After the engine's
+    # bounce cascade (vel.x /= bouncefactor each landing) and vel.y decays
+    # below the tobounce threshold, the engine enters the "at rest" branch:
+    #
+    #     else if((!self->animation->move[self->animpos]->base || ...) &&
+    #             (!self->animation->move[self->animpos]->axis.y || ...))
+    #     {
+    #         self->velocity.x = 0;
+    #         self->velocity.z = 0;
+    #         self->velocity.y = 0;
+    #     }
+    #
+    # The cart's `anim idle` has no `move` or `axis.y` per-frame directives, so
+    # this branch fires and ZEROES vel.x. After this tick, the entity is
+    # at-rest (vel.y=0, pos.y=base, !falling). NEXT tick, check_gravity's
+    # airborne condition `(falling || vel.y || pos.y != base)` is FALSE → the
+    # entire airborne block (including Step 48/55) is SKIPPED → barrel sits
+    # frozen at landing point. Steps 48 and 55 only ever fire inside the
+    # airborne block, so they cannot re-lock vel.x once the entity rests.
+    #
+    # PC TMNT-RP probably uses a custom-engine `arrow_move`-style path that
+    # keeps SUBTYPE_ARROW + aironly entities rolling at rest. Stock v7533
+    # does not — once a SUBTYPE_ARROW lands and the bounce cascade decays,
+    # it's stationary forever (until offscreenkill).
+    #
+    # FIX: inject an UNCONDITIONAL rolling block at END of check_gravity,
+    # OUTSIDE the airborne if. Fires every tick the entity is not frozen,
+    # for SUBTYPE_ARROW + aironly + ANI_IDLE + !owner. Re-locks vel.x and
+    # advances position.x. This handles BOTH airborne (overrides bounce-
+    # halved vel.x next tick) and at-rest (revives vel.x from engine zero).
+    print("Patching openbor.c (Step 57: rolling at-rest fix outside airborne block)...")
+    s57_old = (
+        "        }// end of if  - in-air checking\n"
+        "        \n"
+        "\t\tif(self->toss_time <= _time)\n"
+    )
+    s57_new = (
+        "        }// end of if  - in-air checking\n"
+        "        \n"
+        "        /* MiSTer Step 57 (2026-05-31): rolling at-rest fix for         */\n"
+        "        /* aironly SUBTYPE_ARROW. Fires every tick OUTSIDE the airborne  */\n"
+        "        /* block, so the barrel keeps rolling after engine's at-rest    */\n"
+        "        /* branch (openbor.c:27784) zeroes vel.x. Cart's anim idle has  */\n"
+        "        /* no per-frame move/axis.y directives, so PC engine must use a  */\n"
+        "        /* SUBTYPE_ARROW-specific rolling path that we replicate here.   */\n"
+        "        if (self->modeldata.subtype == SUBTYPE_ARROW\n"
+        "            && self->modeldata.aironly_directive_seen\n"
+        "            && self->animnum == ANI_IDLE\n"
+        "            && !self->owner\n"
+        "            && self->modeldata.speed.x > 0)\n"
+        "        {\n"
+        "            self->velocity.x = (self->direction == DIRECTION_LEFT)\n"
+        "                               ? -self->modeldata.speed.x\n"
+        "                               : self->modeldata.speed.x;\n"
+        "            self->position.x += self->velocity.x * 100.0 / GAME_SPEED;\n"
+        "        }\n"
+        "        /* ── end Step 57 ──────────────────────────────────────────── */\n"
+        "        \n"
+        "\t\tif(self->toss_time <= _time)\n"
+    )
+    ob_s57 = read(ob_path_g)
+    ob_s57 = strict_replace(ob_s57, s57_old, s57_new,
+                             'Step 57: rolling at-rest fix outside airborne block')
+    write(ob_path_g, ob_s57)
+    print("  Step 57: unconditional rolling block at end of check_gravity (fires for at-rest barrels)")
+
     # ── Step 45 (2026-05-30): auto-transition cart-spawned in-air arrows to ANI_FALL ────
     # User-reported TMNT-RP construction-level rolling barrels float at spawn
     # Y=130 (in air) instead of falling+bouncing+rolling like PC version.
