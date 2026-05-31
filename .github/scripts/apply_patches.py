@@ -1494,6 +1494,55 @@ endif
     write(ob_path_g, ob_s54)
     print("  Step 54 TEMPORARY DIAG: set_weapon + spawn(smoke/bazo) entry log (REVERT AFTER MEASURED)")
 
+    # ── Step 56 v3 TEMPORARY DIAG (2026-05-31): Bearz projectile direction root-cause ────
+    # SPAWN-PROJ entries from Step 54b confirmed all rockets fire dir=0 (LEFT).
+    # The openbor_projectile() script function resolves direction from
+    # self->direction when relative=1 (Bearz cart uses `@cmd projectile 1 "smoke" ...`).
+    # Hypothesis: hubertb (with-bazooka) is TYPE_NONE; model swap from hubert
+    # (TYPE_PLAYER) leaves self->direction stuck at whatever it was at swap time.
+    # Step 56 v3 logs self->direction + modeldata.type + modeldata.name + playerindex
+    # at the moment of openbor_projectile() entry — confirms or refutes hypothesis.
+    # CI auto-skip via TEMPORARY DIAG marker per [[no-diagnostic-binaries-in-db]].
+    print("Patching openborscript.c (Step 56 v3 TEMPORARY DIAG: openbor_projectile self state)...")
+    obs_path_s56 = os.path.join(obor, 'openborscript.c')
+    s56_old = (
+        "HRESULT openbor_projectile(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
+        "{\n"
+        "    //printf(\"\\n openbor_projectile()\");\n"
+    )
+    s56_new = (
+        "HRESULT openbor_projectile(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
+        "{\n"
+        "    //printf(\"\\n openbor_projectile()\");\n"
+        "    /* MiSTer Step 56 v3 TEMPORARY DIAG (REVERT AFTER MEASURED): openbor_projectile self state */\n"
+        "    { static int _d_sp3=0;\n"
+        "      if (_d_sp3 < 30 && self) {\n"
+        "        const char *_pname = (self->modeldata.name ? self->modeldata.name : \"(null)\");\n"
+        "        const char *_arg0 = \"-\";\n"
+        "        if (paramCount >= 1 && varlist[0]->vt == VT_STR) {\n"
+        "          _arg0 = StrCache_Get(varlist[0]->strVal);\n"
+        "        } else if (paramCount >= 2 && varlist[1]->vt == VT_STR) {\n"
+        "          _arg0 = StrCache_Get(varlist[1]->strVal);\n"
+        "        }\n"
+        "        if (_arg0 && (strstr(_arg0,\"smoke\") || strstr(_arg0,\"bazo\") || strstr(_arg0,\"bam\") || strstr(_arg0,\"pop\")\n"
+        "            || strstr(_pname,\"hubert\") || strstr(_pname,\"bearz\"))) {\n"
+        "          _d_sp3++;\n"
+        "          fprintf(stderr, \"[PROJ-SELF %d] self.name=%s type=%d dir=%d playeridx=%d pos=(%.1f,%.1f,%.1f) animnum=%d projarg=%s paramCount=%d\\n\",\n"
+        "              _d_sp3, _pname, (int)self->modeldata.type, (int)self->direction,\n"
+        "              (int)self->playerindex,\n"
+        "              (double)self->position.x, (double)self->position.y, (double)self->position.z,\n"
+        "              (int)self->animnum, _arg0, paramCount);\n"
+        "          fflush(stderr);\n"
+        "        }\n"
+        "      }\n"
+        "    }\n"
+    )
+    obs_s56 = read(obs_path_s56)
+    obs_s56 = strict_replace(obs_s56, s56_old, s56_new,
+                             'Step 56 v3 TEMPORARY DIAG: openbor_projectile self state log')
+    write(obs_path_s56, obs_s56)
+    print("  Step 56 v3 TEMPORARY DIAG: openbor_projectile self state log (REVERT AFTER MEASURED)")
+
     # ── Step 45 (2026-05-30): auto-transition cart-spawned in-air arrows to ANI_FALL ────
     # User-reported TMNT-RP construction-level rolling barrels float at spawn
     # Y=130 (in air) instead of falling+bouncing+rolling like PC version.
