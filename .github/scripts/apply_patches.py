@@ -1703,8 +1703,13 @@ endif
         "                && self->animnum == ANI_IDLE\n"
         "                && !self->owner)\n"
         "            {\n"
-        "                /* Step 49: re-establish vel.x if zeroed by engine */\n"
-        "                if (self->velocity.x == 0.0f && self->modeldata.speed.x > 0)\n"
+        "                /* Step 55: lock vel.x to full speed each tick.            */\n"
+        "                /* Engine bounce code at openbor.c:27761 divides vel.x by  */\n"
+        "                /* bouncefactor on each landing. After 3-4 bounces vel.x   */\n"
+        "                /* becomes near-zero -> barrel appears stuck rolling in    */\n"
+        "                /* place. For a rolling cylinder, horizontal speed should  */\n"
+        "                /* stay constant (bouncing affects vel.y only). Force it.  */\n"
+        "                if (self->modeldata.speed.x > 0)\n"
         "                {\n"
         "                    self->velocity.x = (self->direction == DIRECTION_LEFT)\n"
         "                                       ? -self->modeldata.speed.x\n"
@@ -1713,7 +1718,7 @@ endif
         "                /* Step 48: direct position update */\n"
         "                self->position.x += self->velocity.x * 100.0 / GAME_SPEED;\n"
         "            }\n"
-        "            /* ── end Step 48 + 49 + 51 ─────────────────────────────── */\n"
+        "            /* ── end Step 48 + 49 + 51 + 55 ────────────────────────── */\n"
     )
     ob_s48 = read(ob_path_g)
     ob_s48 = strict_replace(ob_s48, s48_old, s48_new,
