@@ -1411,6 +1411,89 @@ endif
     write(ob_path_g, ob_s44)
     print("  Step 44 TEMPORARY DIAG: SUBTYPE_ARROW entry + per-tick gravity log (REVERT AFTER MEASURED)")
 
+    # ── Step 54 TEMPORARY DIAG (2026-05-31): Bearz weapon-swap + projectile spawn ──
+    # Bearz rocket bug: on first weapon pickup, rocket fires backwards (LEFT)
+    # regardless of player facing, and player direction locks to RIGHT until
+    # death+respawn. Confirmed pre-existing (exists on v3.1 ship binary).
+    # Bearz uses unusual cart pattern:
+    #   - HUB (player) has `weapons hubertb none none hubert`
+    #   - HUBB.TXT (hubertb = "with bazooka") declares `type none` (TYPE_NONE!)
+    #   - Engine swaps via set_model_ex, which inherits TYPE_NONE flags
+    #   - Step 42 v2 (force player flags) doesn't fire (only at ent_default_init
+    #     TYPE_PLAYER case, not at weapon swap)
+    #
+    # Step 54 logs:
+    #   (a) at set_weapon entry: ent->direction, wpnum, model name before swap
+    #   (b) at spawn() for "smoke" or "bazo" entities: dir + parent dir
+    #
+    # Bounded entries. Captures first-pickup vs post-respawn state to compare
+    # what differs.
+    print("Patching openbor.c (Step 54 TEMPORARY DIAG: Bearz weapon-swap + projectile spawn)...")
+
+    # --- 54a: DIAG at set_weapon entry ---
+    s54a_old = (
+        "void set_weapon(entity *ent, int wpnum, int anim_flag) // anim_flag added for scripted midair weapon changing\n"
+        "{\n"
+        "    if(!ent)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+    )
+    s54a_new = (
+        "void set_weapon(entity *ent, int wpnum, int anim_flag) // anim_flag added for scripted midair weapon changing\n"
+        "{\n"
+        "    if(!ent)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    /* MiSTer Step 54 TEMPORARY DIAG (REVERT AFTER MEASURED): Bearz weapon-swap */\n"
+        "    { static int _d_sw=0; if (_d_sw < 15) { _d_sw++;\n"
+        "        fprintf(stderr, \"[SET-WEAP %d] ent=%p name=%s type=%d dir=%d wpnum=%d animflag=%d playeridx=%d animnum=%d pos=(%.1f,%.1f)\\n\",\n"
+        "            _d_sw,\n"
+        "            (void*)ent,\n"
+        "            (ent->model && ent->model->name) ? ent->model->name : \"(noname)\",\n"
+        "            (int)ent->modeldata.type,\n"
+        "            (int)ent->direction, wpnum, anim_flag,\n"
+        "            (int)ent->playerindex, ent->animnum,\n"
+        "            (double)ent->position.x, (double)ent->position.y);\n"
+        "        fflush(stderr);\n"
+        "    } }\n"
+    )
+    ob_s54 = read(ob_path_g)
+    ob_s54 = strict_replace(ob_s54, s54a_old, s54a_new,
+                             'Step 54a TEMPORARY DIAG: set_weapon entry log')
+
+    # --- 54b: DIAG at spawn() entry, filtered to bazo/smoke entities ---
+    # Anchor on the early portion of the spawn function where model_name and direction are available.
+    s54b_old = (
+        "entity *spawn(const float pos_x, const float pos_z, const float pos_y, const e_direction direction, char *model_name, const int model_index, s_model* model_pointer)\n"
+        "{\n"
+        "    entity *acting_entity = NULL;\n"
+        "    int i, id;\n"
+    )
+    s54b_new = (
+        "entity *spawn(const float pos_x, const float pos_z, const float pos_y, const e_direction direction, char *model_name, const int model_index, s_model* model_pointer)\n"
+        "{\n"
+        "    /* MiSTer Step 54 TEMPORARY DIAG (REVERT AFTER MEASURED): Bearz projectile spawn */\n"
+        "    { static int _d_sp=0;\n"
+        "      const char *_n = model_name;\n"
+        "      if (!_n && model_pointer && model_pointer->name) _n = model_pointer->name;\n"
+        "      if (_d_sp < 30 && _n && (strstr(_n,\"smoke\") || strstr(_n,\"bazo\") || strstr(_n,\"bam\") || strstr(_n,\"pop\"))) {\n"
+        "        _d_sp++;\n"
+        "        fprintf(stderr, \"[SPAWN-PROJ %d] name=%s dir=%d pos=(%.1f,%.1f,%.1f) model_idx=%d\\n\",\n"
+        "            _d_sp, _n, (int)direction, (double)pos_x, (double)pos_y, (double)pos_z, model_index);\n"
+        "        fflush(stderr);\n"
+        "      }\n"
+        "    }\n"
+        "    entity *acting_entity = NULL;\n"
+        "    int i, id;\n"
+    )
+    ob_s54 = strict_replace(ob_s54, s54b_old, s54b_new,
+                             'Step 54b TEMPORARY DIAG: spawn() entry for Bearz projectiles')
+
+    write(ob_path_g, ob_s54)
+    print("  Step 54 TEMPORARY DIAG: set_weapon + spawn(smoke/bazo) entry log (REVERT AFTER MEASURED)")
+
     # ── Step 45 (2026-05-30): auto-transition cart-spawned in-air arrows to ANI_FALL ────
     # User-reported TMNT-RP construction-level rolling barrels float at spawn
     # Y=130 (in air) instead of falling+bouncing+rolling like PC version.
