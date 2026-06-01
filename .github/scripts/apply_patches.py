@@ -1553,6 +1553,61 @@ endif
     write(obs_path_s61, obs_s61)
     print("  Step 61: DIRECTION_NONE now defaults to RIGHT in projectile direction resolution")
 
+    # ── Step 62 (2026-05-31): implicit wait at group transition (TMNT-RP barrel wave fix) ──
+    # User reported TMNT-RP construction barrels appear with leftover ninjas
+    # on screen. Cart structure:
+    #   group 4 4 / [12 crooked_ninja spawns] / group 1 3 / [9 rolling_barrel
+    #   + 2 barrel spawns]
+    # NO `wait` directive between the two group sections.
+    # Engine's spawn dispatcher at openbor.c:44389 uses GLOBAL groupmin/max
+    # + count_ents(TYPE_ENEMY) (all enemies counted together). When the loop
+    # encounters the `group 1 3` directive mid-tick, it applies the new
+    # groupmax=3 then continues the loop -- spawning barrels while ninjas
+    # are still alive (because count < new groupmax(3)). User observed
+    # Wave 1 = 2 barrels (1 ninja + 2 barrels = 3 total at groupmax).
+    # PC behavior (and user expectation): Wave 1 = 3 barrels after all
+    # ninjas dead.
+    # FIX: when processing a `group N M` spawnpoint directive, if there
+    # are leftover TYPE_ENEMY alive, HALT the spawn loop without applying
+    # new groupmin/max and without advancing current_spawn. Set
+    # level->waiting = 1 (engine treats as "wait for enemies" state).
+    # Once all enemies die, level->waiting clears, spawn loop re-enters,
+    # applies group update, spawns next wave cleanly.
+    print("Patching openbor.c (Step 62: implicit wait at group transition when enemies alive)...")
+    s62_old = (
+        "            else if(level->spawnpoints[current_spawn].groupmin || level->spawnpoints[current_spawn].groupmax)\n"
+        "            {\n"
+        "                groupmin = level->spawnpoints[current_spawn].groupmin;\n"
+        "                groupmax = level->spawnpoints[current_spawn].groupmax;\n"
+        "            }\n"
+    )
+    s62_new = (
+        "            else if(level->spawnpoints[current_spawn].groupmin || level->spawnpoints[current_spawn].groupmax)\n"
+        "            {\n"
+        "                /* MiSTer Step 62 (2026-05-31): implicit wait at group       */\n"
+        "                /* transition when previous group's enemies still alive.    */\n"
+        "                /* Without this, the engine applies new groupmin/max while   */\n"
+        "                /* leftover entities count toward new group's pool -> next   */\n"
+        "                /* wave spawns partial (e.g., 2 barrels instead of 3 when 1  */\n"
+        "                /* ninja still alive). With this fix, group transitions     */\n"
+        "                /* synchronize: wait for count_ents(TYPE_ENEMY) == 0 before */\n"
+        "                /* applying new groupmin/max. Matches PC behavior + user     */\n"
+        "                /* expectation 'next wave starts after enemies cleared'.    */\n"
+        "                if (count_ents(TYPE_ENEMY) > 0)\n"
+        "                {\n"
+        "                    level->waiting = 1;\n"
+        "                    break;  /* exit while loop; current_spawn NOT advanced */\n"
+        "                }\n"
+        "                groupmin = level->spawnpoints[current_spawn].groupmin;\n"
+        "                groupmax = level->spawnpoints[current_spawn].groupmax;\n"
+        "            }\n"
+    )
+    ob_s62 = read(ob_path_g)
+    ob_s62 = strict_replace(ob_s62, s62_old, s62_new,
+                             'Step 62: implicit wait at group transition')
+    write(ob_path_g, ob_s62)
+    print("  Step 62: group transition now waits for previous enemies to die before applying new groupmin/max")
+
     # ── Step 56 v3 TEMPORARY DIAG (2026-05-31): Bearz projectile direction root-cause ────
     # SPAWN-PROJ entries from Step 54b confirmed all rockets fire dir=0 (LEFT).
     # The openbor_projectile() script function resolves direction from
