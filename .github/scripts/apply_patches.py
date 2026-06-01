@@ -1387,6 +1387,118 @@ endif
     write(ob_path_g, ob_s67b)
     print("  Step 67b: Step 42 v2 SUBJECT_TO_HOLE now gated on !hole_directive_seen (respects cart's subject_to_hole 0)")
 
+    # ── Step 68 (2026-06-01): respect cart's subject_to_obstacle 0 and subject_to_platform 0 ──
+    # Same pattern as Step 67 (hole), extended to obstacle + platform.
+    # OWL also has `subject_to_obstacle 0` (passes through obstacles) and
+    # `subject_to_platform 0` (doesn't interact with platforms). Step 42 v2's
+    # unconditional OR was overriding both. Step 68 adds the same directive_seen
+    # gates for these two flags.
+    print("Patching openbor.c (Step 68a: parser sets obstacle_directive_seen)...")
+    s68a_old = (
+        "            case CMD_MODEL_SUBJECT_TO_OBSTACLE:\n"
+        "                \n"
+        "                if (GET_INT_ARG(1))\n"
+        "                {\n"
+        "                    newchar->move_config_flags |= MOVE_CONFIG_SUBJECT_TO_OBSTACLE;\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    newchar->move_config_flags &= ~MOVE_CONFIG_SUBJECT_TO_OBSTACLE;\n"
+        "                }\n"
+        "\n"
+        "                break;\n"
+    )
+    s68a_new = (
+        "            case CMD_MODEL_SUBJECT_TO_OBSTACLE:\n"
+        "                \n"
+        "                if (GET_INT_ARG(1))\n"
+        "                {\n"
+        "                    newchar->move_config_flags |= MOVE_CONFIG_SUBJECT_TO_OBSTACLE;\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    newchar->move_config_flags &= ~MOVE_CONFIG_SUBJECT_TO_OBSTACLE;\n"
+        "                }\n"
+        "                newchar->obstacle_directive_seen = 1; /* MiSTer Step 68: gate ent_default_init force-obstacle */\n"
+        "\n"
+        "                break;\n"
+    )
+    ob_s68a = read(ob_path_g)
+    ob_s68a = strict_replace(ob_s68a, s68a_old, s68a_new,
+                              'Step 68a: parser marks obstacle_directive_seen')
+    write(ob_path_g, ob_s68a)
+    print("  Step 68a: CMD_MODEL_SUBJECT_TO_OBSTACLE parser marks obstacle_directive_seen")
+
+    print("Patching openbor.c (Step 68b: parser sets platform_directive_seen)...")
+    s68b_old = (
+        "            case CMD_MODEL_SUBJECT_TO_PLATFORM:\n"
+        "                \n"
+        "                if (GET_INT_ARG(1))\n"
+        "                {\n"
+        "                    newchar->move_config_flags |= MOVE_CONFIG_SUBJECT_TO_PLATFORM;\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    newchar->move_config_flags &= ~MOVE_CONFIG_SUBJECT_TO_PLATFORM;\n"
+        "                }\n"
+        "\n"
+        "                break;\n"
+    )
+    s68b_new = (
+        "            case CMD_MODEL_SUBJECT_TO_PLATFORM:\n"
+        "                \n"
+        "                if (GET_INT_ARG(1))\n"
+        "                {\n"
+        "                    newchar->move_config_flags |= MOVE_CONFIG_SUBJECT_TO_PLATFORM;\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    newchar->move_config_flags &= ~MOVE_CONFIG_SUBJECT_TO_PLATFORM;\n"
+        "                }\n"
+        "                newchar->platform_directive_seen = 1; /* MiSTer Step 68: gate ent_default_init force-platform */\n"
+        "\n"
+        "                break;\n"
+    )
+    ob_s68b = read(ob_path_g)
+    ob_s68b = strict_replace(ob_s68b, s68b_old, s68b_new,
+                              'Step 68b: parser marks platform_directive_seen')
+    write(ob_path_g, ob_s68b)
+    print("  Step 68b: CMD_MODEL_SUBJECT_TO_PLATFORM parser marks platform_directive_seen")
+
+    print("Patching openbor.c (Step 68c: gate Step 42 v2 SUBJECT_TO_OBSTACLE/PLATFORM force-set)...")
+    s68c_old = (
+        "        e->modeldata.move_config_flags |= (MOVE_CONFIG_SUBJECT_TO_BASEMAP  \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_GRAVITY  \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_MAX_Z    \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_MIN_Z    \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_OBSTACLE \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_PLATFORM \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_SCREEN   \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_WALL);\n"
+    )
+    s68c_new = (
+        "        e->modeldata.move_config_flags |= (MOVE_CONFIG_SUBJECT_TO_BASEMAP  \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_GRAVITY  \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_MAX_Z    \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_MIN_Z    \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_SCREEN   \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_WALL);\n"
+        "        /* Step 68: respect cart's subject_to_obstacle 0 + subject_to_platform 0 */\n"
+        "        if (!e->modeldata.obstacle_directive_seen)\n"
+        "        {\n"
+        "            e->modeldata.move_config_flags |= MOVE_CONFIG_SUBJECT_TO_OBSTACLE;\n"
+        "        }\n"
+        "        if (!e->modeldata.platform_directive_seen)\n"
+        "        {\n"
+        "            e->modeldata.move_config_flags |= MOVE_CONFIG_SUBJECT_TO_PLATFORM;\n"
+        "        }\n"
+    )
+    ob_s68c = read(ob_path_g)
+    ob_s68c = strict_replace(ob_s68c, s68c_old, s68c_new,
+                              'Step 68c: gate SUBJECT_TO_OBSTACLE/PLATFORM force-set on directive_seen flags')
+    write(ob_path_g, ob_s68c)
+    print("  Step 68c: SUBJECT_TO_OBSTACLE + SUBJECT_TO_PLATFORM now gated on directive_seen flags")
+
     # ── Step 44 TEMPORARY DIAG (2026-05-29): SUBTYPE_ARROW base-lock investigation ───
     # User reports TMNT-RP construction-level rolling barrels FLOAT at spawn Y=130
     # (in air, above player) instead of falling+bouncing+rolling like PC version.
@@ -2470,7 +2582,7 @@ endif
     # Step 31 v2 (2026-05-28): also add gravity_directive_seen field at the END.
     # Step 31 v3 (2026-05-28): also add no_adjust_base_directive_seen field.
     # END placement preserves the no-offset-shift safety pattern of v3.9/v3.10.
-    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n    int gravity_directive_seen; /* MiSTer Step 31 v2: set by CMD_MODEL_SUBJECT_TO_GRAVITY parser; gates ent_default_init force-gravity for TYPE_NONE */\n    int no_adjust_base_directive_seen; /* MiSTer Step 31 v3: set by CMD_MODEL_NO_ADJUST_BASE parser; gates ent_default_init force-no-adjust-base for TYPE_NONE */\n    int aironly_directive_seen; /* MiSTer Step 45: set by CMD_MODEL_AIRONLY parser when arg>0; gates SUBTYPE_ARROW auto-transition to ANI_FALL */\n    int hole_directive_seen; /* MiSTer Step 67: set by CMD_MODEL_SUBJECT_TO_HOLE parser; gates Step 42 v2 SUBJECT_TO_HOLE force-set for flying characters (Bearz OWL) */\n} s_model;"
+    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n    int gravity_directive_seen; /* MiSTer Step 31 v2: set by CMD_MODEL_SUBJECT_TO_GRAVITY parser; gates ent_default_init force-gravity for TYPE_NONE */\n    int no_adjust_base_directive_seen; /* MiSTer Step 31 v3: set by CMD_MODEL_NO_ADJUST_BASE parser; gates ent_default_init force-no-adjust-base for TYPE_NONE */\n    int aironly_directive_seen; /* MiSTer Step 45: set by CMD_MODEL_AIRONLY parser when arg>0; gates SUBTYPE_ARROW auto-transition to ANI_FALL */\n    int hole_directive_seen; /* MiSTer Step 67: set by CMD_MODEL_SUBJECT_TO_HOLE parser; gates Step 42 v2 SUBJECT_TO_HOLE force-set for flying characters (Bearz OWL) */\n    int obstacle_directive_seen; /* MiSTer Step 68: set by CMD_MODEL_SUBJECT_TO_OBSTACLE parser; gates Step 42 v2 SUBJECT_TO_OBSTACLE force-set */\n    int platform_directive_seen; /* MiSTer Step 68: set by CMD_MODEL_SUBJECT_TO_PLATFORM parser; gates Step 42 v2 SUBJECT_TO_PLATFORM force-set */\n} s_model;"
     obh = strict_replace(obh, s_model_v310_old, s_model_v310_new, 'v3.10 + Step 31 v2 + v3 + Step 45: add directive_seen fields to s_model END')
     write(obh_path, obh)
     print("  s_model.has_palette_directive added at struct end (v3.10)")
