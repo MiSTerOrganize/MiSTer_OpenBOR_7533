@@ -1299,6 +1299,94 @@ endif
     write(ob_path_g, ob_s42)
     print("  Step 42: TYPE_PLAYER force SUBJECT_TO_GRAVITY (hardware-verified — fixes Raph respawn-vertical)")
 
+    # ── Step 67 (2026-06-01): respect cart's `subject_to_hole 0` (flying characters) ──
+    # User reported Bearz OWL (the flying character, type PLAYER + subject_to_hole 0
+    # per cart) falls into holes like a ground character. ROOT CAUSE: Step 42 v2's
+    # unconditional OR of MOVE_CONFIG_SUBJECT_TO_HOLE overrides the cart's explicit
+    # `subject_to_hole 0` directive. After every player creation / set_model_ex,
+    # OWL's "I don't fall in holes" flag gets clobbered back to "I do fall".
+    #
+    # FIX (same pattern as Step 31 v2 for gravity, Step 31 v3 for no_adjust_base):
+    #   1. Add `int hole_directive_seen` to END of s_model (done above in v310_new)
+    #   2. Patch CMD_MODEL_SUBJECT_TO_HOLE parser to set the flag whenever the
+    #      cart uses the directive (whether arg>0 or arg=0; the cart explicitly
+    #      addressed hole-handling, so its choice is authoritative).
+    #   3. In Step 42 v2 ent_default_init force-set, OR in SUBJECT_TO_HOLE only
+    #      if !hole_directive_seen. If the cart said `subject_to_hole 0`, leave
+    #      the flag as set by the parser (cleared by cart). If the cart said
+    #      nothing, default behavior is to force the flag ON (Step 42 v2 standard).
+    print("Patching openbor.c (Step 67a: parser sets hole_directive_seen)...")
+    s67a_old = (
+        "            case CMD_MODEL_SUBJECT_TO_HOLE:\n"
+        "                \n"
+        "                if (GET_INT_ARG(1))\n"
+        "                {\n"
+        "                    newchar->move_config_flags |= MOVE_CONFIG_SUBJECT_TO_HOLE;\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    newchar->move_config_flags &= ~MOVE_CONFIG_SUBJECT_TO_HOLE;\n"
+        "                }\n"
+        "\n"
+        "                break;\n"
+    )
+    s67a_new = (
+        "            case CMD_MODEL_SUBJECT_TO_HOLE:\n"
+        "                \n"
+        "                if (GET_INT_ARG(1))\n"
+        "                {\n"
+        "                    newchar->move_config_flags |= MOVE_CONFIG_SUBJECT_TO_HOLE;\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    newchar->move_config_flags &= ~MOVE_CONFIG_SUBJECT_TO_HOLE;\n"
+        "                }\n"
+        "                newchar->hole_directive_seen = 1; /* MiSTer Step 67: gate ent_default_init force-hole */\n"
+        "\n"
+        "                break;\n"
+    )
+    ob_s67a = read(ob_path_g)
+    ob_s67a = strict_replace(ob_s67a, s67a_old, s67a_new,
+                              'Step 67a: parser marks hole_directive_seen')
+    write(ob_path_g, ob_s67a)
+    print("  Step 67a: CMD_MODEL_SUBJECT_TO_HOLE parser now marks hole_directive_seen")
+
+    print("Patching openbor.c (Step 67b: gate Step 42 v2 SUBJECT_TO_HOLE force-set)...")
+    s67b_old = (
+        "        e->modeldata.move_config_flags |= (MOVE_CONFIG_SUBJECT_TO_BASEMAP  \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_GRAVITY  \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_HOLE     \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_MAX_Z    \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_MIN_Z    \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_OBSTACLE \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_PLATFORM \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_SCREEN   \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_WALL);\n"
+    )
+    s67b_new = (
+        "        e->modeldata.move_config_flags |= (MOVE_CONFIG_SUBJECT_TO_BASEMAP  \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_GRAVITY  \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_MAX_Z    \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_MIN_Z    \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_OBSTACLE \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_PLATFORM \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_SCREEN   \\\n"
+        "                                          | MOVE_CONFIG_SUBJECT_TO_WALL);\n"
+        "        /* Step 67: respect cart's subject_to_hole 0 (flying characters). */\n"
+        "        /* If cart explicitly set the directive (in either direction), the */\n"
+        "        /* parser-set value stays. Else (cart didn't mention it), default  */\n"
+        "        /* to ON (matches Step 42 v2 original behavior).                   */\n"
+        "        if (!e->modeldata.hole_directive_seen)\n"
+        "        {\n"
+        "            e->modeldata.move_config_flags |= MOVE_CONFIG_SUBJECT_TO_HOLE;\n"
+        "        }\n"
+    )
+    ob_s67b = read(ob_path_g)
+    ob_s67b = strict_replace(ob_s67b, s67b_old, s67b_new,
+                              'Step 67b: gate SUBJECT_TO_HOLE force-set on hole_directive_seen')
+    write(ob_path_g, ob_s67b)
+    print("  Step 67b: Step 42 v2 SUBJECT_TO_HOLE now gated on !hole_directive_seen (respects cart's subject_to_hole 0)")
+
     # ── Step 44 TEMPORARY DIAG (2026-05-29): SUBTYPE_ARROW base-lock investigation ───
     # User reports TMNT-RP construction-level rolling barrels FLOAT at spawn Y=130
     # (in air, above player) instead of falling+bouncing+rolling like PC version.
@@ -2382,7 +2470,7 @@ endif
     # Step 31 v2 (2026-05-28): also add gravity_directive_seen field at the END.
     # Step 31 v3 (2026-05-28): also add no_adjust_base_directive_seen field.
     # END placement preserves the no-offset-shift safety pattern of v3.9/v3.10.
-    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n    int gravity_directive_seen; /* MiSTer Step 31 v2: set by CMD_MODEL_SUBJECT_TO_GRAVITY parser; gates ent_default_init force-gravity for TYPE_NONE */\n    int no_adjust_base_directive_seen; /* MiSTer Step 31 v3: set by CMD_MODEL_NO_ADJUST_BASE parser; gates ent_default_init force-no-adjust-base for TYPE_NONE */\n    int aironly_directive_seen; /* MiSTer Step 45: set by CMD_MODEL_AIRONLY parser when arg>0; gates SUBTYPE_ARROW auto-transition to ANI_FALL */\n} s_model;"
+    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n    int gravity_directive_seen; /* MiSTer Step 31 v2: set by CMD_MODEL_SUBJECT_TO_GRAVITY parser; gates ent_default_init force-gravity for TYPE_NONE */\n    int no_adjust_base_directive_seen; /* MiSTer Step 31 v3: set by CMD_MODEL_NO_ADJUST_BASE parser; gates ent_default_init force-no-adjust-base for TYPE_NONE */\n    int aironly_directive_seen; /* MiSTer Step 45: set by CMD_MODEL_AIRONLY parser when arg>0; gates SUBTYPE_ARROW auto-transition to ANI_FALL */\n    int hole_directive_seen; /* MiSTer Step 67: set by CMD_MODEL_SUBJECT_TO_HOLE parser; gates Step 42 v2 SUBJECT_TO_HOLE force-set for flying characters (Bearz OWL) */\n} s_model;"
     obh = strict_replace(obh, s_model_v310_old, s_model_v310_new, 'v3.10 + Step 31 v2 + v3 + Step 45: add directive_seen fields to s_model END')
     write(obh_path, obh)
     print("  s_model.has_palette_directive added at struct end (v3.10)")
