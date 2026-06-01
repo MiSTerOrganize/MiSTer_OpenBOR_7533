@@ -1917,6 +1917,11 @@ endif
                              'Step 56 v3 TEMPORARY DIAG: openbor_projectile self state log')
     write(obs_path_s56, obs_s56)
     print("  Step 56 v3 TEMPORARY DIAG: openbor_projectile self state log (REVERT AFTER MEASURED)")
+    # ── Step 70 (2026-06-01): MERGED into Step 16c's find_ent_here patch ──
+    # See Step 16c (later in this file) for the DEATH_STATE_CORPSE filter that
+    # fixes the Bearz captive-box "invisible wall" bug. Patches that target the
+    # same engine function must be merged to avoid strict_replace anchor
+    # conflicts (per [[strict-replace-count-check]]).
 
     # ── Step 57 (2026-05-31): rolling at-rest fix for aironly SUBTYPE_ARROW ─────
     # User reported TMNT-RP construction barrels appear stuck on right side of
@@ -3431,6 +3436,7 @@ endif
         "        if( ent_list[i]->exists\n"
         "                && ent_list[i] != exclude\n"
         "                && (ent_list[i]->modeldata.type & types)\n"
+        "                && !(ent_list[i]->death_state & DEATH_STATE_CORPSE) /* MiSTer Step 70: skip corpse-state entities (fixes Bearz captive-box invisible wall) */\n"
         "                && diff(ent_list[i]->position.x, x) < grab_x_thresh\n"
         "                && diff(ent_list[i]->position.z, z) < grab_z_thresh\n"
         "                && ent_list[i]->animation->vulnerable[ent_list[i]->animpos]\n"
