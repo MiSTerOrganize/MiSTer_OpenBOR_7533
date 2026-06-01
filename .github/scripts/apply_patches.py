@@ -1608,6 +1608,63 @@ endif
     write(ob_path_g, ob_s62)
     print("  Step 62: group transition now waits for previous enemies to die before applying new groupmin/max")
 
+    # ── Step 64 (2026-06-01): handle DIRECTION_NONE in player_think input handler ──
+    # User reported Bearz can't face LEFT on first pickup/spawn (intermittent).
+    # Cart-side: HUB.TXT attack scripts use changeentityproperty(self,
+    # "direction", -1) to set DIRECTION_NONE during special-move animations.
+    # If self->direction remains at -1 when player presses joystick LEFT,
+    # the engine's player_think input handler at openbor.c:41800 does:
+    #   if (acting_entity->direction == DIRECTION_RIGHT) { flip-to-LEFT }
+    #   else { turntime = 0; no flip }
+    # DIRECTION_NONE (-1) != DIRECTION_RIGHT (1) -> else branch -> no flip ->
+    # player moves LEFT (velocity set) but self->direction stays -1 ->
+    # sprite renders at engine default (RIGHT) -> visual = walking LEFT
+    # while facing RIGHT. SAME bug pattern as the projectile-direction
+    # bug Step 61 fixed.
+    # FIX: invert the comparisons so DIRECTION_NONE falls through to the
+    # flip-to-target-direction logic.
+    #   MOVELEFT path:   `direction == DIRECTION_RIGHT` -> `direction != DIRECTION_LEFT`
+    #   MOVERIGHT path:  `direction == DIRECTION_LEFT`  -> `direction != DIRECTION_RIGHT`
+    # Affects: any entity (player or otherwise) that ends up with
+    # DIRECTION_NONE while player input is driving it -- player can now
+    # successfully flip to face their movement direction.
+    print("Patching openbor.c (Step 64: handle DIRECTION_NONE in player_think MOVELEFT/RIGHT)...")
+    s64a_old = (
+        "    if(acting_player->keys & FLAG_MOVELEFT && acting_entity->ducking == DUCK_NONE)\n"
+        "    {\n"
+        "        if(acting_entity->direction == DIRECTION_RIGHT)\n"
+    )
+    s64a_new = (
+        "    if(acting_player->keys & FLAG_MOVELEFT && acting_entity->ducking == DUCK_NONE)\n"
+        "    {\n"
+        "        /* MiSTer Step 64: invert comparison so DIRECTION_NONE (-1)   */\n"
+        "        /* falls through to the flip-to-LEFT logic. Was:              */\n"
+        "        /*   if (direction == DIRECTION_RIGHT) -> -1 went to else,    */\n"
+        "        /*   never flipped to LEFT. Now:                              */\n"
+        "        /*   if (direction != DIRECTION_LEFT) -> RIGHT and NONE both  */\n"
+        "        /*   trigger the flip-to-LEFT path.                           */\n"
+        "        if(acting_entity->direction != DIRECTION_LEFT)\n"
+    )
+    ob_s64 = read(ob_path_g)
+    ob_s64 = strict_replace(ob_s64, s64a_old, s64a_new,
+                             'Step 64a: MOVELEFT direction-flip handles DIRECTION_NONE')
+
+    s64b_old = (
+        "    else if(acting_player->keys & FLAG_MOVERIGHT && acting_entity->ducking == DUCK_NONE)\n"
+        "    {\n"
+        "        if(acting_entity->direction == DIRECTION_LEFT)\n"
+    )
+    s64b_new = (
+        "    else if(acting_player->keys & FLAG_MOVERIGHT && acting_entity->ducking == DUCK_NONE)\n"
+        "    {\n"
+        "        /* MiSTer Step 64: mirror of MOVELEFT fix above.              */\n"
+        "        if(acting_entity->direction != DIRECTION_RIGHT)\n"
+    )
+    ob_s64 = strict_replace(ob_s64, s64b_old, s64b_new,
+                             'Step 64b: MOVERIGHT direction-flip handles DIRECTION_NONE')
+    write(ob_path_g, ob_s64)
+    print("  Step 64: player_think MOVELEFT/MOVERIGHT handlers now normalize DIRECTION_NONE on input")
+
     # ── Step 56 v3 TEMPORARY DIAG (2026-05-31): Bearz projectile direction root-cause ────
     # SPAWN-PROJ entries from Step 54b confirmed all rockets fire dir=0 (LEFT).
     # The openbor_projectile() script function resolves direction from
