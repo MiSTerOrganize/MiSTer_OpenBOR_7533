@@ -1494,6 +1494,65 @@ endif
     write(ob_path_g, ob_s54)
     print("  Step 54 TEMPORARY DIAG: set_weapon + spawn(smoke/bazo) entry log (REVERT AFTER MEASURED)")
 
+    # ── Step 61 (2026-05-31): fix Bearz rocket-fires-LEFT-on-first-pickup bug ─────
+    # ROOT CAUSE (confirmed via Step 56 v4 DIAG hardware capture 2026-05-31):
+    # The e_direction enum has THREE values:
+    #   DIRECTION_NONE  = -1   (engine/openbor.h:1391)
+    #   DIRECTION_LEFT  =  0
+    #   DIRECTION_RIGHT =  1
+    # When Bearz player picks up the rocket launcher (set_weapon swaps to
+    # hubertb model, TYPE_NONE), self->direction can transiently be
+    # DIRECTION_NONE (-1) during/after the swap, especially before the
+    # player has pressed a movement key.
+    # The engine's openbor_projectile() at openborscript.c:12044 only
+    # checks `if (self->direction == DIRECTION_RIGHT)` -- DIRECTION_NONE
+    # falls into the else branch and forces direction=DIRECTION_LEFT.
+    # Result: every rocket on first pickup fires LEFT regardless of where
+    # player visually faces. After death+respawn, the engine re-initializes
+    # self->direction to a valid 0/1, and rockets work correctly.
+    # FIX: invert the comparison so LEFT is the explicit check and
+    # everything else (RIGHT + NONE) defaults to RIGHT. RIGHT is the
+    # canonical visual default in OpenBOR (carts spawn facing right).
+    print("Patching openborscript.c (Step 61: Bearz rocket DIRECTION_NONE fix)...")
+    obs_path_s61 = os.path.join(obor, 'openborscript.c')
+    s61_old = (
+        "    if(relative)\n"
+        "    {\n"
+        "        if(self->direction == DIRECTION_RIGHT)\n"
+        "        {\n"
+        "            x += self->position.x;\n"
+        "\t\t\tdirection = DIRECTION_RIGHT;\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            x = self->position.x - x;\n"
+        "            direction = DIRECTION_LEFT;\n"
+        "        }\n"
+    )
+    s61_new = (
+        "    if(relative)\n"
+        "    {\n"
+        "        /* MiSTer Step 61 (2026-05-31): handle DIRECTION_NONE (-1).        */\n"
+        "        /* Was: if(direction == DIRECTION_RIGHT) -> -1 falls to LEFT.      */\n"
+        "        /* Now: if(direction == DIRECTION_LEFT)  -> only 0 = LEFT;         */\n"
+        "        /* everything else (RIGHT=1 OR NONE=-1 uninit) defaults to RIGHT.  */\n"
+        "        if(self->direction == DIRECTION_LEFT)\n"
+        "        {\n"
+        "            x = self->position.x - x;\n"
+        "            direction = DIRECTION_LEFT;\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            x += self->position.x;\n"
+        "            direction = DIRECTION_RIGHT;\n"
+        "        }\n"
+    )
+    obs_s61 = read(obs_path_s61)
+    obs_s61 = strict_replace(obs_s61, s61_old, s61_new,
+                             'Step 61: handle DIRECTION_NONE in openbor_projectile relative-offset block')
+    write(obs_path_s61, obs_s61)
+    print("  Step 61: DIRECTION_NONE now defaults to RIGHT in projectile direction resolution")
+
     # ── Step 56 v3 TEMPORARY DIAG (2026-05-31): Bearz projectile direction root-cause ────
     # SPAWN-PROJ entries from Step 54b confirmed all rockets fire dir=0 (LEFT).
     # The openbor_projectile() script function resolves direction from
