@@ -69,10 +69,13 @@ static const uint32_t joy_offsets[4] = {
 
 static int mem_fd = -1;
 static volatile uint8_t* ddr_base = NULL;
-static uint32_t frame_counter = 0;
-static int active_buf = 0;
-static uint16_t last_width  = NV_TARGET_WIDTH;   /* tracks most recent frame dims for DIM word */
-static uint16_t last_height = NV_TARGET_HEIGHT;
+/* Bug B fix 2026-06-03: WriteFrame thread and Keepalive thread both
+ * read/write these. volatile prevents the compiler from caching them
+ * across function boundaries when threads alias the storage. */
+static volatile uint32_t frame_counter = 0;
+static volatile int      active_buf    = 0;
+static volatile uint16_t last_width    = NV_TARGET_WIDTH;
+static volatile uint16_t last_height   = NV_TARGET_HEIGHT;
 
 bool NativeVideoWriter_Init(void) {
     mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
@@ -259,29 +262,64 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
         return;  /* unsupported format, skip frame */
     }
 
-    /* Defensive barrier: ensure ALL pixel writes drain to DDR3 BEFORE the
-     * FPGA sees the new ctrl word and starts reading the buffer we just
-     * finished writing. The double-buffer flip protects against most
-     * tearing (FPGA reads OPPOSITE buffer from the one we write), but
-     * NEON/uint64_t stores can drain through the write-combine buffer at
-     * a different rate than scalar stores. If ctrl is updated before the
-     * buffer fully drains AND the FPGA pipeline races ahead, the very
-     * first lines of the new frame could read partially-written pixels.
-     * __sync_synchronize() generates ARMv7 DMB SY (~2 cycle cost). */
-    __sync_synchronize();
+    /* Bug B fix 2026-06-03: full-drain DSB SY before CTRL flip.
+     *
+     * The previous __sync_synchronize() compiles to DMB SY, which only
+     * ORDERS subsequent memory accesses with respect to preceding ones.
+     * It does NOT block until preceding writes complete. NEON store
+     * sequences (pixel writes) flow through the write-combine buffer
+     * and the L2 cache write-allocate path; DMB allows them to STILL
+     * BE IN-FLIGHT while subsequent CTRL stores complete first to DDR3.
+     * Result: FPGA sees the new CTRL flip and starts reading the
+     * "just-written" buffer while the last lines of that buffer are
+     * still draining → racing partial-frame visible as flicker.
+     *
+     * He-Man (960x480 = 921KB/frame) had a larger drain window than
+     * ATOV (320x240 = 153KB/frame), causing visibly worse flicker.
+     *
+     * DSB SY blocks until ALL preceding memory operations are observable
+     * to all observers including the HPS-FPGA bridge / DDR3 controller
+     * queue. Cost: ~10-20 cycles on Cortex-A9 (vs DMB's ~2-3) — paid
+     * once per WriteFrame at ~60 Hz = negligible. */
+    __asm__ volatile("dsb sy" ::: "memory");
 
-    /* Write DIM word (width/height) BEFORE flipping CTRL so the FPGA sees
-     * dimensions consistent with the new active buffer. */
+    /* Bug B fix 2026-06-03: atomic 64-bit CTRL+DIM write.
+     *
+     * The FPGA reads CTRL and DIM as ONE atomic 64-bit qword from the
+     * same DDR3 word (ddr_dout[31:0]=CTRL, ddr_dout[63:32]=DIM). The
+     * previous code wrote them as TWO SEPARATE 32-bit stores. The
+     * FPGA could land its qword read BETWEEN the two stores, seeing
+     * NEW-DIM + OLD-CTRL (or vice versa) — visually a 1-frame flicker
+     * if DIM had changed, or a 1-frame stale-buffer flicker on every
+     * frame regardless.
+     *
+     * Combined 64-bit store compiles to a single STRD on Cortex-A9
+     * when the address is 8-byte aligned. NV_CTRL_OFFSET=0x00 is
+     * page-aligned (ddr_base = mmap'd page), so alignment is
+     * guaranteed.
+     *
+     * ALSO: pre-flip active_buf BEFORE the CTRL write. Otherwise the
+     * keepalive thread (running every 150ms on a separate thread) can
+     * read active_buf in the OLD state between our CTRL flip and our
+     * own ^=1 below, computing last_written = !active_buf with the
+     * WRONG buffer index → emits a CTRL flip to the STALE buffer for
+     * one keepalive tick (~16ms visible flicker).
+     *
+     * Order:
+     *   1. Read active_buf (= buffer we just wrote)
+     *   2. Flip active_buf BEFORE CTRL write
+     *   3. Atomic 64-bit CTRL+DIM write
+     * Keepalive sees post-flip active_buf consistently. */
     last_width  = (uint16_t)width;
     last_height = (uint16_t)height;
-    volatile uint32_t* dim = (volatile uint32_t*)(ddr_base + NV_DIM_OFFSET);
-    *dim = ((uint32_t)last_height << 16) | (uint32_t)last_width;
-
-    /* Flip control word */
     frame_counter++;
-    volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
-    *ctrl = (frame_counter << 2) | (active_buf & 1);
-    active_buf ^= 1;
+    uint32_t buf_just_written = (uint32_t)active_buf & 1u;
+    active_buf = (int)(buf_just_written ^ 1u);
+    uint64_t ctrl32 = ((uint64_t)frame_counter << 2) | (uint64_t)buf_just_written;
+    uint64_t dim32  = ((uint64_t)(uint16_t)last_height << 16)
+                    | (uint64_t)(uint16_t)last_width;
+    *(volatile uint64_t*)(ddr_base + NV_CTRL_OFFSET) =
+        (dim32 << 32) | ctrl32;
 }
 
 bool NativeVideoWriter_IsActive(void) {
@@ -295,15 +333,25 @@ void NativeVideoWriter_KeepaliveTick(void) {
      * flip it to a stale/empty buffer, causing jitter between frames
      * (verified 2026-05-22 — loading bar jitter root cause was a
      * separate keepalive thread maintaining its own frame_counter +
-     * active_buf state, racing with WriteFrame's state). */
+     * active_buf state, racing with WriteFrame's state).
+     *
+     * Bug B fix 2026-06-03: atomic 64-bit CTRL+DIM write — same pattern
+     * as WriteFrame. Keepalive runs every 150ms on a separate thread;
+     * if it interleaved with WriteFrame's two separate 32-bit stores,
+     * FPGA could read a mid-update qword. Single 64-bit store eliminates
+     * that race window.
+     *
+     * No DSB SY needed here — keepalive doesn't write pixel data, only
+     * refreshes the CTRL+DIM qword. Buffer contents are stable from the
+     * last WriteFrame, which already DSB-drained. */
     if (!ddr_base) return;
     frame_counter++;
-    int last_written = (!active_buf) & 1;
-    /* Re-emit current DIM (no change — FPGA needs consistent dimensions). */
-    volatile uint32_t* dim = (volatile uint32_t*)(ddr_base + NV_DIM_OFFSET);
-    *dim = ((uint32_t)last_height << 16) | (uint32_t)last_width;
-    volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
-    *ctrl = (frame_counter << 2) | last_written;
+    uint32_t last_written = (uint32_t)((!active_buf) & 1);
+    uint64_t ctrl32 = ((uint64_t)frame_counter << 2) | (uint64_t)last_written;
+    uint64_t dim32  = ((uint64_t)(uint16_t)last_height << 16)
+                    | (uint64_t)(uint16_t)last_width;
+    *(volatile uint64_t*)(ddr_base + NV_CTRL_OFFSET) =
+        (dim32 << 32) | ctrl32;
 }
 
 uint32_t NativeVideoWriter_CheckCart(void) {
