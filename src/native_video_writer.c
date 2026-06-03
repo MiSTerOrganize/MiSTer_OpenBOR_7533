@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <stdint.h>
 /* NEON intrinsics for 128-bit DDR3 stores in the 16bpp fast path.
@@ -79,6 +80,14 @@ static volatile uint16_t last_height   = NV_TARGET_HEIGHT;
 /* Bug B v2 fix 2026-06-03: set true on first WriteFrame; checked by
  * mister_present() to stop writing DDR3 once gameplay starts. */
 static volatile int      has_rendered  = 0;
+/* TEMPORARY DIAG 2026-06-03: test-pattern mode for downscale debugging.
+ * Activated by touching /tmp/openbor_test_pattern before binary start.
+ * When active, WriteFrame replaces engine pixels with a diagnostic
+ * gradient: R-ramp top-to-bottom, G-ramp left-to-right. Lets us tell
+ * by visual inspection whether reader+downscale are reading source
+ * lines in correct order (smooth gradient) vs broken (uniform color,
+ * random flicker, garbled). REVERT AFTER MEASURED. */
+static volatile int      test_pattern_mode = 0;
 
 bool NativeVideoWriter_Init(void) {
     mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
@@ -125,6 +134,16 @@ bool NativeVideoWriter_Init(void) {
 
     fprintf(stderr, "NativeVideoWriter: mapped 0x%08X region=%uMB, max %dx%d/frame (Option Y)\n",
             NV_DDR_PHYS_BASE, NV_DDR_REGION_SIZE >> 20, NV_MAX_WIDTH, NV_MAX_HEIGHT);
+
+    /* TEMPORARY DIAG: enable test-pattern mode if flag file present. */
+    {
+        struct stat st;
+        if (stat("/tmp/openbor_test_pattern", &st) == 0) {
+            test_pattern_mode = 1;
+            fprintf(stderr, "NativeVideoWriter: TEST PATTERN MODE ENABLED (diagnostic) — "
+                    "engine pixels suppressed, writing gradient instead\n");
+        }
+    }
     return true;
 }
 
@@ -153,6 +172,45 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
 
     uint32_t buf_offset = (active_buf == 0) ? NV_BUF0_OFFSET : NV_BUF1_OFFSET;
     volatile uint16_t* dst = (volatile uint16_t*)(ddr_base + buf_offset);
+
+    /* TEMPORARY DIAG: test-pattern mode. When enabled by /tmp/openbor_test_pattern
+     * flag file at Init time, replace ALL engine pixels with a diagnostic
+     * gradient. R-ramp top-to-bottom (0..31 across `height` source rows),
+     * G-ramp left-to-right (0..63 across `width` source cols), B=0.
+     *
+     * Visual interpretation of FPGA output (after downscale to 320x224):
+     *   - Smooth red gradient top->bottom + green gradient left->right ->
+     *     reader+downscale work correctly, source-line ordering is right
+     *   - All-one-color uniform output ->
+     *     V-pass reads same source line for all dest lines (slot
+     *     mapping broken)
+     *   - Banded/striped output ->
+     *     H-pass or V-pass positioning broken
+     *   - Random per-frame variation ->
+     *     ring buffer race or timing issue
+     *   - Garbled/noise ->
+     *     reader DDR3 address calculation broken
+     * REVERT AFTER MEASURED. */
+    if (test_pattern_mode) {
+        int y;
+        int x;
+        static int diag_logged = 0;
+        if (!diag_logged) {
+            fprintf(stderr, "NativeVideoWriter: test pattern frame 0: %dx%d bpp=%d\n",
+                    width, height, bpp);
+            diag_logged = 1;
+        }
+        for (y = 0; y < height; y++) {
+            volatile uint16_t* dst_row = dst + (size_t)y * (size_t)width;
+            uint16_t y_red = (uint16_t)(((uint32_t)y * 31u) / (uint32_t)height) << 11;
+            for (x = 0; x < width; x++) {
+                uint16_t x_green = (uint16_t)(((uint32_t)x * 63u) / (uint32_t)width) << 5;
+                dst_row[x] = y_red | x_green;
+            }
+        }
+        goto present_ctrl_dim;  /* skip the bpp dispatch */
+    }
+
     /* Destination stride in 16-bit pixels = source width. Each row in
      * DDR3 is laid out tightly at the engine's native res; FPGA reader
      * uses width from DIM ctrl word to compute per-line address. */
@@ -265,6 +323,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
         return;  /* unsupported format, skip frame */
     }
 
+present_ctrl_dim:  /* TEMPORARY DIAG label for test-pattern early-jump */
     /* Bug B fix 2026-06-03: full-drain DSB SY before CTRL flip.
      *
      * The previous __sync_synchronize() compiles to DMB SY, which only

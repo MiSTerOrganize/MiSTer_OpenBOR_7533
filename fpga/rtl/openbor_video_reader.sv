@@ -289,6 +289,37 @@ reg  [28:0] line_qword_offset;  // accumulates within a line for multi-burst
 reg  [28:0] line_base_addr;     // buf_base + (src_line * qwords_per_line)
 reg  [7:0]  cur_burst;          // current burst length (1..MAX_BURST_QW)
 
+// Step 60 v2 fix 2026-06-03: reader pacing for variable-res downscale.
+//
+// Previous pacing read 1 source line per active display line (and gated
+// on !vblank_ddr). That worked for 1:1 V scale only. For sources with
+// src_height > DEST_HEIGHT (e.g., He-Man 480 source lines to 224 dest
+// lines = 2.14x downscale) the reader could only fetch 224 + 2 preload
+// = 226 of 480 source lines per frame. The 5-slot ring buffer ended up
+// holding only the LAST 5 source lines that were read, so V-pass at
+// dest line N (which needs source lines around N*ratio) couldn't find
+// the right lines in the ring -> find_slot defaulted to slot 0 -> all
+// dest lines rendered with whatever line happened to be in slot 0 at
+// the moment. Visible as severe garbled video on He-Man + lesser issue
+// on near-1:1 ATOV (where most lines were caught up).
+//
+// Fix: pace by src/dest RATIO, not 1:1 with display lines.
+//   src_target = D * (src_height / DEST_HEIGHT) + LOOKAHEAD
+//   where D = dest_line counter tracked via new_line_ddr pulses
+//
+// With LOOKAHEAD=3 and 5-slot ring (mod-5 slot mapping), reader stays
+// exactly 3 lines ahead of V-pass's center tap. V-pass needs 4 lines
+// (kernel taps m-1..p+2 = 4 lines starting at D*ratio-1). Reader
+// writes line K to slot K%5; with K = D*ratio+3, this slot is
+// (D*ratio-2)%5 = ONE SLOT before V-pass's oldest needed slot (slot
+// (D*ratio-1)%5). So reader's write slot is distinct from V-pass's
+// 4 active read slots in the 5-slot ring -> no conflict.
+localparam [10:0] LOOKAHEAD = 11'd3;
+reg  [31:0] dest_phase_v;     // accumulated D * step_v in fixed-point
+reg  [10:0] src_target;       // floor(dest_phase_v[26:16]) + LOOKAHEAD
+wire [31:0] step_v_per_dest = ({src_height_o, 16'd0}) / DEFAULT_HEIGHT;
+wire [31:0] dest_phase_v_next = dest_phase_v + step_v_per_dest;
+
 // Audio state
 reg  [31:0] audio_wr_ptr;
 reg  [31:0] audio_rd_ptr;
@@ -387,6 +418,9 @@ always @(posedge ddr_clk) begin
         src_width_o           <= DEFAULT_WIDTH;
         src_height_o          <= DEFAULT_HEIGHT;
         src_frame_start_o     <= 1'b0;
+        // Step 60 v2 fix: pacing counters
+        dest_phase_v          <= 32'd0;
+        src_target            <= LOOKAHEAD;  // preload first 3 source lines for V-pass
         src_line_done_o       <= 1'b0;
     end
     else begin
@@ -400,6 +434,37 @@ always @(posedge ddr_clk) begin
         if (!ddr_busy) ddr_we <= 1'b0;
 
         if (new_frame_ddr) new_frame_pending <= 1'b1;
+
+        // Step 60 v2 fix: update src_target on every active-display new_line
+        // pulse. Each dest line that V-pass will output should advance the
+        // reader's target source line by step_v (= src_height/DEST_HEIGHT
+        // ratio in fixed-point). Reader's ST_WAIT_DISPLAY gates on
+        // src_line < src_target so reader keeps pace with V-pass.
+        // !vblank_ddr keeps the count tied to ACTIVE display lines (= 224
+        // pulses per frame = V-pass's actual new_line count), matching
+        // the rate at which V-pass consumes source lines.
+        if (new_line_ddr && !vblank_ddr) begin
+            dest_phase_v <= dest_phase_v_next;
+            src_target   <= dest_phase_v_next[26:16] + LOOKAHEAD;
+        end
+
+        // Step 60 v2 fix: enable frame_ready as soon as LOOKAHEAD source
+        // lines are preloaded. Previously frame_ready_reg only went high
+        // after reading ALL src_height source lines (end of frame loop),
+        // which never completed before the display frame ended for
+        // downscale ratios > 1 (e.g., He-Man src_height=480 but reader
+        // could only fetch ~226 lines per frame at 1:1 pacing). With the
+        // new ratio-based pacing, reader CAN read all source lines per
+        // frame, but V-pass must be allowed to start output as soon as
+        // the first 3 lines are in the ring buffer — not wait for line
+        // 479. This block latches first_frame_loaded + frame_ready_reg
+        // when src_line catches up to LOOKAHEAD. Both signals are also
+        // set in ST_LINE_DONE at end-of-frame (line 687-688) for
+        // redundancy (no-op if already latched).
+        if (!first_frame_loaded && src_line >= LOOKAHEAD) begin
+            first_frame_loaded <= 1'b1;
+            frame_ready_reg    <= 1'b1;
+        end
 
         // Beat capture (runs in parallel with state machine)
         if (state == ST_WAIT_LINE && ddr_dout_ready) begin
@@ -601,6 +666,10 @@ always @(posedge ddr_clk) begin
                     src_width_o        <= src_width;
                     src_height_o       <= src_height;
                     src_frame_start_o  <= 1'b1;    // pulses for 1 ddr_clk
+                    // Step 60 v2 fix: reset pacing for new frame. src_target
+                    // = LOOKAHEAD preloads first 3 lines for V-pass startup.
+                    dest_phase_v       <= 32'd0;
+                    src_target         <= LOOKAHEAD;
                     state              <= ST_READ_LINE;
                 end
                 else if (first_frame_loaded) begin
@@ -714,7 +783,16 @@ always @(posedge ddr_clk) begin
             end
 
             ST_WAIT_DISPLAY: begin
-                if (src_line < src_height && new_line_ddr && !vblank_ddr)
+                // Step 60 v2 fix: pace reader by src_target (= D * ratio +
+                // LOOKAHEAD), not 1 source line per active display line.
+                // This lets reader fetch multiple source lines per display
+                // line for downscale ratios > 1 (He-Man 480->224 needs 2.14
+                // src lines per dest line), and fewer for very close to 1:1
+                // (ATOV 240->224 needs 1.07 src lines per dest line).
+                // src_target advances every new_line_ddr && !vblank_ddr in
+                // the cycle-level always block above; reader bursts reads
+                // here until src_line catches up.
+                if (src_line < src_height && src_line < src_target)
                     state <= ST_READ_LINE;
             end
 

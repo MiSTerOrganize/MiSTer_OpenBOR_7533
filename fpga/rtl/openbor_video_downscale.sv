@@ -179,15 +179,35 @@ always @(posedge clk_vid) begin
         src_frame_start_sync <= {src_frame_start_sync[0], src_frame_start};
         if (src_frame_start_sync[0] & ~src_frame_start_sync[1]) begin
             // Latch source dims and compute Bresenham step for this frame.
-            // h_step_fp = (src_width << 16) / DEST_WIDTH
-            // v_step_fp = (src_height << 16) / DEST_HEIGHT
-            // The divide-by-320/224 is hardware-expensive but only runs
-            // ONCE per frame. Synthesis can implement as constant divide
-            // (subtract-shift sequence) since DEST_WIDTH / DEST_HEIGHT
-            // are localparams.
+            //
+            // Bug X fix 2026-06-03: H-pass step formula was INVERTED.
+            //
+            //   H-pass iterates SOURCE pixels (src_col increments every
+            //   cycle while src_word_valid). For downscale (src > dest)
+            //   we want emit RARELY (every Nth source pixel). For Bresenham:
+            //       phase += step          per source pixel
+            //       emit when phase >= 1.0
+            //   means step = dest / source < 1.0 for downscale.
+            //
+            //   Previous formula h_step_fp = (src_width << 16) / DEST_WIDTH
+            //   yielded step = src/dest > 1.0 for downscale -> phase >= 1.0
+            //   ALWAYS -> emit EVERY cycle -> dest_col_out advances by
+            //   src_width per line (e.g., 960 for He-Man) instead of 320.
+            //   Writes overflowed past slot+319 into the NEXT slot in the
+            //   ring buffer, corrupting it. V-pass then read partially-
+            //   corrupted lines, with which-bytes-corrupted varying per
+            //   frame depending on H-pass / V-pass timing race -> visible
+            //   as severe flicker on He-Man + lesser flicker on 1:1 ATOV.
+            //
+            //   Corrected: h_step_fp = DEST_WIDTH / src_width.
+            //
+            // V-pass step is unchanged. V-pass iterates DEST lines (new_line
+            // pulses) and looks up source line index per dest line; step
+            // there is src/dest >= 1 for downscale (e.g., 2.14 for He-Man's
+            // 480 source lines mapped across 224 dest lines).
             src_w_latched <= src_width;
             src_h_latched <= src_height;
-            h_step_fp     <= ({src_width, 16'd0}) / DEST_WIDTH;
+            h_step_fp     <= ({DEST_WIDTH, 16'd0}) / src_width;
             v_step_fp     <= ({src_height, 16'd0}) / DEST_HEIGHT;
             frame_active  <= 1'b1;
         end
@@ -375,8 +395,13 @@ endfunction
 // ===================================================================
 // Line buffer ring -- 5 lines x 320 cols x 16 bits
 // ===================================================================
-// Single-port-write (H pass) + single-port-read (V pass) inferred dual-port.
-// Quartus will map this to ~3 M10K blocks.
+// Single array; Quartus auto-replicates as needed to serve 4 V-pass
+// read ports. Phase 5 inferred this as ~12 M10K. Bug 3 (proposed
+// 4-bank explicit split) was reverted 2026-06-03 because the explicit
+// banks failed M10K inference ("asynchronous read logic"), spilled to
+// LAB registers, and overflowed device ALM capacity (130%). The
+// original auto-replicated single-bank inference works correctly and
+// was not the source of any observed bug.
 reg [15:0] line_buf [0:1599];  // 5 x 320 = 1600 entries
 
 // Slot base address LUT - slot i occupies entries [i*320 .. i*320+319].
@@ -692,6 +717,18 @@ end
 // ===================================================================
 // V pass datapath  (clk_vid domain, driven by display timing)
 // ===================================================================
+//
+// Bug 1 fix 2026-06-03: combinational POST-update phase_v computed
+// here for use by the new_line procedural block below. Using a wire
+// (continuous assign) instead of a local reg with blocking assignment
+// inside the always block avoids SystemVerilog synthesis ambiguity
+// around static-vs-automatic local variables. The new_line block
+// reads phase_v_next_w so that coefs+slot lookups derive from the
+// NEW phase (the one corresponding to the line we're about to
+// output), not the OLD phase (which corresponded to the line we
+// just finished).
+wire [31:0] phase_v_next_w = phase_v + v_step_fp;
+
 //   The V pass is invoked per display line by `new_line` pulse. It
 //   walks 320 dest columns, reading 4 column-reduced samples from
 //   line_buf (one per V-tap line), blending them with phase-dependent
@@ -749,29 +786,49 @@ always @(posedge clk_vid) begin
     end
     else begin
         if (new_frame) begin
+            // Bug 1 fix 2026-06-03: also initialize coefs+slots for the
+            // FIRST dest line of the frame (phase_v = 0 = integer src
+            // line 0, phase 0 = coef ROM index 0). Without this, line 0
+            // is rendered with whatever values are in coef regs from the
+            // previous frame (or reset zeros at boot -> output is black).
             dest_line_out     <= 11'd0;
             phase_v           <= 32'd0;
             src_line_for_dest <= 11'd0;
+            v_phase_idx       <= 5'd0;
+            v_c0 <= coef_rom[7'd0];
+            v_c1 <= coef_rom[7'd1];
+            v_c2 <= coef_rom[7'd2];
+            v_c3 <= coef_rom[7'd3];
+            slot_for_tap_m1 <= find_slot(11'd0);
+            slot_for_tap_0  <= find_slot(11'd0);
+            slot_for_tap_p1 <= find_slot(11'd1);
+            slot_for_tap_p2 <= find_slot(11'd2);
         end
         else if (new_line) begin
-            // Advance V phase for next dest line.
-            phase_v <= phase_v + v_step_fp;
-            src_line_for_dest <= phase_v[26:16];  // integer part (up to 2047)
-            v_phase_idx <= phase_v[15:11];
-            v_c0 <= coef_rom[{phase_v[15:11], 2'b00} + 7'd0];
-            v_c1 <= coef_rom[{phase_v[15:11], 2'b00} + 7'd1];
-            v_c2 <= coef_rom[{phase_v[15:11], 2'b00} + 7'd2];
-            v_c3 <= coef_rom[{phase_v[15:11], 2'b00} + 7'd3];
+            // Bug 1 fix 2026-06-03: derive coefs + slot_for_tap_* from
+            // POST-update phase_v (= phase_v_next_w wire computed above)
+            // so they reflect the line we're about to output. The
+            // previous code read phase_v[*] as RHS in the same NBA
+            // assignment block that scheduled phase_v <= phase_v +
+            // v_step_fp; NBA semantics gave the OLD phase value to the
+            // lookups, applying line N's coefs to line N+1's output
+            // (1-line vertical off-by-one).
+            phase_v <= phase_v_next_w;
+            src_line_for_dest <= phase_v_next_w[26:16];
+            v_phase_idx <= phase_v_next_w[15:11];
+            v_c0 <= coef_rom[{phase_v_next_w[15:11], 2'b00} + 7'd0];
+            v_c1 <= coef_rom[{phase_v_next_w[15:11], 2'b00} + 7'd1];
+            v_c2 <= coef_rom[{phase_v_next_w[15:11], 2'b00} + 7'd2];
+            v_c3 <= coef_rom[{phase_v_next_w[15:11], 2'b00} + 7'd3];
 
-            // Resolve V-tap slots by searching slot_src_line[] for the
-            // source line each tap needs. Computed combinationally via
-            // find_slot(). At end-of-frame (src_line_for_dest+2 >= src_h)
-            // taps clamp to last available source line.
-            slot_for_tap_m1 <= find_slot(phase_v[26:16] == 11'd0
-                                         ? 11'd0 : phase_v[26:16] - 11'd1);
-            slot_for_tap_0  <= find_slot(phase_v[26:16]);
-            slot_for_tap_p1 <= find_slot(phase_v[26:16] + 11'd1);
-            slot_for_tap_p2 <= find_slot(phase_v[26:16] + 11'd2);
+            // Resolve V-tap slots from POST-update phase. At
+            // end-of-frame (src_line_for_dest+2 >= src_h) taps clamp to
+            // last available source line.
+            slot_for_tap_m1 <= find_slot(phase_v_next_w[26:16] == 11'd0
+                                         ? 11'd0 : phase_v_next_w[26:16] - 11'd1);
+            slot_for_tap_0  <= find_slot(phase_v_next_w[26:16]);
+            slot_for_tap_p1 <= find_slot(phase_v_next_w[26:16] + 11'd1);
+            slot_for_tap_p2 <= find_slot(phase_v_next_w[26:16] + 11'd2);
 
             if (dest_line_out != DEST_HEIGHT - 11'd1)
                 dest_line_out <= dest_line_out + 11'd1;
@@ -789,12 +846,10 @@ always @(posedge clk_vid) begin
                 //   src_line_for_dest - 1, +0, + 1, + 2 (the 4-tap V kernel).
                 //
                 // The 4 slot indices were resolved at new_line via the
-                // slot_for_tap_* registers below (search slot_src_line[]
-                // for matches). Here we just read from those slots.
-                // Stage 0 (combinational this ce_pix tick):
-                //   v_p0..v_p3 loaded from line_buf at hpos
-                //   edge_sharp() detects sharp gradient across the 4
-                //                column-reduced V-tap pixels
+                // slot_for_tap_* registers (set in the new_line block
+                // above using POST-update phase_v per Bug 1 fix). Here
+                // we just read from those slots. Quartus auto-replicates
+                // line_buf to serve 4 simultaneous read ports.
                 v_p0 <= line_buf[slot_base(slot_for_tap_m1) + hpos];
                 v_p1 <= line_buf[slot_base(slot_for_tap_0)  + hpos];
                 v_p2 <= line_buf[slot_base(slot_for_tap_p1) + hpos];
