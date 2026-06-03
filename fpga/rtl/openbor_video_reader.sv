@@ -1,33 +1,66 @@
 //============================================================================
 //
-//  OpenBOR Native Video DDR3 Reader
+//  OpenBOR Native Video DDR3 Reader  (Step 60 / Option Y)
 //
-//  Reads 320x240 RGB565 frames from DDR3 and outputs them 1:1 (no scaling).
+//  Reads VARIABLE-RES RGB565 source frames from DDR3 and streams source
+//  pixels through line_fifo at native source resolution. The downstream
+//  downscale module (Phase 4 — openbor_video_downscale.sv) consumes from
+//  line_fifo, buffers N source lines in M10K, performs edge-aware 4x4
+//  polyphase downscale to the 320x224 display target.
 //
-//  OpenBOR's software render path produces 320x240 pixels natively, so we
-//  do not need pixel doubling or line doubling like the PICO-8 reader does.
-//  This simplifies the pixel output state machine considerably.
+//  Differences from the pre-Step-60 fixed-320x224 reader:
 //
-//  Cart loading via ioctl is PRESERVED from the PICO-8 design — PAKs are
-//  loaded via the MiSTer OSD file browser exactly the way PICO-8 cartridges
-//  are. Same ioctl byte collection, same flow control via ioctl_wait, same
-//  state machine integration with the video reader.
+//   * Reads the DIM ctrl word at DDR3 byte 0x04 (= upper 32 bits of the
+//     same qword as the CTRL word at byte 0x00). The DIM word is laid out
+//     as ((height << 16) | width). One DDR3 read fetches both CTRL and
+//     DIM — no extra cycle cost.
 //
-//  DDR3 Memory Map (physical addresses):
-//    0x3A000000 + 0x000     : Control word (frame_counter[31:2], active_buffer[1:0])
-//    0x3A000000 + 0x008     : Joystick data (FPGA writes, ARM reads)
+//   * Source line count = src_height (from DIM), not hardcoded V_ACTIVE.
+//
+//   * Qwords-per-line = ceil(src_width / 4) (since RGB565 packs 4 pixels
+//     per 64-bit DDR3 word). For 320-wide source this is 80 qwords/line,
+//     matching the pre-Step-60 LINE_BURST constant.
+//
+//   * Multi-burst per line: an 8-bit ddr_burstcnt caps a single transfer
+//     at 255 qwords. Sources wider than 1020 pixels (e.g., 1920-wide
+//     hypothetical PAKs) need >1 burst per source line. State machine
+//     tracks line_qwords_remaining and fires multiple ST_READ_LINE
+//     iterations per logical line. For He-Man (960-wide = 240 qwords)
+//     and below this is one burst per line — unchanged from before.
+//
+//   * Per-line DDR3 address: buf_base + (src_line × qwords_per_line).
+//     Computed at frame start so the per-line address is a single
+//     32-bit add rather than a multiply each line.
+//
+//   * Source dimensions are exported as src_width_o / src_height_o for
+//     the downscale module to drive its pipelining and pixel mapping.
+//     src_frame_start_o pulses once per frame at the start of source
+//     read; src_line_done_o pulses after each source line completes.
+//
+//  Cart loading via ioctl is PRESERVED. PAK byte capture, addressing,
+//  flow control via ioctl_wait — all unchanged from previous releases.
+//
+//  DDR3 Memory Map  (must match src/native_video_writer.c constants):
+//    0x3A000000 + 0x000     : CTRL  (frame_counter[31:2] | active_buf[1:0])
+//    0x3A000000 + 0x004     : DIM   (height[31:16] | width[15:0])    NEW
+//    0x3A000000 + 0x008     : Joystick P1 (FPGA writes, ARM reads)
 //    0x3A000000 + 0x010     : Cart control (file_size, ARM polls)
 //    0x3A000000 + 0x018     : Joystick P2
 //    0x3A000000 + 0x020     : Joystick P3
 //    0x3A000000 + 0x028     : Joystick P4
-//    0x3A000000 + 0x030     : Audio ring write pointer (ARM writes)
-//    0x3A000000 + 0x038     : Audio ring read pointer  (FPGA writes)
-//    0x3A000000 + 0x040     : Buffer 0 (320x240 RGB565 = 153,600 bytes; 256KB region)
-//    0x3A040040             : Buffer 1 (320x240 RGB565; 256KB region)
-//    0x3A080000             : Cart data buffer (past video buffers)
-//    0x3A0D0000             : Audio ring buffer (64 KiB, 16,384 stereo S16 frames)
+//    0x3A000000 + 0x030     : Audio ring wr_ptr (ARM writes)
+//    0x3A000000 + 0x038     : Audio ring rd_ptr (FPGA writes)
+//    0x3A000000 + 0x040     : BUF0  (up to 1920x1080 RGB565 = 4.15 MB)
+//    0x3A000000 + 0x400040  : BUF1  4MB-stride per buffer            MOVED
+//    0x3A000000 + 0x800040  : Cart data buffer (1 MB region)         MOVED
+//    0x3A000000 + 0x900040  : Audio ring buffer (64 KiB)             MOVED
 //
-//  Bandwidth: 153,600 bytes x 60fps = 9.2 MB/s (DDR3 can do >1000)
+//  Bandwidth at max source res (960x480 = He-Man):
+//    960 × 480 × 2 = 921,600 bytes per frame
+//    × 60 fps      = 55.3 MB/s
+//  DDR3 capacity is multiple GB/s, so even max-source PAKs are well
+//  within budget. Even a hypothetical 1920x1080 source would only need
+//  249 MB/s.
 //
 //  Adapted from MiSTer_PICO-8 by MiSTer Organize
 //  Copyright (C) 2026 MiSTer Organize -- GPL-3.0
@@ -74,10 +107,12 @@ module openbor_video_reader (
     input  wire [31:0] joystick_3,
     input  wire [15:0] joystick_l_analog_0,
 
-    // Pixel output
-    output reg   [7:0] r_out,
-    output reg   [7:0] g_out,
-    output reg   [7:0] b_out,
+    // Source-pixel stream output (clk_vid domain).
+    // Phase 4: downscale module consumes from line_fifo via these ports.
+    // Read interface: assert src_fifo_rd to pop one qword (4 RGB565 pixels).
+    input  wire        src_fifo_rd_i,
+    output wire [63:0] src_fifo_rd_data_o,
+    output wire        src_fifo_empty_o,
 
     // Audio output (clk_audio domain)
     input  wire        clk_audio,       // 24.576 MHz
@@ -86,59 +121,66 @@ module openbor_video_reader (
 
     // Control
     input  wire        enable,
-    output wire        frame_ready
+    output wire        frame_ready,
+
+    // ----- Step 60 / Option Y: source dimensions + frame-pacing -----
+    // For Phase 4 downscale module. Currently unconnected at top-level
+    // (downscale module not yet instantiated) — port stubs prepared.
+    output reg  [10:0] src_width_o,        // 1..1920
+    output reg  [10:0] src_height_o,       // 1..1080
+    output reg         src_frame_start_o,  // pulses 1 ddr_clk at start of a new src frame read
+    output reg         src_line_done_o     // pulses 1 ddr_clk when src line read fills FIFO
 );
 
 // DDR3 byte enable (always all bytes)
 assign ddr_be  = 8'hFF;
 
 // -- DDR3 Address Constants --------------------------------------------
-// 29-bit qword addresses = physical >> 3
+// 29-bit qword addresses = physical >> 3.
 //
-// Buffer layout: 320*240*2 = 153,600 bytes per buffer.
-// Round up to 256KB per buffer for clean addressing and headroom.
-// 256KB = 0x40000 bytes = 0x8000 qwords.
+//   Physical          Qword (>>3)     Purpose
+//   0x3A000000        0x07400000      CTRL (low 32 bits) + DIM (high 32 bits)
+//   0x3A000008        0x07400001      Joystick P1
+//   0x3A000010        0x07400002      Cart control
+//   0x3A000018        0x07400003      Joystick P2
+//   0x3A000020        0x07400004      Joystick P3
+//   0x3A000028        0x07400005      Joystick P4
+//   0x3A000030        0x07400006      Audio wr_ptr
+//   0x3A000038        0x07400007      Audio rd_ptr
+//   0x3A000040        0x07400008      BUF0 base
+//   0x3A400040        0x07480008      BUF1 base (4MB stride from BUF0)
+//   0x3A800040        0x07500008      Cart data buffer
+//   0x3A900040        0x07520008      Audio ring buffer
 //
-//   Physical          Qword (>>3)        Purpose
-//   0x3A000000        29'h07400000       Control word
-//   0x3A000008        29'h07400001       Joystick P1 data
-//   0x3A000010        29'h07400002       Cart control
-//   0x3A000018        29'h07400003       Joystick P2 data
-//   0x3A000020        29'h07400004       Joystick P3 data
-//   0x3A000028        29'h07400005       Joystick P4 data
-//   0x3A000040        29'h07400008       Buffer 0 base
-//   0x3A040040        29'h07408008       Buffer 1 base
-//   0x3A080000        29'h07410000       Cart data buffer (past video buffers)
-//
-// Each buffer holds 240 lines × 320 pixels × 2 bytes = 153,600 bytes
-// = 19,200 qwords. The next buffer starts 256KB later (0x40000 bytes
-// = 0x8000 qwords) leaving plenty of headroom. Cart data lives well
-// past the end of BUF1 to allow hot-swap during gameplay without overlap.
-localparam [28:0] CTRL_ADDR      = 29'h07400000;  // 0x3A000000 >> 3
-localparam [28:0] JOY0_ADDR      = 29'h07400001;  // 0x3A000008 >> 3
-localparam [28:0] CART_CTRL_ADDR = 29'h07400002;  // 0x3A000010 >> 3
-localparam [28:0] JOY1_ADDR      = 29'h07400003;  // 0x3A000018 >> 3
-localparam [28:0] JOY2_ADDR      = 29'h07400004;  // 0x3A000020 >> 3
-localparam [28:0] JOY3_ADDR      = 29'h07400005;  // 0x3A000028 >> 3
-localparam [28:0] AUDIO_WR_ADDR   = 29'h07400006;  // 0x3A000030 >> 3
-localparam [28:0] AUDIO_RD_ADDR   = 29'h07400007;  // 0x3A000038 >> 3
-localparam [28:0] BUF0_ADDR      = 29'h07400008;  // 0x3A000040 >> 3
-localparam [28:0] BUF1_ADDR      = 29'h07408008;  // 0x3A040040 >> 3
-localparam [28:0] CART_DATA_ADDR = 29'h07410000;  // 0x3A080000 >> 3
-localparam [28:0] AUDIO_RING_ADDR = 29'h0741A000; // 0x3A0D0000 >> 3
+localparam [28:0] CTRL_ADDR      = 29'h07400000;
+localparam [28:0] JOY0_ADDR      = 29'h07400001;
+localparam [28:0] CART_CTRL_ADDR = 29'h07400002;
+localparam [28:0] JOY1_ADDR      = 29'h07400003;
+localparam [28:0] JOY2_ADDR      = 29'h07400004;
+localparam [28:0] JOY3_ADDR      = 29'h07400005;
+localparam [28:0] AUDIO_WR_ADDR   = 29'h07400006;
+localparam [28:0] AUDIO_RD_ADDR   = 29'h07400007;
+localparam [28:0] BUF0_ADDR      = 29'h07400008;
+localparam [28:0] BUF1_ADDR      = 29'h07480008;  // MOVED (was 0x07408008)
+localparam [28:0] CART_DATA_ADDR = 29'h07500008;  // MOVED (was 0x07410000)
+localparam [28:0] AUDIO_RING_ADDR = 29'h07520008; // MOVED (was 0x0741A000)
 localparam [31:0] AUDIO_RING_BYTES = 32'h00010000; // 64 KiB
 localparam [31:0] AUDIO_RING_MASK  = 32'h0000FFFF;
 
 // Audio refill threshold: trigger a fetch when FIFO has < this qwords used.
-// FIFO is 512 entries deep; 384 leaves 128 qwords (~5.3 ms) headroom.
+// FIFO is 1024 entries deep; 384 leaves headroom for steady-state mixing.
 localparam [9:0]  AUDIO_REFILL_THRESHOLD = 10'd384;
 
-// 320 pixels × 2 bytes / 8 bytes per qword = 80 beats per scanline
-localparam [7:0]  LINE_BURST   = 8'd80;
-// Each scanline takes 80 qword addresses
-localparam [28:0] LINE_STRIDE  = 29'd80;
-// Display lines (no doubling — source = display, Sega CD V28 NTSC)
-localparam [8:0]  V_ACTIVE     = 9'd224;
+// Max qwords per single DDR3 burst (ddr_burstcnt is 8-bit; 255 max).
+// For sources <= 1020 pixels wide this is enough for one burst per source
+// line. Wider sources are split across multiple bursts within the same
+// logical source line — line_qwords_remaining tracks the remainder.
+localparam [7:0]  MAX_BURST_QW = 8'd240;
+
+// Default DIM (320 x 224) — used until the first real CTRL+DIM read.
+// Init in native_video_writer.c writes this same value at boot.
+localparam [10:0] DEFAULT_WIDTH  = 11'd320;
+localparam [10:0] DEFAULT_HEIGHT = 11'd224;
 
 localparam [19:0] TIMEOUT_MAX = 20'hF_FFFF;
 
@@ -162,9 +204,8 @@ always @(posedge ddr_clk) begin
 end
 wire new_frame_ddr = ~new_frame_sync[1] & new_frame_sync[0];
 
-// Latch new_frame so it can't be missed during cart writes
 reg new_frame_pending;
-reg synced;  // Set after first ctrl read -- prevents displaying stale DDR3 data
+reg synced;  // Set after first ctrl read -- prevents stale-DDR3 display
 
 // -- CDC: new_line -----------------------------------------------------
 reg [1:0] new_line_sync;
@@ -220,7 +261,6 @@ localparam [4:0] ST_WRITE_JOY2      = 5'd10;
 localparam [4:0] ST_WRITE_JOY3      = 5'd11;
 localparam [4:0] ST_WRITE_CART      = 5'd12;
 localparam [4:0] ST_WRITE_CART_SIZE = 5'd13;
-// Audio-path states -- interleaved into idle windows of the video flow.
 localparam [4:0] ST_POLL_AUDIO_WR   = 5'd14;
 localparam [4:0] ST_WAIT_AUDIO_WR   = 5'd15;
 localparam [4:0] ST_PLAN_AUDIO      = 5'd16;
@@ -233,12 +273,21 @@ reg  [31:0] ctrl_word;
 reg  [29:0] prev_frame_counter;
 reg         active_buffer;
 reg  [28:0] buf_base_addr;
-reg  [8:0]  display_line;     // 0..239 (output display line, also = source line)
-reg  [6:0]  beat_count;
+reg  [10:0] src_line;          // 0 .. src_height-1
+reg  [7:0]  beat_count;
 reg         first_frame_loaded;
 reg  [4:0]  stale_vblank_count;
 reg         preloading;
 reg  [19:0] timeout_cnt;
+
+// Step 60 / Option Y: variable-res registers.
+reg  [10:0] src_width;          // 1..1920
+reg  [10:0] src_height;         // 1..1080
+reg  [9:0]  qwords_per_line;    // ceil(src_width / 4); 1..480
+reg  [9:0]  line_qwords_remaining; // for multi-burst sources
+reg  [28:0] line_qword_offset;  // accumulates within a line for multi-burst
+reg  [28:0] line_base_addr;     // buf_base + (src_line * qwords_per_line)
+reg  [7:0]  cur_burst;          // current burst length (1..MAX_BURST_QW)
 
 // Audio state
 reg  [31:0] audio_wr_ptr;
@@ -272,11 +321,9 @@ wire        audio_fifo_empty;
 wire [9:0]  audio_fifo_wrusedw;
 wire        audio_fifo_low = (audio_fifo_wrusedw < AUDIO_REFILL_THRESHOLD);
 
-// Audio fetch eligibility (combinational)
 wire [31:0] audio_bytes_avail = (audio_wr_ptr - audio_rd_ptr) & AUDIO_RING_MASK;
 wire        audio_wake        = enable_ddr && audio_fifo_low && (audio_backoff == 20'd0);
 
-// Burst planning (combinational, used in ST_PLAN_AUDIO).
 wire [31:0] audio_plan_cand_a  = (audio_bytes_avail > 32'd256) ? 32'd256 : audio_bytes_avail;
 wire [31:0] audio_plan_wrap    = AUDIO_RING_BYTES - (audio_rd_ptr & AUDIO_RING_MASK);
 wire [31:0] audio_plan_cand_b  = (audio_plan_cand_a > audio_plan_wrap) ? audio_plan_wrap : audio_plan_cand_a;
@@ -301,8 +348,8 @@ always @(posedge ddr_clk) begin
         prev_frame_counter <= 30'd0;
         active_buffer      <= 1'b0;
         buf_base_addr      <= 29'd0;
-        display_line       <= 9'd0;
-        beat_count         <= 7'd0;
+        src_line           <= 11'd0;
+        beat_count         <= 8'd0;
         first_frame_loaded <= 1'b0;
         frame_ready_reg    <= 1'b0;
         stale_vblank_count <= 5'd0;
@@ -329,30 +376,42 @@ always @(posedge ddr_clk) begin
         audio_backoff      <= 20'd0;
         audio_fifo_wr      <= 1'b0;
         audio_fifo_wr_data <= 64'd0;
+        // Step 60
+        src_width             <= DEFAULT_WIDTH;
+        src_height            <= DEFAULT_HEIGHT;
+        qwords_per_line       <= 10'd80;   // 320 / 4
+        line_qwords_remaining <= 10'd0;
+        line_qword_offset     <= 29'd0;
+        line_base_addr        <= 29'd0;
+        cur_burst             <= 8'd1;
+        src_width_o           <= DEFAULT_WIDTH;
+        src_height_o          <= DEFAULT_HEIGHT;
+        src_frame_start_o     <= 1'b0;
+        src_line_done_o       <= 1'b0;
     end
     else begin
-        fifo_wr       <= 1'b0;
-        audio_fifo_wr <= 1'b0;
+        fifo_wr           <= 1'b0;
+        audio_fifo_wr     <= 1'b0;
+        src_frame_start_o <= 1'b0;     // pulses
+        src_line_done_o   <= 1'b0;     // pulses
         if (audio_backoff != 20'd0) audio_backoff <= audio_backoff - 20'd1;
         if (fifo_aclr_cnt != 4'd0) fifo_aclr_cnt <= fifo_aclr_cnt - 4'd1;
         if (!ddr_busy) ddr_rd <= 1'b0;
         if (!ddr_busy) ddr_we <= 1'b0;
 
-        // Latch new_frame pulse so cart writes can't cause it to be missed
         if (new_frame_ddr) new_frame_pending <= 1'b1;
 
         // Beat capture (runs in parallel with state machine)
         if (state == ST_WAIT_LINE && ddr_dout_ready) begin
             fifo_wr      <= 1'b1;
             fifo_wr_data <= ddr_dout;
-            beat_count   <= beat_count + 7'd1;
+            beat_count   <= beat_count + 8'd1;
             timeout_cnt  <= 20'd0;
         end
 
-        // -- Cart byte collection (runs in parallel) --------------
+        // -- Cart byte collection (unchanged from pre-Step-60) ----
         cart_dl_prev <= ioctl_download;
 
-        // Download start
         if (ioctl_download && !cart_dl_prev) begin
             cart_loading     <= 1'b1;
             cart_byte_cnt    <= 3'd0;
@@ -360,12 +419,10 @@ always @(posedge ddr_clk) begin
             cart_total_bytes <= 27'd0;
         end
 
-        // Collect bytes — cap DDR3 writes at 256KB to prevent overflow
-        // (SC0 mount — ARM reads PAK path from .s0, loads from SD directly)
         if (ioctl_download && ioctl_wr && !cart_write_pending) begin
             cart_total_bytes <= ioctl_addr + 27'd1;
 
-            if (ioctl_addr < 27'h40000) begin
+            if (ioctl_addr < 27'h100000) begin    // 1 MB cap matches NV_CART_MAX_SIZE
                 case (cart_byte_cnt)
                     3'd0: cart_buf[ 7: 0] <= ioctl_dout;
                     3'd1: cart_buf[15: 8] <= ioctl_dout;
@@ -379,7 +436,7 @@ always @(posedge ddr_clk) begin
 
                 if (cart_byte_cnt == 3'd7) begin
                     cart_write_pending <= 1'b1;
-                    cart_write_addr    <= CART_DATA_ADDR + {2'd0, ioctl_addr[26:3]};
+                    cart_write_addr    <= CART_DATA_ADDR + {5'd0, ioctl_addr[26:3]};
                     cart_write_data    <= {ioctl_dout, cart_buf[55:0]};
                     cart_byte_cnt      <= 3'd0;
                 end
@@ -389,13 +446,12 @@ always @(posedge ddr_clk) begin
             end
         end
 
-        // Download end -- flush partial + write size
         if (!ioctl_download && cart_dl_prev && cart_loading) begin
             cart_loading      <= 1'b0;
             cart_size_pending <= 1'b1;
-            if (cart_byte_cnt != 3'd0 && !cart_write_pending && cart_total_bytes <= 27'h40000) begin
+            if (cart_byte_cnt != 3'd0 && !cart_write_pending && cart_total_bytes <= 27'h100000) begin
                 cart_write_pending <= 1'b1;
-                cart_write_addr    <= CART_DATA_ADDR + {2'd0, cart_total_bytes[26:3]};
+                cart_write_addr    <= CART_DATA_ADDR + {5'd0, cart_total_bytes[26:3]};
                 cart_write_data    <= cart_buf;
                 cart_byte_cnt      <= 3'd0;
             end
@@ -403,12 +459,8 @@ always @(posedge ddr_clk) begin
 
         case (state)
             ST_IDLE: begin
-                // Frame reads always get priority -- video must never be starved.
-                // Cart writes happen between frame reads.
-                // Audio fetches happen last, only when nothing else is pending.
-                // new_frame_pending is latched so it can't be missed.
                 if (enable_ddr && new_frame_pending) begin
-                    new_frame_pending <= 1'b0;  // consumed
+                    new_frame_pending <= 1'b0;
                     state <= ST_WRITE_JOY0;
                 end
                 else if (cart_write_pending)
@@ -420,7 +472,6 @@ always @(posedge ddr_clk) begin
             end
 
             ST_WRITE_JOY0: begin
-                // Write joystick_0 (P1) to DDR3 so ARM can read it
                 if (!ddr_busy) begin
                     ddr_addr     <= JOY0_ADDR;
                     ddr_din      <= {32'd0, joystick_0};
@@ -431,7 +482,6 @@ always @(posedge ddr_clk) begin
             end
 
             ST_WRITE_JOY1: begin
-                // Write joystick_1 (P2) to DDR3
                 if (!ddr_busy) begin
                     ddr_addr     <= JOY1_ADDR;
                     ddr_din      <= {32'd0, joystick_1};
@@ -442,7 +492,6 @@ always @(posedge ddr_clk) begin
             end
 
             ST_WRITE_JOY2: begin
-                // Write joystick_2 (P3) to DDR3
                 if (!ddr_busy) begin
                     ddr_addr     <= JOY2_ADDR;
                     ddr_din      <= {32'd0, joystick_2};
@@ -453,7 +502,6 @@ always @(posedge ddr_clk) begin
             end
 
             ST_WRITE_JOY3: begin
-                // Write joystick_3 (P4) to DDR3, then poll control
                 if (!ddr_busy) begin
                     ddr_addr     <= JOY3_ADDR;
                     ddr_din      <= {32'd0, joystick_3};
@@ -464,7 +512,6 @@ always @(posedge ddr_clk) begin
             end
 
             ST_WRITE_CART: begin
-                // Write 8 bytes of cart data to DDR3
                 if (!ddr_busy) begin
                     ddr_addr           <= cart_write_addr;
                     ddr_din            <= cart_write_data;
@@ -472,7 +519,6 @@ always @(posedge ddr_clk) begin
                     ddr_we             <= 1'b1;
                     cart_write_pending <= 1'b0;
                     cart_buf           <= 64'd0;
-                    // If download ended and this was the flush, write size next
                     if (!cart_loading && cart_size_pending)
                         state <= ST_WRITE_CART_SIZE;
                     else
@@ -481,7 +527,6 @@ always @(posedge ddr_clk) begin
             end
 
             ST_WRITE_CART_SIZE: begin
-                // Write file size to cart control address
                 if (!ddr_busy) begin
                     ddr_addr          <= CART_CTRL_ADDR;
                     ddr_din           <= {32'd0, 5'd0, cart_total_bytes};
@@ -493,6 +538,9 @@ always @(posedge ddr_clk) begin
             end
 
             ST_POLL_CTRL: begin
+                // Reads CTRL + DIM in one qword (DIM lives in upper 32 bits
+                // of the qword that holds CTRL in lower 32 bits — free
+                // 2-field fetch).
                 if (!ddr_busy) begin
                     ddr_addr     <= CTRL_ADDR;
                     ddr_burstcnt <= 8'd1;
@@ -505,6 +553,20 @@ always @(posedge ddr_clk) begin
             ST_WAIT_CTRL: begin
                 if (ddr_dout_ready) begin
                     ctrl_word   <= ddr_dout[31:0];
+                    // Capture DIM = upper 32 bits of same qword.
+                    //  ddr_dout[63:48] = height
+                    //  ddr_dout[47:32] = width
+                    // Sanitize: clamp width and height to (1 .. max).
+                    if (ddr_dout[47:32] == 16'd0 || ddr_dout[47:32] > 16'd1920)
+                        src_width <= DEFAULT_WIDTH;
+                    else
+                        src_width <= ddr_dout[42:32];      // 11 bits = up to 2047
+                    if (ddr_dout[63:48] == 16'd0 || ddr_dout[63:48] > 16'd1080)
+                        src_height <= DEFAULT_HEIGHT;
+                    else
+                        src_height <= ddr_dout[58:48];     // 11 bits
+                    // qwords_per_line = ceil(width / 4) computed at frame
+                    // start in ST_CHECK_CTRL once src_width is latched.
                     timeout_cnt <= 20'd0;
                     state       <= ST_CHECK_CTRL;
                 end
@@ -516,34 +578,46 @@ always @(posedge ddr_clk) begin
 
             ST_CHECK_CTRL: begin
                 if (!synced) begin
-                    // First read after reset -- capture stale DDR3 counter
-                    // without displaying anything. Prevents showing old game
-                    // data that persists in DDR3 across reboots.
+                    // First read after reset — capture stale DDR3 counter
+                    // without displaying. Prevents showing stale game data.
                     prev_frame_counter <= ctrl_word[31:2];
                     synced <= 1'b1;
                     state <= ST_IDLE;
                 end
                 else if (ctrl_word[31:2] != prev_frame_counter) begin
-                    // New frame available
+                    // New frame. Compute per-frame source-loop parameters.
                     prev_frame_counter <= ctrl_word[31:2];
                     active_buffer      <= ctrl_word[0];
                     stale_vblank_count <= 5'd0;
                     buf_base_addr      <= ctrl_word[0] ? BUF1_ADDR : BUF0_ADDR;
-                    display_line       <= 9'd0;
+                    src_line           <= 11'd0;
+                    // qwords_per_line = (src_width + 3) >> 2  (ceil)
+                    qwords_per_line    <= (src_width + 11'd3) >> 2;
+                    line_qword_offset  <= 29'd0;
                     preloading         <= 1'b1;
                     fifo_aclr_cnt      <= 4'd8;
+                    // Snapshot source dims onto export ports so the
+                    // downscale module sees a stable value for the frame.
+                    src_width_o        <= src_width;
+                    src_height_o       <= src_height;
+                    src_frame_start_o  <= 1'b1;    // pulses for 1 ddr_clk
                     state              <= ST_READ_LINE;
                 end
                 else if (first_frame_loaded) begin
-                    // Stale frame -- re-read previous buffer
+                    // Stale frame — re-read previous buffer.
                     if (stale_vblank_count < 5'd30)
                         stale_vblank_count <= stale_vblank_count + 5'd1;
                     if (stale_vblank_count >= 5'd29)
                         frame_ready_reg <= 1'b0;
-                    display_line  <= 9'd0;
-                    preloading    <= 1'b1;
-                    fifo_aclr_cnt <= 4'd8;
-                    state         <= ST_READ_LINE;
+                    src_line          <= 11'd0;
+                    qwords_per_line   <= (src_width + 11'd3) >> 2;
+                    line_qword_offset <= 29'd0;
+                    preloading        <= 1'b1;
+                    fifo_aclr_cnt     <= 4'd8;
+                    src_width_o       <= src_width;
+                    src_height_o      <= src_height;
+                    src_frame_start_o <= 1'b1;
+                    state             <= ST_READ_LINE;
                 end
                 else
                     state <= ST_IDLE;
@@ -551,20 +625,46 @@ always @(posedge ddr_clk) begin
 
             ST_READ_LINE: begin
                 if (!ddr_busy && !fifo_aclr_ddr_active) begin
-                    // No vertical doubling -- source line == display line.
-                    // Each scanline is 80 qwords (LINE_STRIDE) starting from
-                    // buf_base_addr.
-                    ddr_addr     <= buf_base_addr + ({20'd0, display_line} * LINE_STRIDE);
-                    ddr_burstcnt <= LINE_BURST;
-                    ddr_rd       <= 1'b1;
-                    beat_count   <= 7'd0;
-                    timeout_cnt  <= 20'd0;
-                    state        <= ST_WAIT_LINE;
+                    // line_base_addr is buf_base + (src_line × qwords_per_line).
+                    // For a single-burst line, line_qword_offset starts at
+                    // 0 and grows by cur_burst per multi-burst chunk.
+                    // line_qwords_remaining = qwords_per_line at start of
+                    // each new logical line, decremented by cur_burst per
+                    // ST_LINE_DONE iteration.
+                    //
+                    // If this is the first burst for this src_line:
+                    //   line_qwords_remaining was 0 (last line drained).
+                    //   We compute line_base_addr fresh.
+                    // If we're continuing a multi-burst line:
+                    //   line_qwords_remaining > 0 — keep going.
+                    if (line_qwords_remaining == 10'd0) begin
+                        // Start of a fresh source line.
+                        line_base_addr        <= buf_base_addr
+                                                 + ({18'd0, src_line} * qwords_per_line);
+                        line_qwords_remaining <= qwords_per_line;
+                        line_qword_offset     <= 29'd0;
+                    end
+                    // Plan this burst: min(remaining, MAX_BURST_QW).
+                    if (line_qwords_remaining > {2'd0, MAX_BURST_QW}) begin
+                        cur_burst    <= MAX_BURST_QW;
+                        ddr_burstcnt <= MAX_BURST_QW;
+                    end
+                    else begin
+                        cur_burst    <= line_qwords_remaining[7:0];
+                        ddr_burstcnt <= line_qwords_remaining[7:0];
+                    end
+                    ddr_addr    <= (line_qwords_remaining == 10'd0)
+                                   ? (buf_base_addr + ({18'd0, src_line} * qwords_per_line))
+                                   : (line_base_addr + line_qword_offset);
+                    ddr_rd      <= 1'b1;
+                    beat_count  <= 8'd0;
+                    timeout_cnt <= 20'd0;
+                    state       <= ST_WAIT_LINE;
                 end
             end
 
             ST_WAIT_LINE: begin
-                if (beat_count == LINE_BURST[6:0])
+                if (beat_count == cur_burst)
                     state <= ST_LINE_DONE;
                 else if (timeout_cnt == TIMEOUT_MAX)
                     state <= ST_IDLE;
@@ -573,28 +673,52 @@ always @(posedge ddr_clk) begin
             end
 
             ST_LINE_DONE: begin
-                display_line <= display_line + 9'd1;
+                // Advance within-line counters.
+                line_qwords_remaining <= line_qwords_remaining - {2'd0, cur_burst};
+                line_qword_offset     <= line_qword_offset + {21'd0, cur_burst};
 
-                if (display_line == V_ACTIVE - 9'd1) begin
-                    first_frame_loaded <= 1'b1;
-                    frame_ready_reg    <= 1'b1;
-                    preloading         <= 1'b0;
-                    state              <= ST_IDLE;
+                if (line_qwords_remaining == {2'd0, cur_burst}) begin
+                    // This burst completed the logical source line.
+                    src_line_done_o <= 1'b1;
+                    src_line        <= src_line + 11'd1;
+
+                    if (src_line == src_height - 11'd1) begin
+                        // Last source line of the frame.
+                        first_frame_loaded <= 1'b1;
+                        frame_ready_reg    <= 1'b1;
+                        preloading         <= 1'b0;
+                        state              <= ST_IDLE;
+                    end
+                    else if (preloading && src_line < 11'd1) begin
+                        // Preload first 2 source lines back-to-back, then
+                        // pace by new_line_ddr. For sources MUCH wider
+                        // than display (He-Man 960x480 → 320x224) this
+                        // pacing is a conservative throttle — downscale
+                        // module is expected to consume ~5 source lines
+                        // per display line, so pacing tighter may help.
+                        // Keeping the existing line-paced pattern for now;
+                        // Phase 4 can re-pace from downscale module's
+                        // consumption rate if needed.
+                        state <= ST_READ_LINE;
+                    end
+                    else begin
+                        preloading <= 1'b0;
+                        state      <= ST_WAIT_DISPLAY;
+                    end
                 end
-                else if (preloading && display_line < 9'd1)
-                    state <= ST_READ_LINE;
                 else begin
-                    preloading <= 1'b0;
-                    state      <= ST_WAIT_DISPLAY;
+                    // More qwords remain for this source line — continue
+                    // multi-burst without yielding the DDR3 bus.
+                    state <= ST_READ_LINE;
                 end
             end
 
             ST_WAIT_DISPLAY: begin
-                if (display_line < V_ACTIVE && new_line_ddr && !vblank_ddr)
+                if (src_line < src_height && new_line_ddr && !vblank_ddr)
                     state <= ST_READ_LINE;
             end
 
-            // -- Audio path: poll wr_ptr, read ring, write rd_ptr ---
+            // -- Audio path (unchanged) -----------------------------
             ST_POLL_AUDIO_WR: begin
                 if (!ddr_busy) begin
                     ddr_addr     <= AUDIO_WR_ADDR;
@@ -612,22 +736,17 @@ always @(posedge ddr_clk) begin
             end
 
             ST_PLAN_AUDIO: begin
-                // Now audio_bytes_avail is valid (audio_wr_ptr just latched).
                 if (audio_bytes_avail == 32'd0) begin
-                    // Ring empty -- back off briefly to avoid DDR3 spam.
-                    audio_backoff <= 20'h01000;  // ~42 us at 98.44 MHz clk_sys
+                    audio_backoff <= 20'h01000;
                     state         <= ST_IDLE;
                 end
                 else if (!audio_fifo_low) begin
-                    // FIFO filled up while we were polling; don't fetch.
                     state <= ST_IDLE;
                 end
                 else if (audio_plan_bytes == 32'd0) begin
                     state <= ST_IDLE;
                 end
                 else begin
-                    // Plan a burst: min(bytes_avail, 256, ring_wrap_room),
-                    // floored to a multiple of 8 bytes (one qword).
                     audio_burst_bytes <= audio_plan_bytes;
                     audio_burst_rem   <= audio_plan_qwords;
                     state             <= ST_READ_AUDIO_RING;
@@ -672,18 +791,20 @@ end
 
 // -- Dual-Clock FIFO --------------------------------------------------
 // 64-bit wide, stores raw DDR3 beats (4 RGB565 pixels per entry).
-// Depth 256 to hold 2 preloaded scanlines (80 beats each = 160 total).
+// Depth 1024 (was 256) — variable-res sources can fill more than the
+// previous fixed 2-line preload (160 qwords). For 960-wide source we need
+// 240 qwords per line; depth 1024 supports ~4 lines of buffering.
 wire [63:0] fifo_rd_data;
 wire        fifo_empty;
-reg         fifo_rd;
+wire        fifo_rd;        // Driven by external downscale via src_fifo_rd_i
 
 dcfifo #(
     .intended_device_family ("Cyclone V"),
-    .lpm_numwords           (256),
+    .lpm_numwords           (1024),
     .lpm_showahead          ("ON"),
     .lpm_type               ("dcfifo"),
     .lpm_width              (64),
-    .lpm_widthu             (8),
+    .lpm_widthu             (10),
     .overflow_checking      ("ON"),
     .rdsync_delaypipe       (4),
     .underflow_checking     ("ON"),
@@ -706,91 +827,18 @@ dcfifo #(
     .wrusedw  ()
 );
 
-// -- Pixel Output (1:1, no doubling) ----------------------------------
+// -- Phase 4: expose line_fifo to downscale module --------------------
 //
-// Each 64-bit FIFO word = 4 source pixels (RGB565).
-// No horizontal doubling -- one source pixel = one display pixel.
-// Each FIFO word produces exactly 4 display pixels.
+// The reader's old internal pixel-output block is removed. The FIFO read
+// side is now driven externally by the openbor_video_downscale module
+// in openbor_video_top.sv. fifo_rd is asserted by the downscale module
+// via src_fifo_rd_i; fifo_rd_data flows out via src_fifo_rd_data_o.
 //
-// pixel_sub[1:0] selects which of the 4 source pixels (0..3)
-//
-reg  [63:0] pixel_word;
-reg  [1:0]  pixel_sub;
-reg         pixel_word_valid;
+assign fifo_rd            = src_fifo_rd_i;
+assign src_fifo_rd_data_o = fifo_rd_data;
+assign src_fifo_empty_o   = fifo_empty;
 
-// RGB565 decode from current sub-pixel
-wire [15:0] cur_pix = pixel_word[{pixel_sub, 4'b0000} +: 16];
-wire  [7:0] dec_r = {cur_pix[15:11], cur_pix[15:13]};
-wire  [7:0] dec_g = {cur_pix[10:5],  cur_pix[10:9]};
-wire  [7:0] dec_b = {cur_pix[4:0],   cur_pix[4:2]};
-
-always @(posedge clk_vid) begin
-    if (reset_vid) begin
-        fifo_rd          <= 1'b0;
-        r_out            <= 8'd0;
-        g_out            <= 8'd0;
-        b_out            <= 8'd0;
-        pixel_word       <= 64'd0;
-        pixel_sub        <= 2'd0;
-        pixel_word_valid <= 1'b0;
-    end
-    else begin
-        fifo_rd <= 1'b0;
-
-        if (ce_pix) begin
-            if (de && frame_ready_vid) begin
-                if (pixel_word_valid) begin
-                    // Output current pixel
-                    r_out <= dec_r;
-                    g_out <= dec_g;
-                    b_out <= dec_b;
-
-                    if (pixel_sub == 2'd3) begin
-                        // Word exhausted -- load next from FIFO
-                        pixel_word_valid <= 1'b0;
-                        if (!fifo_empty) begin
-                            pixel_word       <= fifo_rd_data;
-                            pixel_word_valid <= 1'b1;
-                            pixel_sub        <= 2'd0;
-                            fifo_rd          <= 1'b1;
-                        end
-                    end
-                    else begin
-                        pixel_sub <= pixel_sub + 2'd1;
-                    end
-                end
-                else if (!fifo_empty) begin
-                    // Load first word from FIFO (show-ahead)
-                    pixel_word       <= fifo_rd_data;
-                    pixel_word_valid <= 1'b1;
-                    pixel_sub        <= 2'd0;
-                    fifo_rd          <= 1'b1;
-                    // Output first pixel immediately
-                    r_out <= {fifo_rd_data[15:11], fifo_rd_data[15:13]};
-                    g_out <= {fifo_rd_data[10:5],  fifo_rd_data[10:9]};
-                    b_out <= {fifo_rd_data[4:0],   fifo_rd_data[4:2]};
-                end
-                else begin
-                    r_out <= 8'd0;
-                    g_out <= 8'd0;
-                    b_out <= 8'd0;
-                end
-            end
-            else begin
-                // Outside active display
-                r_out            <= 8'd0;
-                g_out            <= 8'd0;
-                b_out            <= 8'd0;
-                pixel_sub        <= 2'd0;
-                pixel_word_valid <= 1'b0;
-            end
-        end
-    end
-end
-
-// -- Audio dual-clock FIFO (ddr_clk write, clk_audio read) -----------
-// 64-bit wide (= 2 stereo frames per entry), 1024 deep. Read side
-// alternates halves, popping every other sample.
+// -- Audio dual-clock FIFO (unchanged) --------------------------------
 wire [63:0] audio_fifo_rd_data;
 reg         audio_fifo_rd;
 
@@ -823,7 +871,7 @@ dcfifo #(
     .wrempty  ()
 );
 
-// -- 48 kHz sample clock (clk_audio / 512 = 48 kHz exactly) ----------
+// -- 48 kHz sample clock (unchanged) ----------------------------------
 reg [8:0] aud_div;
 reg       aud_tick;
 reg [1:0] reset_aud_sync;
@@ -843,13 +891,7 @@ always @(posedge clk_audio) begin
     end
 end
 
-// -- Audio sample output (clk_audio domain) --------------------------
-// Each FIFO entry carries two stereo frames:
-//   [15:0]   L0
-//   [31:16]  R0
-//   [47:32]  L1
-//   [63:48]  R1
-// Alternate halves, pop every other tick.
+// -- Audio sample output (unchanged) ----------------------------------
 reg half_sel;
 always @(posedge clk_audio) begin
     if (reset_aud) begin
@@ -870,11 +912,10 @@ always @(posedge clk_audio) begin
                 else begin
                     audio_l       <= audio_fifo_rd_data[47:32];
                     audio_r       <= audio_fifo_rd_data[63:48];
-                    audio_fifo_rd <= 1'b1;       // advance to next qword
+                    audio_fifo_rd <= 1'b1;
                     half_sel      <= 1'b0;
                 end
             end
-            // else: underflow, hold previous sample
         end
     end
 end

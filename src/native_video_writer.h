@@ -4,6 +4,15 @@
 //  API for writing frames from ARM to DDR3 for FPGA native video output.
 //  Also provides joystick reading and cart loading via DDR3 shared memory.
 //
+//  STEP 60 / Option Y (2026-06-01): variable-res write. ARM no longer
+//  squishes frames to a fixed 320×224 framebuffer. Instead, frames are
+//  written at their NATIVE source resolution (up to 1920×1080). FPGA
+//  reads the dimensions from a DIM word at offset 0x04 and does the
+//  edge-aware downscale-to-display on its side. Preserves source detail
+//  through to the FPGA — supports future aspect-ratio modes (Original /
+//  Full Screen / ARC1 / ARC2 per feature matrix row 14) and pixel-perfect
+//  scaling options.
+//
 //  Copyright (C) 2026 MiSTer Organize — GPL-3.0
 //
 
@@ -13,8 +22,19 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define NV_WIDTH   320
-#define NV_HEIGHT  224   /* Sega CD V28 NTSC active area */
+// Display target (Sega CD V28 NTSC active area). FPGA downscales TO these
+// dimensions from the native-res source frame written by ARM.
+#define NV_TARGET_WIDTH  320
+#define NV_TARGET_HEIGHT 224
+
+// Max native source res ARM is allowed to write. Covers all current PAKs
+// (Lust Rush 1600×900 fits) + future-proofs.
+#define NV_MAX_WIDTH  1920
+#define NV_MAX_HEIGHT 1080
+
+// Legacy aliases (kept for any caller that still references them).
+#define NV_WIDTH   NV_TARGET_WIDTH
+#define NV_HEIGHT  NV_TARGET_HEIGHT
 
 /// Initialize DDR3 native video writer. Maps /dev/mem at 0x3A000000.
 bool NativeVideoWriter_Init(void);
@@ -22,13 +42,14 @@ bool NativeVideoWriter_Init(void);
 /// Release DDR3 mapping.
 void NativeVideoWriter_Shutdown(void);
 
-/// Write one frame to DDR3 double-buffer, converting to RGB565.
+/// Write one frame to DDR3 double-buffer at NATIVE source resolution.
+/// FPGA reads dimensions from the DIM ctrl word and downscales to display.
 /// @param pixels   Source pixel data from SDL_Surface->pixels
-/// @param width    Surface width (must be <= 320)
-/// @param height   Surface height (must be <= 224)
+/// @param width    Surface width (1 .. NV_MAX_WIDTH)
+/// @param height   Surface height (1 .. NV_MAX_HEIGHT)
 /// @param pitch    Source row stride in BYTES (SDL_Surface->pitch)
 /// @param bpp      Bits per pixel (8, 16, or 32)
-/// @param palette  Palette data for 8bpp (SDL_Color array), NULL otherwise
+/// @param palette  Palette data for 8bpp (256 entries × 3 bytes RGB), NULL otherwise
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                   int pitch, int bpp, const void* palette);
 

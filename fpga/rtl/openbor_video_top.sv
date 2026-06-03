@@ -12,6 +12,13 @@
 //    - 320x224 (Sega CD V28 NTSC) instead of 256x256
 //    - 1:1 pixel mapping instead of 2x doubling
 //
+//  Step 60 / Option Y (2026-06-01): ARM writes native source-res (up to
+//  1920x1080) to DDR3 with a DIM ctrl word. The reader emits source
+//  pixels at native rate into line_fifo and exposes src_width/src_height
+//  and per-frame/per-line pacing signals for the future downscale module
+//  (Phase 4 — openbor_video_downscale.sv). Until Phase 4 lands, the
+//  reader's internal pixel-output block crops sources to top-left 320x224.
+//
 //  Cart loading via ioctl is preserved exactly as in PICO-8.
 //
 //  Adapted from MiSTer_PICO-8 by MiSTer Organize
@@ -115,8 +122,19 @@ openbor_video_timing timing (
 );
 
 // -- DDR3 Pixel Reader -------------------------------------------------
-wire [7:0]  reader_r, reader_g, reader_b;
 wire        reader_frame_ready;
+
+// Step 60 / Option Y source-dim + pacing signals + FIFO read interface,
+// consumed by openbor_video_downscale (instantiated below).
+wire [10:0] reader_src_width;
+wire [10:0] reader_src_height;
+wire        reader_src_frame_start;
+wire        reader_src_line_done;
+
+// FIFO interface (reader -> downscale, all clk_vid domain)
+wire        reader_src_fifo_rd;       // downscale asserts to pop
+wire [63:0] reader_src_fifo_rd_data;  // 4 RGB565 source pixels per qword
+wire        reader_src_fifo_empty;
 
 openbor_video_reader reader (
     .ddr_clk        (clk_sys),
@@ -141,9 +159,10 @@ openbor_video_reader reader (
     .new_line       (tim_new_line),
     .vcount         (tim_vcount),
 
-    .r_out          (reader_r),
-    .g_out          (reader_g),
-    .b_out          (reader_b),
+    // Phase 4: source-pixel FIFO interface (consumed by downscale below)
+    .src_fifo_rd_i        (reader_src_fifo_rd),
+    .src_fifo_rd_data_o   (reader_src_fifo_rd_data),
+    .src_fifo_empty_o     (reader_src_fifo_empty),
 
     .enable         (enable),
     .frame_ready    (reader_frame_ready),
@@ -162,13 +181,51 @@ openbor_video_reader reader (
 
     .clk_audio      (clk_audio),
     .audio_l        (audio_l),
-    .audio_r        (audio_r)
+    .audio_r        (audio_r),
+
+    // Step 60 / Option Y exports (consumed by openbor_video_downscale in Phase 4)
+    .src_width_o          (reader_src_width),
+    .src_height_o         (reader_src_height),
+    .src_frame_start_o    (reader_src_frame_start),
+    .src_line_done_o      (reader_src_line_done)
+);
+
+// -- Downscale (Phase 4): variable-res source -> 320x224 dest ----------
+// Separable 4x4 Catmull-Rom polyphase + sharp-edge bypass. Consumes
+// source pixels from the reader's line FIFO; produces RGB888 dest
+// pixels timed to the display pipeline.
+wire [7:0] dn_r, dn_g, dn_b;
+
+openbor_video_downscale downscale (
+    .clk_vid          (clk_vid),
+    .clk_sys          (clk_sys),
+    .ce_pix           (ce_pix),
+    .reset            (reset),
+
+    .de               (tim_de),
+    .hblank           (tim_hblank),
+    .vblank           (tim_vblank),
+    .new_frame        (tim_new_frame),
+    .new_line         (tim_new_line),
+
+    .src_fifo_rd      (reader_src_fifo_rd),
+    .src_fifo_rd_data (reader_src_fifo_rd_data),
+    .src_fifo_empty   (reader_src_fifo_empty),
+
+    .src_width        (reader_src_width),
+    .src_height       (reader_src_height),
+    .src_frame_start  (reader_src_frame_start),
+    .frame_ready      (reader_frame_ready),
+
+    .r_out            (dn_r),
+    .g_out            (dn_g),
+    .b_out            (dn_b)
 );
 
 // -- Output assignments ------------------------------------------------
-assign vga_r     = reader_r;
-assign vga_g     = reader_g;
-assign vga_b     = reader_b;
+assign vga_r     = dn_r;
+assign vga_g     = dn_g;
+assign vga_b     = dn_b;
 assign vga_hs    = tim_hsync;
 assign vga_vs    = tim_vsync;
 assign vga_de    = tim_de;

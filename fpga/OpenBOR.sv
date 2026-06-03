@@ -228,13 +228,22 @@ assign CE_PIXEL = ce_pix_gen;
 
 assign VGA_SL = 0;
 assign VGA_F1 = 0;
-// OpenBOR renders at 320x224 (Sega CD V28 NTSC). 4:3 displayed aspect.
-assign VIDEO_ARX = 13'd4;
-assign VIDEO_ARY = 13'd3;
+
+// OpenBOR renders at 320x224 (Sega CD V28 NTSC).
+// Aspect Ratio OSD (status[19:18]):
+//   0 = Original (4:3 standard TV)
+//   1 = Full Screen (ARX=0,ARY=0 -> framework fills HDMI completely)
+//   2 = [ARC1] (ARX=1,ARY=0 -> framework uses MiSTer.ini aspect_ratio_1=X,Y)
+//   3 = [ARC2] (ARX=2,ARY=0 -> framework uses MiSTer.ini aspect_ratio_2=X,Y)
+wire [1:0] osd_aspect = status[19:18];
+assign VIDEO_ARX = (osd_aspect == 2'd0) ? 13'd4 : {11'd0, (osd_aspect - 2'd1)};
+assign VIDEO_ARY = (osd_aspect == 2'd0) ? 13'd3 : 13'd0;
 assign VGA_SCALER= 0;
 assign VGA_DISABLE = 0;
 
-assign AUDIO_MIX = 0;
+// Stereo Mix OSD (status[22:21]) -> framework AUDIO_MIX signal
+//   0 = None, 1 = 25%, 2 = 50%, 3 = 100% (mono)
+assign AUDIO_MIX = status[22:21];
 assign HDMI_FREEZE = 0;
 assign HDMI_BLACKOUT = 0;
 
@@ -255,13 +264,23 @@ localparam CONF_STR = {
 	"OpenBOR;;",
 	"SC0,PAK,Load PAK;",
 	"-;",
-	"OCE,H Position (CRT),0,+1,+2,+3,-3,-2,-1;",
-	"OFH,V Position (CRT),0,+1,+2,+3,-3,-2,-1;",
+	"P1,Audio & Video;",
+	"P1-;",
+	"P1OIJ,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
+	"P1-;",
+	"P1OCE,H Position (CRT),0,+1,+2,+3,-3,-2,-1;",
+	"P1OFH,V Position (CRT),0,+1,+2,+3,-3,-2,-1;",
+	"P1-;",
+	"P1OLM,Stereo Mix,None,25%,50%,100%;",
+	"-;",
+	"P2,Input;",
+	"P2-;",
+	"P2OK,Swap Joysticks,No,Yes;",
 	"-;",
 	"J1,Attack,Jump,Special,Attack2,Start;",
 	"jn,A,B,X,Y,Start;",
 	"-;",
-	"V,v",`BUILD_DATE 
+	"V,v",`BUILD_DATE
 };
 
 wire forced_scandoubler;
@@ -271,6 +290,13 @@ wire [31:0] joystick_1;
 wire [31:0] joystick_2;
 wire [31:0] joystick_3;
 wire [15:0] joystick_l_analog_0;
+
+// Swap Joysticks OSD (status[20]): swap P1 <-> P2 at the mux.
+// P3/P4 unaffected -- only swaps the primary two controllers per
+// MegaCD/Saturn/Genesis convention.
+wire        swap_joys = status[20];
+wire [31:0] joy_p1 = swap_joys ? joystick_1 : joystick_0;
+wire [31:0] joy_p2 = swap_joys ? joystick_0 : joystick_1;
 
 // ioctl signals (still needed for core framework, but S0 doesn't stream)
 wire        ioctl_download;
@@ -733,10 +759,10 @@ openbor_video_top native_video
 	.v_offset       (v_pos),
 
 	// Joystick (from hps_io, written to DDR3 for ARM)
-	.joystick_0     (joystick_0),
-	.joystick_1     (joystick_1),
-	.joystick_2     (joystick_2),
-	.joystick_3     (joystick_3),
+	.joystick_0     (joy_p1),       // Swap-Joysticks mux applied (P1)
+	.joystick_1     (joy_p2),       // Swap-Joysticks mux applied (P2)
+	.joystick_2     (joystick_2),   // P3 unaffected
+	.joystick_3     (joystick_3),   // P4 unaffected
 	.joystick_l_analog_0 (joystick_l_analog_0),
 
 	// Cart loading

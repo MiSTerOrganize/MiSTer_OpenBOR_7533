@@ -275,10 +275,11 @@ endif
     # least 3 memcpys of the 320×224×4 = 286KB framebuffer plus internal
     # SDL2 renderer overhead. Even with the dummy driver, this all runs on
     # CPU. To recover the budget, we bypass the entire SDL renderer chain
-    # and write directly to DDR3 via NativeVideoWriter_WriteFrame (which
-    # already does the anisotropic NN squish to 320x224 for non-native
-    # source dimensions). Expected savings: ~15ms per frame → ~10ms total
-    # update() = ~100 fps native on Cortex-A9.
+    # and write directly to DDR3 via NativeVideoWriter_WriteFrame.
+    # 2026-06-01 (Step 60 / Option Y): ARM writes native-res to DDR3 and
+    # the FPGA does the edge-aware downscale to 320x224 — no ARM-side
+    # squish. Expected savings: ~15ms per frame -> ~10ms total update() =
+    # ~100 fps native on Cortex-A9 (plus full-res detail through to FPGA).
     print("Patching sdl/video.c (bypass SDL2 renderer — direct WriteFrame)...")
     video_path = os.path.join(obor, 'sdl/video.c')
     video_c = read(video_path)
@@ -307,8 +308,9 @@ endif
         '\n'
         '#ifdef MISTER_NATIVE_VIDEO\n'
         '\t/* Bypass SDL2 renderer chain (saves ~15ms/frame on Cortex-A9).\n'
-        '\t * NativeVideoWriter_WriteFrame writes directly to DDR3 with\n'
-        '\t * anisotropic NN squish to 320×224 (Sega CD V28 NTSC). */\n'
+        '\t * Step 60 / Option Y: write engine native-res to DDR3; the\n'
+        '\t * FPGA reads dimensions from the DIM ctrl word and performs\n'
+        '\t * edge-aware downscale to 320x224 on its side. */\n'
         '\tNativeVideoWriter_WriteFrame(surface->data,\n'
         '\t                              surface->width, surface->height,\n'
         '\t                              surface->pitch,\n'
