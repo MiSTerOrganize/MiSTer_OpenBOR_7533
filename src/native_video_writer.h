@@ -64,6 +64,17 @@ bool NativeVideoWriter_IsActive(void);
 /// keepalive counter caused jitter (loading bar bug 2026-05-22).
 void NativeVideoWriter_KeepaliveTick(void);
 
+/// 1 after the first successful WriteFrame call, 0 before. Used by the
+/// SDL dummy driver's mister_present() path to detect that gameplay has
+/// taken over the CTRL+DIM word — at which point mister_present must
+/// stop writing DDR3 entirely, since it has its own independent
+/// (mister_active_buf, mister_frame_cnt) state that races with
+/// WriteFrame's atomic CTRL+DIM updates. Eliminates the dual-writer
+/// flicker observed during Phase 5 hardware test (Bug B v2 fix
+/// 2026-06-03). Returns int (not bool) so the cross-translation-unit
+/// extern in patch_sdl_dummy.py doesn't need stdbool.h.
+int NativeVideoWriter_HasRendered(void);
+
 /// Read joystick state for player 0-3 from DDR3 (written by FPGA).
 uint32_t NativeVideoWriter_ReadJoystick(int player);
 

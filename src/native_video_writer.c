@@ -76,6 +76,9 @@ static volatile uint32_t frame_counter = 0;
 static volatile int      active_buf    = 0;
 static volatile uint16_t last_width    = NV_TARGET_WIDTH;
 static volatile uint16_t last_height   = NV_TARGET_HEIGHT;
+/* Bug B v2 fix 2026-06-03: set true on first WriteFrame; checked by
+ * mister_present() to stop writing DDR3 once gameplay starts. */
+static volatile int      has_rendered  = 0;
 
 bool NativeVideoWriter_Init(void) {
     mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
@@ -320,10 +323,22 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                     | (uint64_t)(uint16_t)last_width;
     *(volatile uint64_t*)(ddr_base + NV_CTRL_OFFSET) =
         (dim32 << 32) | ctrl32;
+
+    /* Bug B v2 fix 2026-06-03: signal that gameplay is rendering, so
+     * mister_present() (SDL dummy driver path) stops writing DDR3 and
+     * stops mutating its independent (mister_active_buf, mister_frame_cnt)
+     * state. Eliminates the dual-CTRL-writer race that caused severe
+     * gameplay flicker on ATOV + He-Man. Sticky flag — never cleared
+     * (boot-screen rendering only happens before first frame). */
+    has_rendered = 1;
 }
 
 bool NativeVideoWriter_IsActive(void) {
     return ddr_base != NULL;
+}
+
+int NativeVideoWriter_HasRendered(void) {
+    return has_rendered;
 }
 
 void NativeVideoWriter_KeepaliveTick(void) {

@@ -27,11 +27,19 @@ INJECT_INCLUDES = """
 #include <stdint.h>
 #include <pthread.h>
 
+/* Bug B v2 fix 2026-06-03: layout constants must match Phase 5
+ * native_video_writer.c values. Prior to this fix MISTER_BUF1_OFFSET
+ * was 0x00040040 (256KB stride, the pre-Step-60 layout) while
+ * NativeVideoWriter_WriteFrame writes to 0x00400040 (4MB stride). So
+ * during gameplay mister_present's BUF1 writes landed in a different
+ * region than the FPGA was reading — visible as the "shattered" stripe
+ * pattern when mister_present's BUF1 alternation came up. */
 #define MISTER_DDR_PHYS_BASE   0x3A000000u
-#define MISTER_DDR_REGION_SIZE 0x00100000u
+#define MISTER_DDR_REGION_SIZE 0x01000000u   /* 16 MB — covers all Phase 5 regions */
 #define MISTER_CTRL_OFFSET     0x00000000u
+#define MISTER_DIM_OFFSET      0x00000004u   /* Phase 5 dimensions ctrl word */
 #define MISTER_BUF0_OFFSET     0x00000040u
-#define MISTER_BUF1_OFFSET     0x00040040u
+#define MISTER_BUF1_OFFSET     0x00400040u   /* Phase 5: 4 MB stride from BUF0 */
 #define MISTER_FRAME_W         320
 #define MISTER_FRAME_H         224  /* Sega CD V28 NTSC */
 #define MISTER_FRAME_BYTES     (MISTER_FRAME_W * MISTER_FRAME_H * 2)
@@ -70,6 +78,16 @@ static volatile int        mister_keepalive_run = 0;
  * Fix: keepalive calls NativeVideoWriter_KeepaliveTick() which uses the
  * SAME state as WriteFrame. Single source of truth. */
 extern void NativeVideoWriter_KeepaliveTick(void);
+/* Bug B v2 fix 2026-06-03: once NativeVideoWriter_WriteFrame has been
+ * called (gameplay started), mister_present must stop writing DDR3.
+ * Otherwise mister_present's independent (mister_active_buf,
+ * mister_frame_cnt) state races with WriteFrame's atomic CTRL+DIM
+ * updates on the SAME ctrl word, producing severe gameplay flicker
+ * (ATOV bad, He-Man much worse during Phase 5 hardware test). Return
+ * type is int (not bool) so we don't need stdbool.h here -- the C
+ * function returns _Bool which is ABI-compatible with int on ARM. */
+extern int NativeVideoWriter_HasRendered(void);
+
 static void *mister_keepalive_fn(void *arg) {
     (void)arg;
     while (mister_keepalive_run) {
@@ -119,6 +137,12 @@ static void mister_present(SDL_Surface *screen) {
     int x, y, src_x, src_y;
 
     if (!mister_ddr || !screen || !screen->pixels) return;
+
+    /* Bug B v2 fix 2026-06-03: yield to NativeVideoWriter once gameplay
+     * has started rendering. mister_present's independent CTRL+
+     * active_buf state would otherwise race WriteFrame's atomic
+     * CTRL+DIM updates on the same ctrl word -> gameplay flicker. */
+    if (NativeVideoWriter_HasRendered()) return;
 
     w      = screen->w;
     h      = screen->h;
