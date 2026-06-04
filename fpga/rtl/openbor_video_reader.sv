@@ -416,9 +416,26 @@ reg  [10:0] dest_line_bin_r;
 reg  [30:0] src_target_mul_r;
 reg  [10:0] src_target_computed;
 always @(posedge ddr_clk) begin
-    dest_line_bin_r     <= dest_line_bin;
-    src_target_mul_r    <= dest_line_bin_r * step_v_per_dest[19:0];
-    src_target_computed <= src_target_mul_r[26:16] + LOOKAHEAD;
+    /* Phase 7 fix (2026-06-04): force pipeline to LOOKAHEAD on FPGA
+     * new_frame_ddr to handle gray-code CDC wrap glitch. When V-pass's
+     * dest_line_out resets 223->0, gray code has multi-bit transition
+     * (gray code only safe for unit increments). CDC can sample garbage
+     * intermediate values for a few clk_sys cycles, producing
+     * dest_line_bin = ~221, src_target_computed = ~240. Reader then
+     * bursts ALL 240 lines, slots end at 235-239 = stale-looking state.
+     *
+     * Forcing the pipeline on new_frame_ddr clears the garbage. CDC
+     * settles to real dest_line_bin = 0 within ~30ns, after which
+     * normal pacing resumes. */
+    if (new_frame_ddr) begin
+        dest_line_bin_r     <= 11'd0;
+        src_target_mul_r    <= 31'd0;
+        src_target_computed <= LOOKAHEAD;
+    end else begin
+        dest_line_bin_r     <= dest_line_bin;
+        src_target_mul_r    <= dest_line_bin_r * step_v_per_dest[19:0];
+        src_target_computed <= src_target_mul_r[26:16] + LOOKAHEAD;
+    end
 end
 
 // Audio state
