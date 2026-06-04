@@ -1,14 +1,14 @@
-Analysis & Synthesis Status : Successful - Thu Jun 04 08:52:27 2026
+Analysis & Synthesis Status : Successful - Thu Jun 04 09:41:20 2026
 Quartus Prime Version : 17.0.0 Build 595 04/25/2017 SJ Lite Edition
 Revision Name : OpenBOR
 Top-level Entity Name : sys_top
 Family : Cyclone V
 Logic utilization (in ALMs) : N/A
-Total registers : 40634
+Total registers : 40640
 Total pins : 145
 Total virtual pins : 0
 Total block memory bits : 572,762
-Total DSP Blocks : 61
+Total DSP Blocks : 62
 Total HSSI RX PCSs : 0
 Total HSSI PMA RX Deserializers : 0
 Total HSSI TX PCSs : 0

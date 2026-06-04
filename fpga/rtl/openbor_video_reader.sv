@@ -416,13 +416,25 @@ assign dest_line_bin[ 0] = dest_line_bin[ 1] ^ dest_line_gray_s2[ 0];
 
 /* src_target = (dest_line_bin * step_v_per_dest) >> 16 + LOOKAHEAD.
  * step_v_per_dest fits in 20 bits (max 316644 for src_height=1080).
- * Result of 11x20 multiply fits in 31 bits, inferred to one DSP slice.
- * Pipeline register reduces fanout pressure on timing. */
-wire [30:0] src_target_mul_w = dest_line_bin * step_v_per_dest[19:0];
-wire [10:0] src_target_computed_w = src_target_mul_w[26:16] + LOOKAHEAD;
+ *
+ * 3-stage pipeline (REQUIRED for clk_sys timing closure — initial 1-stage
+ * version failed at -0.511ns slack 2026-06-04 because gray-decode +
+ * 11x20 multiply + adder exceeded 10ns clk_sys period):
+ *
+ *   Stage 0: register dest_line_bin  (breaks gray-decode chain)
+ *   Stage 1: 11x20 multiply (inferred DSP slice, single cycle)
+ *   Stage 2: register multiply output
+ *   Stage 3: adder + register final src_target_computed
+ *
+ * Net latency: 3 clk_sys cycles (30 ns). Negligible vs ~64us per dest
+ * line — pacing accuracy unaffected. */
+reg  [10:0] dest_line_bin_r;
+reg  [30:0] src_target_mul_r;
 reg  [10:0] src_target_computed;
 always @(posedge ddr_clk) begin
-    src_target_computed <= src_target_computed_w;
+    dest_line_bin_r     <= dest_line_bin;
+    src_target_mul_r    <= dest_line_bin_r * step_v_per_dest[19:0];
+    src_target_computed <= src_target_mul_r[26:16] + LOOKAHEAD;
 end
 
 // Audio state
