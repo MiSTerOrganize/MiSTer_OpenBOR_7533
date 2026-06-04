@@ -148,7 +148,12 @@ module openbor_video_reader (
     /* TEMPORARY DIAG v2/v3: V-pass state snapshot at dest_line 100. Now
      * 80 bits (was 69). New field bits [79:69] = snap_src_target captured
      * at dest_line 99->100 transition (V-pass side, post-CDC). */
-    input  wire [79:0] dbg_vpass_snap_dest100_i
+    input  wire [79:0] dbg_vpass_snap_dest100_i,
+
+    /* Phase 5 fix (2026-06-04): V-pass's dest_line gray-coded for safe
+     * multi-bit CDC clk_vid -> clk_sys. Reader uses this to compute
+     * src_target directly, replacing phase-misaligned pulse accumulator. */
+    input  wire [10:0] dest_line_gray_i
 );
 
 // DDR3 byte enable (always all bytes)
@@ -379,6 +384,47 @@ wire [27:0] step_v_mul    = src_height_o * 17'd74898;
 wire [31:0] step_v_per_dest = {12'd0, step_v_mul[27:8]};
 wire [31:0] dest_phase_v_next = dest_phase_v + step_v_per_dest;
 
+/* Phase 5 fix (2026-06-04): replace pulse-counted dest_phase_v with
+ * V-pass dest_line CDC + multiplier. Bug was: dest_phase_v reset on
+ * ARM frame bump (src_frame_start_o) is phase-misaligned with V-pass's
+ * dest_line reset (FPGA new_frame). Pulse accumulator counted 224 active
+ * pulses per frame correctly but they were not aligned with V-pass mid-
+ * frame progress (snap_tgt=16 at V-pass dest=100 = pulses bunched late).
+ *
+ * Fix: gray-coded CDC of dest_line from V-pass, decoded to binary, then
+ * multiplied by step_v to compute src_target directly. Reader pacing
+ * now tracks V-pass exactly regardless of ARM frame phase. */
+reg  [10:0] dest_line_gray_s1, dest_line_gray_s2;
+always @(posedge ddr_clk) begin
+    dest_line_gray_s1 <= dest_line_gray_i;
+    dest_line_gray_s2 <= dest_line_gray_s1;
+end
+
+/* Gray-to-binary decoder (combinational unrolled XOR chain) */
+wire [10:0] dest_line_bin;
+assign dest_line_bin[10] = dest_line_gray_s2[10];
+assign dest_line_bin[ 9] = dest_line_bin[10] ^ dest_line_gray_s2[ 9];
+assign dest_line_bin[ 8] = dest_line_bin[ 9] ^ dest_line_gray_s2[ 8];
+assign dest_line_bin[ 7] = dest_line_bin[ 8] ^ dest_line_gray_s2[ 7];
+assign dest_line_bin[ 6] = dest_line_bin[ 7] ^ dest_line_gray_s2[ 6];
+assign dest_line_bin[ 5] = dest_line_bin[ 6] ^ dest_line_gray_s2[ 5];
+assign dest_line_bin[ 4] = dest_line_bin[ 5] ^ dest_line_gray_s2[ 4];
+assign dest_line_bin[ 3] = dest_line_bin[ 4] ^ dest_line_gray_s2[ 3];
+assign dest_line_bin[ 2] = dest_line_bin[ 3] ^ dest_line_gray_s2[ 2];
+assign dest_line_bin[ 1] = dest_line_bin[ 2] ^ dest_line_gray_s2[ 1];
+assign dest_line_bin[ 0] = dest_line_bin[ 1] ^ dest_line_gray_s2[ 0];
+
+/* src_target = (dest_line_bin * step_v_per_dest) >> 16 + LOOKAHEAD.
+ * step_v_per_dest fits in 20 bits (max 316644 for src_height=1080).
+ * Result of 11x20 multiply fits in 31 bits, inferred to one DSP slice.
+ * Pipeline register reduces fanout pressure on timing. */
+wire [30:0] src_target_mul_w = dest_line_bin * step_v_per_dest[19:0];
+wire [10:0] src_target_computed_w = src_target_mul_w[26:16] + LOOKAHEAD;
+reg  [10:0] src_target_computed;
+always @(posedge ddr_clk) begin
+    src_target_computed <= src_target_computed_w;
+end
+
 // Audio state
 reg  [31:0] audio_wr_ptr;
 reg  [31:0] audio_rd_ptr;
@@ -502,18 +548,23 @@ always @(posedge ddr_clk) begin
 
         if (new_frame_ddr) new_frame_pending <= 1'b1;
 
-        // Step 60 v2 fix: update src_target on every active-display new_line
-        // pulse. Each dest line that V-pass will output should advance the
-        // reader's target source line by step_v (= src_height/DEST_HEIGHT
-        // ratio in fixed-point). Reader's ST_WAIT_DISPLAY gates on
-        // src_line < src_target so reader keeps pace with V-pass.
-        // !vblank_ddr keeps the count tied to ACTIVE display lines (= 224
-        // pulses per frame = V-pass's actual new_line count), matching
-        // the rate at which V-pass consumes source lines.
-        if (new_line_ddr && !vblank_ddr) begin
-            dest_phase_v <= dest_phase_v_next;
-            src_target   <= dest_phase_v_next[26:16] + LOOKAHEAD;
-        end
+        // Phase 5 fix (2026-06-04): drive src_target from V-pass's
+        // dest_line CDC + multiplier instead of pulse-counted
+        // dest_phase_v accumulator. Decoupled from ARM frame phase.
+        //
+        // Old pacing pulse-counted new_line_ddr edges relative to ARM's
+        // src_frame_start_o. ARM frame bumps lag FPGA new_frame by 5-6ms
+        // on average, so pulses accumulated in the WRONG window: by
+        // V-pass dest=100, reader had only counted 13 of the 100 active
+        // pulses since ARM-frame-start, with the missing 87 pulses
+        // arriving later. src_target stayed low mid-frame, reader didn't
+        // write enough lines, V-pass's find_slot defaulted to slot 0,
+        // garbage output.
+        //
+        // New src_target_computed = (dest_line_bin * step_v) >> 16 +
+        // LOOKAHEAD, where dest_line_bin is the gray-decoded CDC of
+        // V-pass's dest_line (clk_vid -> clk_sys). Tracks V-pass exactly.
+        src_target <= src_target_computed;
 
         /* TEMPORARY DIAG v4: pulse counters. count_raw counts ALL
          * new_line_ddr edges (no gate). count_active counts only those

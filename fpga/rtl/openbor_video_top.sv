@@ -146,6 +146,8 @@ wire [54:0] dbg_slot_src_line_packed;
 wire [79:0] dbg_vpass_snap_dest100;
 /* TEMPORARY DIAG v3: src_target exposed from reader to downscale */
 wire [10:0] reader_src_target;
+/* Phase 5 fix (2026-06-04): V-pass dest_line gray-coded for CDC into reader */
+wire [10:0] downscale_dest_line_gray;
 
 openbor_video_reader reader (
     .ddr_clk        (clk_sys),
@@ -206,7 +208,9 @@ openbor_video_reader reader (
     /* TEMPORARY DIAG: slot_src_line probe from downscale */
     .dbg_slot_src_line_packed_i (dbg_slot_src_line_packed),
     /* TEMPORARY DIAG v2/v3: V-pass mid-frame snapshot (80 bits) */
-    .dbg_vpass_snap_dest100_i   (dbg_vpass_snap_dest100)
+    .dbg_vpass_snap_dest100_i   (dbg_vpass_snap_dest100),
+    /* Phase 5 fix: V-pass dest_line gray-coded for CDC */
+    .dest_line_gray_i           (downscale_dest_line_gray)
 );
 
 // -- Downscale (Phase 4): variable-res source -> 320x224 dest ----------
@@ -246,7 +250,9 @@ openbor_video_downscale downscale (
     .dbg_vpass_snap_dest100   (dbg_vpass_snap_dest100),
     /* TEMPORARY DIAG v3: src_target from reader (unsynchronized CDC,
      * downscale syncs internally) */
-    .src_target_i             (reader_src_target)
+    .src_target_i             (reader_src_target),
+    /* Phase 5 fix: expose dest_line gray-coded for reader CDC */
+    .dest_line_gray_o         (downscale_dest_line_gray)
 );
 
 // -- Output assignments ------------------------------------------------

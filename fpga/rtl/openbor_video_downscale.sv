@@ -95,7 +95,14 @@ module openbor_video_downscale (
 
     /* TEMPORARY DIAG v3: src_target from reader (clk_sys domain),
      * CDC'd internally to clk_vid for snap capture. */
-    input  wire [10:0] src_target_i
+    input  wire [10:0] src_target_i,
+
+    /* Phase 5 fix (Bug 2026-06-04): expose dest_line_out as gray-coded
+     * value for safe multi-bit CDC into reader (clk_vid -> clk_sys).
+     * Reader uses this to compute src_target = f(dest_line) directly,
+     * replacing the pulse-counted accumulator that was phase-misaligned
+     * with V-pass when ARM frame bumps lag FPGA new_frame. */
+    output wire [10:0] dest_line_gray_o
 );
 
 // ===================================================================
@@ -799,6 +806,12 @@ reg new_line_active;
 always @(posedge clk_vid) begin
     new_line_active <= new_line && !vblank;
 end
+
+/* Phase 5 fix: gray-code encode dest_line_out for safe multi-bit CDC.
+ * Gray-coded value has only 1 bit transitioning per increment of
+ * dest_line_out, so async sampling can never read an intermediate
+ * spurious value. Reader 2-FF syncs + decodes back to binary. */
+assign dest_line_gray_o = dest_line_out ^ (dest_line_out >> 1);
 
 /* TEMPORARY DIAG v3: CDC src_target from reader (clk_sys) into clk_vid.
  * 2-FF synchronizer. Bit-incoherence is acceptable here — src_target
