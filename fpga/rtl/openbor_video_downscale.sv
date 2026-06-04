@@ -807,6 +807,21 @@ always @(posedge clk_vid) begin
     new_line_active <= new_line && !vblank;
 end
 
+/* Phase 6 fix (2026-06-04): raw `new_line` from openbor_video_timing stays
+ * HIGH for an entire ce_pix gap (~8-10 clk_vid cycles) per scanline because
+ * timing module only updates new_line on ce_pix ticks. Without edge detect,
+ * V-pass's `else if (new_line_active)` block runs 8-10x per scanline,
+ * incrementing dest_line_out and advancing phase_v that many times. This
+ * also produced rapid gray-code transitions across multiple bits that
+ * reader's CDC couldn't reliably decode (intermediate values seen → ~4-line
+ * lag in observed snap_tgt). Fix: edge-detect new_line_active to a single-
+ * clk_vid pulse. */
+reg new_line_active_prev;
+always @(posedge clk_vid) begin
+    new_line_active_prev <= new_line_active;
+end
+wire new_line_active_pulse = new_line_active && !new_line_active_prev;
+
 /* Phase 5 fix: gray-code encode dest_line_out for safe multi-bit CDC.
  * Gray-coded value has only 1 bit transitioning per increment of
  * dest_line_out, so async sampling can never read an intermediate
@@ -877,7 +892,7 @@ always @(posedge clk_vid) begin
             slot_for_tap_p1 <= find_slot(11'd1);
             slot_for_tap_p2 <= find_slot(11'd2);
         end
-        else if (new_line_active) begin
+        else if (new_line_active_pulse) begin  /* Phase 6: single-cycle edge */
             // Bug Z fix 2026-06-03: gate phase_v update on !vblank.
             //
             // Refactored to use new_line_active (registered combo of
