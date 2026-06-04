@@ -82,7 +82,16 @@ module openbor_video_downscale (
      * NOT synchronized — values change slowly (~62us between updates)
      * so occasional bit-flip on read is acceptable for diagnostic.
      * REVERT AFTER MEASURED. */
-    output wire [54:0] dbg_slot_src_line_packed
+    output wire [54:0] dbg_slot_src_line_packed,
+
+    /* TEMPORARY DIAG v2: V-pass state snapshot taken at dest_line 100
+     * (mid-frame). Tells us WHICH slot V-pass picked at that dest line
+     * and WHAT slot_src_line contained at that moment.
+     *   bits [54:0]  = snap_slot_src_line packed (5 × 11)
+     *   bits [57:55] = snap_slot_for_tap_0 (the SLOT V-pass picked)
+     *   bits [68:58] = snap_src_line_for_dest (the LINE V-pass NEEDED)
+     * REVERT AFTER MEASURED. */
+    output reg  [68:0] dbg_vpass_snap_dest100
 );
 
 // ===================================================================
@@ -817,6 +826,7 @@ always @(posedge clk_vid) begin
         vclip_b_s2 <= 8'd0;
         edge_v_pipe1 <= 1'b0; edge_v_pipe2 <= 1'b0;
         near_v_pipe1 <= 16'd0; near_v_pipe2 <= 16'd0;
+        dbg_vpass_snap_dest100 <= 69'd0;  /* TEMPORARY DIAG v2 */
     end
     else begin
         if (new_frame) begin
@@ -890,6 +900,25 @@ always @(posedge clk_vid) begin
 
             if (dest_line_out != DEST_HEIGHT - 11'd1)
                 dest_line_out <= dest_line_out + 11'd1;
+
+            /* TEMPORARY DIAG v2: snapshot V-pass state at dest_line 100
+             * (mid-frame). Captures:
+             *   - which slot V-pass picked (slot_for_tap_0)
+             *   - which line V-pass thought it needed (src_line_for_dest
+             *     = phase_v_next_w[26:16])
+             *   - what slot_src_line[] contained at that moment
+             * Reader includes this in next probe write. */
+            if (dest_line_out == 11'd99) begin  /* fires at transition to 100 */
+                dbg_vpass_snap_dest100 <= {
+                    phase_v_next_w[26:16],  /* [68:58] src_line_needed */
+                    find_slot(phase_v_next_w[26:16]),  /* [57:55] slot_picked */
+                    slot_src_line[4],       /* [54:44] */
+                    slot_src_line[3],       /* [43:33] */
+                    slot_src_line[2],       /* [32:22] */
+                    slot_src_line[1],       /* [21:11] */
+                    slot_src_line[0]        /* [10:0]  */
+                };
+            end
         end
 
         if (ce_pix) begin

@@ -135,7 +135,12 @@ module openbor_video_reader (
      * driven by downscale module via top.sv. CDC clk_vid -> clk_sys is
      * unsynchronized (acceptable for diag — slot_src_line changes slowly
      * relative to probe period). REVERT AFTER MEASURED. */
-    input  wire [54:0] dbg_slot_src_line_packed_i
+    input  wire [54:0] dbg_slot_src_line_packed_i,
+
+    /* TEMPORARY DIAG v2: V-pass state snapshot at dest_line 100. Captures
+     * which slot V-pass picked and what slot_src_line[] contained at that
+     * exact moment. Tells us if find_slot worked or defaulted to 0. */
+    input  wire [68:0] dbg_vpass_snap_dest100_i
 );
 
 // DDR3 byte enable (always all bytes)
@@ -335,7 +340,7 @@ reg  [10:0] src_target;       // floor(dest_phase_v[26:16]) + LOOKAHEAD
  * and clears after 4 qword writes complete. probe_idx selects which
  * qword to write. REVERT AFTER MEASURED. */
 reg        probe_pending;
-reg  [1:0] probe_idx;
+reg  [2:0] probe_idx;  /* 3 bits — supports up to 8 qwords (currently 6) */
 
 // 2026-06-03 fix: original wire-based formula
 //   wire [31:0] step_v_per_dest = ({src_height_o, 16'd0}) / DEFAULT_HEIGHT;
@@ -456,7 +461,7 @@ always @(posedge ddr_clk) begin
         src_target            <= LOOKAHEAD;  // preload first 3 source lines for V-pass
         /* TEMPORARY DIAG: probe state reset */
         probe_pending         <= 1'b0;
-        probe_idx             <= 2'd0;
+        probe_idx             <= 3'd0;
         src_line_done_o       <= 1'b0;
     end
     else begin
@@ -710,7 +715,7 @@ always @(posedge ddr_clk) begin
                     src_target         <= LOOKAHEAD;
                     /* TEMPORARY DIAG: arm probe write on every frame start */
                     probe_pending      <= 1'b1;
-                    probe_idx          <= 2'd0;
+                    probe_idx          <= 3'd0;
                     state              <= ST_READ_LINE;
                 end
                 else if (first_frame_loaded) begin
@@ -913,24 +918,34 @@ always @(posedge ddr_clk) begin
              * REVERT AFTER MEASURED. */
             ST_WRITE_PROBE: begin
                 if (!ddr_busy) begin
-                    ddr_addr     <= PROBE_BASE_ADDR + {27'd0, probe_idx};
+                    ddr_addr     <= PROBE_BASE_ADDR + {26'd0, probe_idx};
                     ddr_burstcnt <= 8'd1;
                     ddr_we       <= 1'b1;
                     case (probe_idx)
-                        2'd0: ddr_din <= {2'd0, prev_frame_counter, PROBE_MAGIC};
-                        2'd1: ddr_din <= {21'd0, src_target, 21'd0, src_line};
-                        2'd2: ddr_din <= {21'd0, src_height_o, 21'd0, src_width_o};
-                        /* slot_src_line packed from downscale, each
-                         * 11 bits zero-extended to 12. Unpack in ARM:
-                         * slot[0]=bits[10:0], slot[1]=bits[21:11], etc.
-                         * We zero-pad to 12-bit slot fields for easier
-                         * ARM-side decode. */
-                        2'd3: ddr_din <= {4'd0,
-                                          1'b0, dbg_slot_src_line_packed_i[54:44],  // slot[4]
-                                          1'b0, dbg_slot_src_line_packed_i[43:33],  // slot[3]
-                                          1'b0, dbg_slot_src_line_packed_i[32:22],  // slot[2]
-                                          1'b0, dbg_slot_src_line_packed_i[21:11],  // slot[1]
-                                          1'b0, dbg_slot_src_line_packed_i[10: 0]}; // slot[0]
+                        3'd0: ddr_din <= {2'd0, prev_frame_counter, PROBE_MAGIC};
+                        3'd1: ddr_din <= {21'd0, src_target, 21'd0, src_line};
+                        3'd2: ddr_din <= {21'd0, src_height_o, 21'd0, src_width_o};
+                        /* qw3: END-OF-FRAME slot_src_line snapshot */
+                        3'd3: ddr_din <= {4'd0,
+                                          1'b0, dbg_slot_src_line_packed_i[54:44],
+                                          1'b0, dbg_slot_src_line_packed_i[43:33],
+                                          1'b0, dbg_slot_src_line_packed_i[32:22],
+                                          1'b0, dbg_slot_src_line_packed_i[21:11],
+                                          1'b0, dbg_slot_src_line_packed_i[10: 0]};
+                        /* qw4 NEW: V-pass MID-FRAME (dest=100) slot_src_line.
+                         * bits [54:0] = snap_slot_src_line[0..4] packed 5×11
+                         * bits [63:55] = pad
+                         * dbg_vpass_snap_dest100_i[54:0] = snap_slot_src_line packed */
+                        3'd4: ddr_din <= {9'd0, dbg_vpass_snap_dest100_i[54:0]};
+                        /* qw5 NEW: V-pass MID-FRAME (dest=100) tap+line.
+                         * bits [10:0] = snap_src_line_needed
+                         * bits [13:11] = snap_slot_for_tap_0
+                         * bits [63:14] = pad
+                         * dbg_vpass_snap_dest100_i[68:58] = snap_src_line_needed
+                         * dbg_vpass_snap_dest100_i[57:55] = snap_slot_for_tap_0 */
+                        3'd5: ddr_din <= {50'd0,
+                                          dbg_vpass_snap_dest100_i[57:55],
+                                          dbg_vpass_snap_dest100_i[68:58]};
                     endcase
                     state <= ST_WAIT_PROBE;
                 end
@@ -938,11 +953,11 @@ always @(posedge ddr_clk) begin
 
             ST_WAIT_PROBE: begin
                 if (!ddr_busy && !ddr_we) begin
-                    if (probe_idx == 2'd3) begin
+                    if (probe_idx == 3'd5) begin
                         probe_pending <= 1'b0;
                         state         <= ST_IDLE;
                     end else begin
-                        probe_idx <= probe_idx + 2'd1;
+                        probe_idx <= probe_idx + 3'd1;
                         state     <= ST_WRITE_PROBE;
                     end
                 end

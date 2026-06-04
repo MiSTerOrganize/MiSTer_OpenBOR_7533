@@ -141,6 +141,8 @@ wire        reader_src_fifo_empty;
  * (instantiated below) can consume it; downscale (instantiated AFTER
  * reader) drives it. Verilog allows this. */
 wire [54:0] dbg_slot_src_line_packed;
+/* TEMPORARY DIAG v2: V-pass snapshot at dest_line 100 */
+wire [68:0] dbg_vpass_snap_dest100;
 
 openbor_video_reader reader (
     .ddr_clk        (clk_sys),
@@ -196,7 +198,9 @@ openbor_video_reader reader (
     .src_line_done_o      (reader_src_line_done),
 
     /* TEMPORARY DIAG: slot_src_line probe from downscale */
-    .dbg_slot_src_line_packed_i (dbg_slot_src_line_packed)
+    .dbg_slot_src_line_packed_i (dbg_slot_src_line_packed),
+    /* TEMPORARY DIAG v2: V-pass mid-frame snapshot */
+    .dbg_vpass_snap_dest100_i   (dbg_vpass_snap_dest100)
 );
 
 // -- Downscale (Phase 4): variable-res source -> 320x224 dest ----------
@@ -232,7 +236,8 @@ openbor_video_downscale downscale (
     .g_out            (dn_g),
     .b_out            (dn_b),
 
-    .dbg_slot_src_line_packed (dbg_slot_src_line_packed)
+    .dbg_slot_src_line_packed (dbg_slot_src_line_packed),
+    .dbg_vpass_snap_dest100   (dbg_vpass_snap_dest100)
 );
 
 // -- Output assignments ------------------------------------------------
