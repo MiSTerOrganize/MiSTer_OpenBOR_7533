@@ -416,13 +416,23 @@ reg  [10:0] dest_line_bin_r;
 reg  [30:0] src_target_mul_r;
 reg  [10:0] src_target_computed;
 always @(posedge ddr_clk) begin
-    /* Phase 7 v2 (2026-06-04): pipeline stays clean — no muxes on the
-     * critical path. The gray-code CDC wrap glitch at FPGA new_frame
-     * is masked by a hold-counter (below) that overrides src_target
-     * at the FINAL assignment for ~100ns post-new_frame. v1 attempt
-     * with muxes here broke clk_sys timing (-0.570ns). */
+    /* Phase 8 (2026-06-04): use LOCAL reader_pulse_count instead of
+     * gray-CDC'd dest_line_bin_r as multiplier input. CDC isn't broken
+     * (Plan B snap confirmed dest_bin=98 / tgt_computed=107 always
+     * correct at snap moment), but src_target_computed must be glitching
+     * HIGH briefly somewhere EARLIER in the frame (causing reader to
+     * burst all 240 lines), then settling back to 107 by snap time.
+     *
+     * Using reader_pulse_count eliminates ALL CDC paths from the
+     * pacing input. It's a local counter in clk_sys reset on
+     * new_frame_ddr, incremented on each active new_line_ddr pulse.
+     * Earlier DIAG v4 confirmed pulse counts are reliable (262/224
+     * per frame). No CDC = no glitch possible.
+     *
+     * dest_line_bin_r kept for diagnostic visibility but no longer
+     * drives pacing. */
     dest_line_bin_r     <= dest_line_bin;
-    src_target_mul_r    <= dest_line_bin_r * step_v_per_dest[19:0];
+    src_target_mul_r    <= reader_pulse_count * step_v_per_dest[19:0];
     src_target_computed <= src_target_mul_r[26:16] + LOOKAHEAD;
 end
 

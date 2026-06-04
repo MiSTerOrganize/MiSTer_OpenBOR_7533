@@ -1,12 +1,12 @@
-Fitter Status : Successful - Thu Jun 04 15:25:37 2026
+Fitter Status : Successful - Thu Jun 04 16:53:13 2026
 Quartus Prime Version : 17.0.0 Build 595 04/25/2017 SJ Lite Edition
 Revision Name : OpenBOR
 Top-level Entity Name : sys_top
 Family : Cyclone V
 Device : 5CSEBA6U23I7
 Timing Models : Final
-Logic utilization (in ALMs) : 22,885 / 41,910 ( 55 % )
-Total registers : 40541
+Logic utilization (in ALMs) : 22,932 / 41,910 ( 55 % )
+Total registers : 40515
 Total pins : 145 / 314 ( 46 % )
 Total virtual pins : 0
 Total block memory bits : 572,762 / 5,662,720 ( 10 % )
