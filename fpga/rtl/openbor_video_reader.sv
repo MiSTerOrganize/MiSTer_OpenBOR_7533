@@ -416,26 +416,29 @@ reg  [10:0] dest_line_bin_r;
 reg  [30:0] src_target_mul_r;
 reg  [10:0] src_target_computed;
 always @(posedge ddr_clk) begin
-    /* Phase 7 fix (2026-06-04): force pipeline to LOOKAHEAD on FPGA
-     * new_frame_ddr to handle gray-code CDC wrap glitch. When V-pass's
-     * dest_line_out resets 223->0, gray code has multi-bit transition
-     * (gray code only safe for unit increments). CDC can sample garbage
-     * intermediate values for a few clk_sys cycles, producing
-     * dest_line_bin = ~221, src_target_computed = ~240. Reader then
-     * bursts ALL 240 lines, slots end at 235-239 = stale-looking state.
-     *
-     * Forcing the pipeline on new_frame_ddr clears the garbage. CDC
-     * settles to real dest_line_bin = 0 within ~30ns, after which
-     * normal pacing resumes. */
-    if (new_frame_ddr) begin
-        dest_line_bin_r     <= 11'd0;
-        src_target_mul_r    <= 31'd0;
-        src_target_computed <= LOOKAHEAD;
-    end else begin
-        dest_line_bin_r     <= dest_line_bin;
-        src_target_mul_r    <= dest_line_bin_r * step_v_per_dest[19:0];
-        src_target_computed <= src_target_mul_r[26:16] + LOOKAHEAD;
-    end
+    /* Phase 7 v2 (2026-06-04): pipeline stays clean — no muxes on the
+     * critical path. The gray-code CDC wrap glitch at FPGA new_frame
+     * is masked by a hold-counter (below) that overrides src_target
+     * at the FINAL assignment for ~100ns post-new_frame. v1 attempt
+     * with muxes here broke clk_sys timing (-0.570ns). */
+    dest_line_bin_r     <= dest_line_bin;
+    src_target_mul_r    <= dest_line_bin_r * step_v_per_dest[19:0];
+    src_target_computed <= src_target_mul_r[26:16] + LOOKAHEAD;
+end
+
+/* Phase 7 v2: hold-counter for src_target mask. Asserts for 10 ddr_clk
+ * cycles (~100ns) after new_frame_ddr. Covers the gray-code CDC settling
+ * window (~30ns for dest_line_bin) + pipeline latency (4 stages = 40ns)
+ * with margin. During the hold, src_target is forced to LOOKAHEAD in
+ * the main always block (search for: src_target_force_cnt). */
+reg [3:0] src_target_force_cnt;
+always @(posedge ddr_clk or posedge reset) begin
+    if (reset)
+        src_target_force_cnt <= 4'd0;
+    else if (new_frame_ddr)
+        src_target_force_cnt <= 4'd10;
+    else if (src_target_force_cnt != 4'd0)
+        src_target_force_cnt <= src_target_force_cnt - 4'd1;
 end
 
 // Audio state
@@ -557,22 +560,15 @@ always @(posedge ddr_clk) begin
         if (new_frame_ddr) new_frame_pending <= 1'b1;
 
         // Phase 5 fix (2026-06-04): drive src_target from V-pass's
-        // dest_line CDC + multiplier instead of pulse-counted
-        // dest_phase_v accumulator. Decoupled from ARM frame phase.
-        //
-        // Old pacing pulse-counted new_line_ddr edges relative to ARM's
-        // src_frame_start_o. ARM frame bumps lag FPGA new_frame by 5-6ms
-        // on average, so pulses accumulated in the WRONG window: by
-        // V-pass dest=100, reader had only counted 13 of the 100 active
-        // pulses since ARM-frame-start, with the missing 87 pulses
-        // arriving later. src_target stayed low mid-frame, reader didn't
-        // write enough lines, V-pass's find_slot defaulted to slot 0,
-        // garbage output.
-        //
-        // New src_target_computed = (dest_line_bin * step_v) >> 16 +
-        // LOOKAHEAD, where dest_line_bin is the gray-decoded CDC of
-        // V-pass's dest_line (clk_vid -> clk_sys). Tracks V-pass exactly.
-        src_target <= src_target_computed;
+        // dest_line CDC + multiplier instead of pulse-counted accumulator.
+        // Phase 7 v2 (2026-06-04): mask src_target with LOOKAHEAD for
+        // ~100ns after new_frame_ddr to hide gray-code CDC wrap glitch
+        // (multi-bit transition 223->0 produces transient garbage
+        // dest_line_bin values, briefly making src_target_computed ~240).
+        if (src_target_force_cnt != 4'd0)
+            src_target <= LOOKAHEAD;
+        else
+            src_target <= src_target_computed;
 
         /* TEMPORARY DIAG v4 REVERTED — pulse counters dropped to reclaim
          * pll_hdmi slack. CDC confirmed working at v4 measurement. */
