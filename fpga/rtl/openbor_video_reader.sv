@@ -351,16 +351,10 @@ reg  [10:0] src_target;       // floor(dest_phase_v[26:16]) + LOOKAHEAD
 /* TEMPORARY DIAG v3: expose src_target combinationally to downscale */
 assign src_target_o = src_target;
 
-/* TEMPORARY DIAG v4: count new_line_ddr pulses per frame to disambiguate
- * CDC bug from vblank_ddr gating bug. count_raw increments on every
- * new_line_ddr edge (no gating); count_active increments only when
- * !vblank_ddr passes. Snapshot to snap_count_* on src_frame_start_o,
- * then reset for next frame. Expected if pacing works: raw=262 / active=224.
- * REVERT AFTER MEASURED. */
-reg  [10:0] count_raw;
-reg  [10:0] count_active;
-reg  [10:0] snap_count_raw;
-reg  [10:0] snap_count_active;
+/* TEMPORARY DIAG v4 REVERTED 2026-06-04: count_raw/count_active counters
+ * removed after they confirmed CDC works (raw=262, active=224 per frame
+ * = V_TOTAL / V_ACTIVE expected values). Reclaim ~0.1-0.15 ns of pll_hdmi
+ * slack. VPASS@d100 snap probe retained for next-layer bug verification. */
 
 /* TEMPORARY DIAG: probe state. probe_pending fires on src_frame_start
  * and clears after 4 qword writes complete. probe_idx selects which
@@ -542,11 +536,6 @@ always @(posedge ddr_clk) begin
         probe_pending         <= 1'b0;
         probe_idx             <= 3'd0;
         src_line_done_o       <= 1'b0;
-        /* TEMPORARY DIAG v4: pulse counters reset */
-        count_raw             <= 11'd0;
-        count_active          <= 11'd0;
-        snap_count_raw        <= 11'd0;
-        snap_count_active     <= 11'd0;
     end
     else begin
         fifo_wr           <= 1'b0;
@@ -578,20 +567,8 @@ always @(posedge ddr_clk) begin
         // V-pass's dest_line (clk_vid -> clk_sys). Tracks V-pass exactly.
         src_target <= src_target_computed;
 
-        /* TEMPORARY DIAG v4: pulse counters. count_raw counts ALL
-         * new_line_ddr edges (no gate). count_active counts only those
-         * passing !vblank_ddr. Snapshot before reset at frame_start. */
-        if (src_frame_start_o) begin
-            snap_count_raw    <= count_raw;
-            snap_count_active <= count_active;
-            count_raw         <= new_line_ddr ? 11'd1 : 11'd0;
-            count_active      <= (new_line_ddr && !vblank_ddr) ? 11'd1 : 11'd0;
-        end else begin
-            if (new_line_ddr)
-                count_raw    <= count_raw + 11'd1;
-            if (new_line_ddr && !vblank_ddr)
-                count_active <= count_active + 11'd1;
-        end
+        /* TEMPORARY DIAG v4 REVERTED — pulse counters dropped to reclaim
+         * pll_hdmi slack. CDC confirmed working at v4 measurement. */
 
         // Step 60 v2 fix: enable frame_ready as soon as LOOKAHEAD source
         // lines are preloaded. Previously frame_ready_reg only went high
@@ -1030,11 +1007,9 @@ always @(posedge ddr_clk) begin
                     ddr_we       <= 1'b1;
                     case (probe_idx)
                         3'd0: ddr_din <= {2'd0, prev_frame_counter, PROBE_MAGIC};
-                        3'd1: ddr_din <= {20'd0,
-                                          snap_count_active,
-                                          snap_count_raw,
-                                          src_target,
-                                          src_line};
+                        /* qw1 (v4 REVERTED): counters dropped, back to
+                         * 11-bit src_target + src_line with padding */
+                        3'd1: ddr_din <= {21'd0, src_target, 21'd0, src_line};
                         3'd2: ddr_din <= {21'd0, src_height_o, 21'd0, src_width_o};
                         /* qw3: END-OF-FRAME slot_src_line snapshot */
                         3'd3: ddr_din <= {4'd0,
