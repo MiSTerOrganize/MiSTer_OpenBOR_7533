@@ -192,20 +192,60 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
      *     reader DDR3 address calculation broken
      * REVERT AFTER MEASURED. */
     if (test_pattern_mode) {
+        /* TEMPORARY DIAG v2 2026-06-03: 6 distinct color BANDS per Y region
+         * + horizontal position markers. Replaces the subtle gradient
+         * (R-ramp 0..31 + G-ramp 0..63) which made V-pass collapse hard
+         * to see. With distinct bands, V-pass behavior is unambiguous:
+         *
+         *   - V-pass works correctly: 6 horizontal color bands top-to-bottom
+         *     (BLACK, RED, GREEN, BLUE, YELLOW, WHITE)
+         *   - V-pass collapsed (reads same src line for all dest lines):
+         *     screen shows ONE solid color (whichever band V-pass landed on)
+         *   - V-pass partially works: bands visible but with wrong sizes
+         *     or wrong colors
+         *
+         * Plus VERTICAL POSITION MARKERS: white vertical line at x=W/4,
+         * W/2, 3W/4. Helps verify H-pass positioning — markers should
+         * appear at correct screen positions if H-pass works. */
         int y;
         int x;
         static int diag_logged = 0;
         if (!diag_logged) {
-            fprintf(stderr, "NativeVideoWriter: test pattern frame 0: %dx%d bpp=%d\n",
+            fprintf(stderr, "NativeVideoWriter: test pattern v2 frame 0: %dx%d bpp=%d (6 bands)\n",
                     width, height, bpp);
             diag_logged = 1;
         }
+        const uint16_t band_colors[6] = {
+            0x0000,  /* 0: BLACK    */
+            0xF800,  /* 1: RED      */
+            0x07E0,  /* 2: GREEN    */
+            0x001F,  /* 3: BLUE     */
+            0xFFE0,  /* 4: YELLOW   */
+            0xFFFF   /* 5: WHITE    */
+        };
+        /* Mark x positions for H-pass verification (1-pixel-wide vertical
+         * markers in CONTRASTING color). Using x positions divisible by
+         * 4 to align with qword boundaries in DDR3. */
+        const int marker_x[3] = { 0, 0, 0 };  /* filled below */
+        int marker_xs[3];
+        marker_xs[0] = width / 4;
+        marker_xs[1] = width / 2;
+        marker_xs[2] = (width * 3) / 4;
+        (void)marker_x;
         for (y = 0; y < height; y++) {
+            int band = (y * 6) / height;
+            if (band > 5) band = 5;
+            uint16_t band_color = band_colors[band];
+            /* Marker color contrasts the band: if band is dark (BLACK,
+             * BLUE), use WHITE; otherwise use BLACK. */
+            uint16_t marker_color = (band == 0 || band == 3) ? 0xFFFF : 0x0000;
             volatile uint16_t* dst_row = dst + (size_t)y * (size_t)width;
-            uint16_t y_red = (uint16_t)(((uint32_t)y * 31u) / (uint32_t)height) << 11;
             for (x = 0; x < width; x++) {
-                uint16_t x_green = (uint16_t)(((uint32_t)x * 63u) / (uint32_t)width) << 5;
-                dst_row[x] = y_red | x_green;
+                uint16_t pixel = band_color;
+                if (x == marker_xs[0] || x == marker_xs[1] || x == marker_xs[2]) {
+                    pixel = marker_color;
+                }
+                dst_row[x] = pixel;
             }
         }
         goto present_ctrl_dim;  /* skip the bpp dispatch */
