@@ -441,6 +441,34 @@ always @(posedge ddr_clk or posedge reset) begin
         src_target_force_cnt <= src_target_force_cnt - 4'd1;
 end
 
+/* Plan B DIAG (2026-06-04): snapshot reader-side dest_line_bin_r and
+ * src_target_computed at V-pass dest=99 moment. We count active
+ * new_line_ddr pulses since the last new_frame_ddr — by the 99th pulse,
+ * V-pass should be at dest=99 (transitioning to 100, which is when the
+ * downscale snap fires). Snapshot both values then so we can compare
+ * what reader THINKS vs what V-pass IS doing. */
+reg [10:0] reader_pulse_count;
+reg [10:0] snap_dest_line_bin_r;
+reg [10:0] snap_src_target_computed;
+always @(posedge ddr_clk or posedge reset) begin
+    if (reset) begin
+        reader_pulse_count       <= 11'd0;
+        snap_dest_line_bin_r     <= 11'd0;
+        snap_src_target_computed <= 11'd0;
+    end else begin
+        if (new_frame_ddr) begin
+            reader_pulse_count <= 11'd0;
+        end else if (new_line_ddr && !vblank_ddr) begin
+            reader_pulse_count <= reader_pulse_count + 11'd1;
+            /* On the 99th pulse-counted edge, snapshot reader's view. */
+            if (reader_pulse_count == 11'd98) begin
+                snap_dest_line_bin_r     <= dest_line_bin_r;
+                snap_src_target_computed <= src_target_computed;
+            end
+        end
+    end
+end
+
 // Audio state
 reg  [31:0] audio_wr_ptr;
 reg  [31:0] audio_rd_ptr;
@@ -1026,9 +1054,14 @@ always @(posedge ddr_clk) begin
                          * bits [63:55] = pad
                          * dbg_vpass_snap_dest100_i[54:0] = snap_slot_src_line packed */
                         3'd4: ddr_din <= {9'd0, dbg_vpass_snap_dest100_i[54:0]};
-                        /* qw5 (v3 reverted): bits [10:0] = snap_src_line_needed,
-                         * bits [13:11] = snap_slot_for_tap_0, [63:14] = pad */
-                        3'd5: ddr_din <= {50'd0,
+                        /* qw5 (Plan B v1): bits [10:0] = snap_src_line_needed,
+                         * bits [13:11] = snap_slot_for_tap_0,
+                         * bits [24:14] = snap_dest_line_bin_r (NEW Plan B),
+                         * bits [35:25] = snap_src_target_computed (NEW Plan B),
+                         * bits [63:36] = pad */
+                        3'd5: ddr_din <= {28'd0,
+                                          snap_src_target_computed,
+                                          snap_dest_line_bin_r,
                                           dbg_vpass_snap_dest100_i[57:55],
                                           dbg_vpass_snap_dest100_i[68:58]};
                     endcase

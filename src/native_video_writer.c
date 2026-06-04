@@ -536,16 +536,20 @@ void NativeVideoWriter_KeepaliveTick(void) {
             uint16_t snap_s4 = (uint16_t)((qw4 >> 44) & 0x7FF);
             uint16_t snap_line_needed = (uint16_t)( qw5        & 0x7FF);
             uint8_t  snap_slot_picked = (uint8_t) ((qw5 >> 11) & 0x7);
+            uint16_t snap_dest_bin    = (uint16_t)((qw5 >> 14) & 0x7FF);
+            uint16_t snap_tgt_computed= (uint16_t)((qw5 >> 25) & 0x7FF);
             fprintf(stderr,
                 "[PROBE] fpga_frame=%u eof_src_target=%u eof_src_line=%u "
                 "src_dim=%ux%u eofslot=%u,%u,%u,%u,%u "
                 "VPASS@d100: needs_line=%u picked_slot=%u "
-                "snap_slot_src=%u,%u,%u,%u,%u\n",
+                "snap_slot_src=%u,%u,%u,%u,%u "
+                "READER@d99: dest_bin=%u tgt_computed=%u\n",
                 fcnt_fpga, src_target, src_line,
                 src_width_fpga, src_height_fpga,
                 s0, s1, s2, s3, s4,
                 snap_line_needed, snap_slot_picked,
-                snap_s0, snap_s1, snap_s2, snap_s3, snap_s4);
+                snap_s0, snap_s1, snap_s2, snap_s3, snap_s4,
+                snap_dest_bin, snap_tgt_computed);
         } else {
             fprintf(stderr, "[PROBE] no magic yet (got 0x%08X)\n", magic);
         }
