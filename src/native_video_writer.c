@@ -523,10 +523,11 @@ void NativeVideoWriter_KeepaliveTick(void) {
             uint16_t s2 = (uint16_t)((qw3 >> 24) & 0xFFF);
             uint16_t s3 = (uint16_t)((qw3 >> 36) & 0xFFF);
             uint16_t s4 = (uint16_t)((qw3 >> 48) & 0xFFF);
-            /* TEMPORARY DIAG v2: V-pass mid-frame snapshot.
+            /* TEMPORARY DIAG v2/v3: V-pass mid-frame snapshot.
              * qw4 [54:0] = snap_slot_src_line[0..4] (5 × 11 bits, NOT 12!)
-             * qw5 [10:0] = snap_src_line_needed
-             * qw5 [13:11] = snap_slot_for_tap_0 */
+             * qw5 [10:0]  = snap_src_line_needed
+             * qw5 [13:11] = snap_slot_for_tap_0
+             * qw5 [24:14] = snap_src_target (v3, NEW) */
             uint16_t snap_s0 = (uint16_t)( qw4        & 0x7FF);
             uint16_t snap_s1 = (uint16_t)((qw4 >> 11) & 0x7FF);
             uint16_t snap_s2 = (uint16_t)((qw4 >> 22) & 0x7FF);
@@ -534,14 +535,16 @@ void NativeVideoWriter_KeepaliveTick(void) {
             uint16_t snap_s4 = (uint16_t)((qw4 >> 44) & 0x7FF);
             uint16_t snap_line_needed = (uint16_t)( qw5        & 0x7FF);
             uint8_t  snap_slot_picked = (uint8_t) ((qw5 >> 11) & 0x7);
+            uint16_t snap_src_target  = (uint16_t)((qw5 >> 14) & 0x7FF);
             fprintf(stderr,
-                "[PROBE] fpga_frame=%u src_target=%u src_line=%u "
+                "[PROBE] fpga_frame=%u eof_src_target=%u eof_src_line=%u "
                 "src_dim=%ux%u eofslot=%u,%u,%u,%u,%u "
-                "VPASS@d100: needs_line=%u picked_slot=%u snap_slot_src=%u,%u,%u,%u,%u\n",
+                "VPASS@d100: needs_line=%u picked_slot=%u snap_tgt=%u "
+                "snap_slot_src=%u,%u,%u,%u,%u\n",
                 fcnt_fpga, src_target, src_line,
                 src_width_fpga, src_height_fpga,
                 s0, s1, s2, s3, s4,
-                snap_line_needed, snap_slot_picked,
+                snap_line_needed, snap_slot_picked, snap_src_target,
                 snap_s0, snap_s1, snap_s2, snap_s3, snap_s4);
         } else {
             fprintf(stderr, "[PROBE] no magic yet (got 0x%08X)\n", magic);

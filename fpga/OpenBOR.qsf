@@ -55,6 +55,12 @@ set_global_assignment -name ALM_REGISTER_PACKING_EFFORT LOW
 set_global_assignment -name OPTIMIZE_POWER_DURING_SYNTHESIS OFF
 set_global_assignment -name ROUTER_REGISTER_DUPLICATION ON
 set_global_assignment -name FITTER_AGGRESSIVE_ROUTABILITY_OPTIMIZATION ALWAYS
+# 2026-06-03 Bug Z escalation: increase placement effort to 2.0 after
+# SEED 10-12 lottery couldn't close pll_hdmi timing. Doubles placement
+# CPU time (~45-60 min total compile vs ~25 min default) for more
+# thorough placement search. Combined with SEED 10 baseline at -0.127 ns
+# (Option B registered intermediate), target: positive slack.
+set_global_assignment -name PLACEMENT_EFFORT_MULTIPLIER 2.0
 set_global_assignment -name SEED 10
 
 # LOGIC_LOCK tried but reverted 2026-06-02 in favor of canonical MiSTer

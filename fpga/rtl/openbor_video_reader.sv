@@ -131,16 +131,24 @@ module openbor_video_reader (
     output reg         src_frame_start_o,  // pulses 1 ddr_clk at start of a new src frame read
     output reg         src_line_done_o,    // pulses 1 ddr_clk when src line read fills FIFO
 
+    /* TEMPORARY DIAG v3: expose src_target to downscale so V-pass snap can
+     * capture it at dest_line=100. Tells us if reader pacing is advancing
+     * correctly (src_target ≈ 107 at d=100 = WORKING) or stuck/over-run.
+     * Unsynchronized CDC clk_sys -> clk_vid — acceptable for diag because
+     * value advances slowly (~15700 Hz max change rate), 11 bits, off-by-1
+     * skew tolerable. REVERT AFTER MEASURED. */
+    output wire [10:0] src_target_o,
+
     /* TEMPORARY DIAG: slot_src_line[0..4] packed (5 × 11 bits = 55 bits),
      * driven by downscale module via top.sv. CDC clk_vid -> clk_sys is
      * unsynchronized (acceptable for diag — slot_src_line changes slowly
      * relative to probe period). REVERT AFTER MEASURED. */
     input  wire [54:0] dbg_slot_src_line_packed_i,
 
-    /* TEMPORARY DIAG v2: V-pass state snapshot at dest_line 100. Captures
-     * which slot V-pass picked and what slot_src_line[] contained at that
-     * exact moment. Tells us if find_slot worked or defaulted to 0. */
-    input  wire [68:0] dbg_vpass_snap_dest100_i
+    /* TEMPORARY DIAG v2/v3: V-pass state snapshot at dest_line 100. Now
+     * 80 bits (was 69). New field bits [79:69] = snap_src_target captured
+     * at dest_line 99->100 transition (V-pass side, post-CDC). */
+    input  wire [79:0] dbg_vpass_snap_dest100_i
 );
 
 // DDR3 byte enable (always all bytes)
@@ -335,6 +343,8 @@ reg  [7:0]  cur_burst;          // current burst length (1..MAX_BURST_QW)
 localparam [10:0] LOOKAHEAD = 11'd3;
 reg  [31:0] dest_phase_v;     // accumulated D * step_v in fixed-point
 reg  [10:0] src_target;       // floor(dest_phase_v[26:16]) + LOOKAHEAD
+/* TEMPORARY DIAG v3: expose src_target combinationally to downscale */
+assign src_target_o = src_target;
 
 /* TEMPORARY DIAG: probe state. probe_pending fires on src_frame_start
  * and clears after 4 qword writes complete. probe_idx selects which
@@ -937,13 +947,16 @@ always @(posedge ddr_clk) begin
                          * bits [63:55] = pad
                          * dbg_vpass_snap_dest100_i[54:0] = snap_slot_src_line packed */
                         3'd4: ddr_din <= {9'd0, dbg_vpass_snap_dest100_i[54:0]};
-                        /* qw5 NEW: V-pass MID-FRAME (dest=100) tap+line.
-                         * bits [10:0] = snap_src_line_needed
+                        /* qw5 NEW v3: V-pass MID-FRAME (dest=100) tap+line+target.
+                         * bits [10:0]  = snap_src_line_needed
                          * bits [13:11] = snap_slot_for_tap_0
-                         * bits [63:14] = pad
+                         * bits [24:14] = snap_src_target (v3, NEW)
+                         * bits [63:25] = pad
                          * dbg_vpass_snap_dest100_i[68:58] = snap_src_line_needed
-                         * dbg_vpass_snap_dest100_i[57:55] = snap_slot_for_tap_0 */
-                        3'd5: ddr_din <= {50'd0,
+                         * dbg_vpass_snap_dest100_i[57:55] = snap_slot_for_tap_0
+                         * dbg_vpass_snap_dest100_i[79:69] = snap_src_target */
+                        3'd5: ddr_din <= {39'd0,
+                                          dbg_vpass_snap_dest100_i[79:69],
                                           dbg_vpass_snap_dest100_i[57:55],
                                           dbg_vpass_snap_dest100_i[68:58]};
                     endcase

@@ -91,7 +91,11 @@ module openbor_video_downscale (
      *   bits [57:55] = snap_slot_for_tap_0 (the SLOT V-pass picked)
      *   bits [68:58] = snap_src_line_for_dest (the LINE V-pass NEEDED)
      * REVERT AFTER MEASURED. */
-    output reg  [68:0] dbg_vpass_snap_dest100
+    output reg  [79:0] dbg_vpass_snap_dest100,
+
+    /* TEMPORARY DIAG v3: src_target from reader (clk_sys domain),
+     * CDC'd internally to clk_vid for snap capture. */
+    input  wire [10:0] src_target_i
 );
 
 // ===================================================================
@@ -796,6 +800,18 @@ always @(posedge clk_vid) begin
     new_line_active <= new_line && !vblank;
 end
 
+/* TEMPORARY DIAG v3: CDC src_target from reader (clk_sys) into clk_vid.
+ * 2-FF synchronizer. Bit-incoherence is acceptable here — src_target
+ * advances by ~+1 per active scanline (~15700 Hz), much slower than
+ * clk_vid (53.7 MHz). At worst we read an off-by-1 value at snap time,
+ * which is fine for the diagnostic question "is src_target near 107 at
+ * dest=100, or stuck/way-off?". REVERT AFTER MEASURED. */
+reg [10:0] src_target_s1, src_target_s2;
+always @(posedge clk_vid) begin
+    src_target_s1 <= src_target_i;
+    src_target_s2 <= src_target_s1;
+end
+
 always @(posedge clk_vid) begin
     if (reset) begin
         r_out         <= 8'd0;
@@ -826,7 +842,7 @@ always @(posedge clk_vid) begin
         vclip_b_s2 <= 8'd0;
         edge_v_pipe1 <= 1'b0; edge_v_pipe2 <= 1'b0;
         near_v_pipe1 <= 16'd0; near_v_pipe2 <= 16'd0;
-        dbg_vpass_snap_dest100 <= 69'd0;  /* TEMPORARY DIAG v2 */
+        dbg_vpass_snap_dest100 <= 80'd0;  /* TEMPORARY DIAG v2/v3 */
     end
     else begin
         if (new_frame) begin
@@ -910,6 +926,7 @@ always @(posedge clk_vid) begin
              * Reader includes this in next probe write. */
             if (dest_line_out == 11'd99) begin  /* fires at transition to 100 */
                 dbg_vpass_snap_dest100 <= {
+                    src_target_s2,          /* [79:69] snap_src_target (v3) */
                     phase_v_next_w[26:16],  /* [68:58] src_line_needed */
                     find_slot(phase_v_next_w[26:16]),  /* [57:55] slot_picked */
                     slot_src_line[4],       /* [54:44] */
