@@ -506,8 +506,11 @@ void NativeVideoWriter_KeepaliveTick(void) {
         uint64_t qw5 = probe[5];  /* TEMPORARY DIAG v2 */
         uint32_t magic    = (uint32_t)qw0;
         uint32_t fcnt_fpga= (uint32_t)(qw0 >> 32);
-        uint32_t src_line = (uint32_t)qw1;
-        uint32_t src_target = (uint32_t)(qw1 >> 32);
+        /* TEMPORARY DIAG v4: qw1 repacked with 4 × 11-bit fields. */
+        uint16_t src_line       = (uint16_t)( qw1        & 0x7FF);
+        uint16_t src_target     = (uint16_t)((qw1 >> 11) & 0x7FF);
+        uint16_t snap_cnt_raw   = (uint16_t)((qw1 >> 22) & 0x7FF);
+        uint16_t snap_cnt_active= (uint16_t)((qw1 >> 33) & 0x7FF);
         uint32_t src_width_fpga  = (uint32_t)qw2;
         uint32_t src_height_fpga = (uint32_t)(qw2 >> 32);
         uint32_t slot_low4 = (uint32_t)qw3;
@@ -538,10 +541,12 @@ void NativeVideoWriter_KeepaliveTick(void) {
             uint16_t snap_src_target  = (uint16_t)((qw5 >> 14) & 0x7FF);
             fprintf(stderr,
                 "[PROBE] fpga_frame=%u eof_src_target=%u eof_src_line=%u "
+                "PREV_FRAME_PULSES: raw=%u active=%u "
                 "src_dim=%ux%u eofslot=%u,%u,%u,%u,%u "
                 "VPASS@d100: needs_line=%u picked_slot=%u snap_tgt=%u "
                 "snap_slot_src=%u,%u,%u,%u,%u\n",
                 fcnt_fpga, src_target, src_line,
+                snap_cnt_raw, snap_cnt_active,
                 src_width_fpga, src_height_fpga,
                 s0, s1, s2, s3, s4,
                 snap_line_needed, snap_slot_picked, snap_src_target,

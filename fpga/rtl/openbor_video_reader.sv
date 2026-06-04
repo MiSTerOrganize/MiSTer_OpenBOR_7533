@@ -346,6 +346,17 @@ reg  [10:0] src_target;       // floor(dest_phase_v[26:16]) + LOOKAHEAD
 /* TEMPORARY DIAG v3: expose src_target combinationally to downscale */
 assign src_target_o = src_target;
 
+/* TEMPORARY DIAG v4: count new_line_ddr pulses per frame to disambiguate
+ * CDC bug from vblank_ddr gating bug. count_raw increments on every
+ * new_line_ddr edge (no gating); count_active increments only when
+ * !vblank_ddr passes. Snapshot to snap_count_* on src_frame_start_o,
+ * then reset for next frame. Expected if pacing works: raw=262 / active=224.
+ * REVERT AFTER MEASURED. */
+reg  [10:0] count_raw;
+reg  [10:0] count_active;
+reg  [10:0] snap_count_raw;
+reg  [10:0] snap_count_active;
+
 /* TEMPORARY DIAG: probe state. probe_pending fires on src_frame_start
  * and clears after 4 qword writes complete. probe_idx selects which
  * qword to write. REVERT AFTER MEASURED. */
@@ -473,6 +484,11 @@ always @(posedge ddr_clk) begin
         probe_pending         <= 1'b0;
         probe_idx             <= 3'd0;
         src_line_done_o       <= 1'b0;
+        /* TEMPORARY DIAG v4: pulse counters reset */
+        count_raw             <= 11'd0;
+        count_active          <= 11'd0;
+        snap_count_raw        <= 11'd0;
+        snap_count_active     <= 11'd0;
     end
     else begin
         fifo_wr           <= 1'b0;
@@ -497,6 +513,21 @@ always @(posedge ddr_clk) begin
         if (new_line_ddr && !vblank_ddr) begin
             dest_phase_v <= dest_phase_v_next;
             src_target   <= dest_phase_v_next[26:16] + LOOKAHEAD;
+        end
+
+        /* TEMPORARY DIAG v4: pulse counters. count_raw counts ALL
+         * new_line_ddr edges (no gate). count_active counts only those
+         * passing !vblank_ddr. Snapshot before reset at frame_start. */
+        if (src_frame_start_o) begin
+            snap_count_raw    <= count_raw;
+            snap_count_active <= count_active;
+            count_raw         <= new_line_ddr ? 11'd1 : 11'd0;
+            count_active      <= (new_line_ddr && !vblank_ddr) ? 11'd1 : 11'd0;
+        end else begin
+            if (new_line_ddr)
+                count_raw    <= count_raw + 11'd1;
+            if (new_line_ddr && !vblank_ddr)
+                count_active <= count_active + 11'd1;
         end
 
         // Step 60 v2 fix: enable frame_ready as soon as LOOKAHEAD source
@@ -918,9 +949,12 @@ always @(posedge ddr_clk) begin
                 end
             end
 
-            /* TEMPORARY DIAG: probe state writes. 4 qwords sequentially:
+            /* TEMPORARY DIAG: probe state writes (v4: qw1 repacked with
+             *   snap_count_raw + snap_count_active fields).
              *   qword 0: [63:32]={2'd0, prev_frame_counter}  [31:0]=magic
-             *   qword 1: [63:32]={21'd0, src_target}         [31:0]={21'd0, src_line}
+             *   qword 1: bits [10:0]=src_line, [21:11]=src_target,
+             *            [32:22]=snap_count_raw, [43:33]=snap_count_active,
+             *            [63:44]=pad (NEW v4 LAYOUT — was 21'd0+v+21'd0+v)
              *   qword 2: [63:32]={21'd0, src_height}         [31:0]={21'd0, src_width}
              *   qword 3: [59:0]=packed slot_src_line[4..0] each as 12 bits
              *   ([11:0]=slot[0], [23:12]=slot[1], [35:24]=slot[2],
@@ -933,7 +967,11 @@ always @(posedge ddr_clk) begin
                     ddr_we       <= 1'b1;
                     case (probe_idx)
                         3'd0: ddr_din <= {2'd0, prev_frame_counter, PROBE_MAGIC};
-                        3'd1: ddr_din <= {21'd0, src_target, 21'd0, src_line};
+                        3'd1: ddr_din <= {20'd0,
+                                          snap_count_active,
+                                          snap_count_raw,
+                                          src_target,
+                                          src_line};
                         3'd2: ddr_din <= {21'd0, src_height_o, 21'd0, src_width_o};
                         /* qw3: END-OF-FRAME slot_src_line snapshot */
                         3'd3: ddr_din <= {4'd0,
