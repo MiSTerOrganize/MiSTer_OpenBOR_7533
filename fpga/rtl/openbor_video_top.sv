@@ -136,6 +136,12 @@ wire        reader_src_fifo_rd;       // downscale asserts to pop
 wire [63:0] reader_src_fifo_rd_data;  // 4 RGB565 source pixels per qword
 wire        reader_src_fifo_empty;
 
+/* TEMPORARY DIAG: slot_src_line packed (5 × 11 bits) from downscale,
+ * routed through to reader for probe. Forward-declared here so reader
+ * (instantiated below) can consume it; downscale (instantiated AFTER
+ * reader) drives it. Verilog allows this. */
+wire [54:0] dbg_slot_src_line_packed;
+
 openbor_video_reader reader (
     .ddr_clk        (clk_sys),
     .ddr_busy       (ddr_busy),
@@ -187,7 +193,10 @@ openbor_video_reader reader (
     .src_width_o          (reader_src_width),
     .src_height_o         (reader_src_height),
     .src_frame_start_o    (reader_src_frame_start),
-    .src_line_done_o      (reader_src_line_done)
+    .src_line_done_o      (reader_src_line_done),
+
+    /* TEMPORARY DIAG: slot_src_line probe from downscale */
+    .dbg_slot_src_line_packed_i (dbg_slot_src_line_packed)
 );
 
 // -- Downscale (Phase 4): variable-res source -> 320x224 dest ----------
@@ -195,6 +204,8 @@ openbor_video_reader reader (
 // source pixels from the reader's line FIFO; produces RGB888 dest
 // pixels timed to the display pipeline.
 wire [7:0] dn_r, dn_g, dn_b;
+/* dbg_slot_src_line_packed declared earlier (forward declaration before
+ * reader instance). */
 
 openbor_video_downscale downscale (
     .clk_vid          (clk_vid),
@@ -219,7 +230,9 @@ openbor_video_downscale downscale (
 
     .r_out            (dn_r),
     .g_out            (dn_g),
-    .b_out            (dn_b)
+    .b_out            (dn_b),
+
+    .dbg_slot_src_line_packed (dbg_slot_src_line_packed)
 );
 
 // -- Output assignments ------------------------------------------------

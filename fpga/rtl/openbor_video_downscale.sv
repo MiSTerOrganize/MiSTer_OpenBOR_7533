@@ -75,7 +75,14 @@ module openbor_video_downscale (
     // Dest output (clk_vid domain)
     output reg   [7:0] r_out,
     output reg   [7:0] g_out,
-    output reg   [7:0] b_out
+    output reg   [7:0] b_out,
+
+    /* TEMPORARY DIAG: expose slot_src_line for reader-side probe. 5 slots
+     * × 11 bits each = 55 bits packed. CDC from clk_vid to clk_sys is
+     * NOT synchronized — values change slowly (~62us between updates)
+     * so occasional bit-flip on read is acceptable for diagnostic.
+     * REVERT AFTER MEASURED. */
+    output wire [54:0] dbg_slot_src_line_packed
 );
 
 // ===================================================================
@@ -421,6 +428,15 @@ endfunction
 // All-ones (11'h7FF) = empty / unassigned.
 reg [10:0] slot_src_line [0:4];
 
+/* TEMPORARY DIAG: pack slot_src_line into 55-bit wire for reader probe. */
+assign dbg_slot_src_line_packed = {
+    slot_src_line[4],
+    slot_src_line[3],
+    slot_src_line[2],
+    slot_src_line[1],
+    slot_src_line[0]
+};
+
 reg [2:0] write_slot;             // 0..4 - slot the H pass is filling
 reg       h_pass_active;          // 1 while consuming source pixels
 
@@ -753,6 +769,24 @@ wire [31:0] phase_v_next_w = phase_v + v_step_fp;
 reg [10:0] hpos;
 reg        line_active;
 
+// Bug Z refactor 2026-06-03: register `new_line && !vblank` into a
+// single FF (new_line_active) instead of using the bare expression
+// inline in the V-pass always block. Original inline use caused the
+// pll_hdmi placement to fail across SEEDs 10/11/12 (slacks -0.4/-1.3/
+// -1.5 ns), likely because the AND output fanned out to MANY mux
+// selects (every NBA register in the new_line branch), making routing
+// pressure tight in our already-54%-ALM-dense design.
+//
+// Registered intermediate trades 1 clk_vid cycle of latency (~18.6 ns,
+// negligible vs 62.5 us scanline period) for: (1) reduced fanout from
+// a single FF Q output, (2) cleaner placement (FF can place near its
+// consumers), (3) potentially less CDC analysis pressure (the AND of
+// two cross-domain signals now feeds 1 FF instead of N muxes).
+reg new_line_active;
+always @(posedge clk_vid) begin
+    new_line_active <= new_line && !vblank;
+end
+
 always @(posedge clk_vid) begin
     if (reset) begin
         r_out         <= 8'd0;
@@ -804,7 +838,31 @@ always @(posedge clk_vid) begin
             slot_for_tap_p1 <= find_slot(11'd1);
             slot_for_tap_p2 <= find_slot(11'd2);
         end
-        else if (new_line) begin
+        else if (new_line_active) begin
+            // Bug Z fix 2026-06-03: gate phase_v update on !vblank.
+            //
+            // Refactored to use new_line_active (registered combo of
+            // new_line && !vblank). See declaration above for placement
+            // rationale. Original `else if (new_line && !vblank)` failed
+            // pll_hdmi timing across SEEDs 10/11/12.
+            //
+            // new_line pulses for EVERY scanline including VBLANK (262
+            // total for Sega CD: 224 active + 38 VBLANK). Without the
+            // vblank gate, phase_v advanced by 38 * step_v per frame
+            // BEFORE the first active dest line. For ATOV (step=1.07):
+            // ~40 phantom advances. For He-Man (step=2.14): ~81 phantom
+            // advances. V-pass at the first active dest line was
+            // looking up source lines that didn't exist yet in the
+            // ring buffer (find_slot defaulted to slot 0 = stale
+            // data), so the visible output was uniform color from
+            // whatever was last in slot 0. Matches the symptom of "all
+            // yellow/red bars" in test pattern photos: V-pass thought
+            // it was at the END of the frame, looking for high-N
+            // source lines (= bright R in test pattern).
+            //
+            // Reader's src_target advance is ALREADY gated by
+            // !vblank_ddr (matching pacing). V-pass must match.
+            //
             // Bug 1 fix 2026-06-03: derive coefs + slot_for_tap_* from
             // POST-update phase_v (= phase_v_next_w wire computed above)
             // so they reflect the line we're about to output. The

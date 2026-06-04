@@ -60,6 +60,19 @@
 #define NV_AUDIO_RING_OFFSET 0x00900040u   /* MOVED: was 0xD0000 */
 #define NV_AUDIO_RING_SIZE   0x00010000u   /* 64 KiB, unchanged */
 
+/* TEMPORARY DIAG v3: reader-side state probe region. FPGA reader writes
+ * 4 qwords here on every src_frame_start. ARM reads + logs.
+ * Layout (4 qwords = 32 bytes):
+ *   qword 0: [63:32] frame_counter_local  [31:0] magic 0xDEADBEEF
+ *   qword 1: [63:32] src_target           [31:0] src_line
+ *   qword 2: [63:32] src_height           [31:0] src_width
+ *   qword 3: [63:32] slot_src_line[4]     [31:24] slot[3]_low_8b
+ *                    [23:16] slot[2]_low_8b [15:8] slot[1]_low_8b
+ *                    [7:0] slot[0]_low_8b
+ * REVERT AFTER MEASURED. */
+#define NV_PROBE_OFFSET      0x00C00000u   /* 12 MB in, far from BUF/CART/AUDIO */
+#define NV_PROBE_MAGIC       0xDEADBEEFu
+
 /* Per-buffer max byte size = 1920 × 1080 × 2 = 4,147,200. Rounded up to
  * 4MB (0x400000) per buffer for clean addressing. */
 #define NV_BUF_STRIDE_BYTES  0x00400000u
@@ -430,6 +443,15 @@ present_ctrl_dim:  /* TEMPORARY DIAG label for test-pattern early-jump */
      * gameplay flicker on ATOV + He-Man. Sticky flag — never cleared
      * (boot-screen rendering only happens before first frame). */
     has_rendered = 1;
+
+    /* TEMPORARY DIAG: throttled WriteFrame log (~1/sec).
+     * REVERT AFTER MEASURED. */
+    static int wf_log_counter = 0;
+    if (++wf_log_counter >= 60) {
+        fprintf(stderr, "[DIAG] WriteFrame: w=%d h=%d bpp=%d active_buf=%d frame_cnt=%u test=%d\n",
+                width, height, bpp, active_buf, frame_counter, test_pattern_mode);
+        wf_log_counter = 0;
+    }
 }
 
 bool NativeVideoWriter_IsActive(void) {
@@ -466,6 +488,49 @@ void NativeVideoWriter_KeepaliveTick(void) {
                     | (uint64_t)(uint16_t)last_width;
     *(volatile uint64_t*)(ddr_base + NV_CTRL_OFFSET) =
         (dim32 << 32) | ctrl32;
+
+    /* TEMPORARY DIAG: read reader-side state probe from DDR3 every ~4
+     * keepalive ticks (~600ms) and log it. Probe is written by the
+     * FPGA reader on every src_frame_start. If magic doesn't match,
+     * FPGA hasn't written a probe yet (or hasn't been rebuilt with
+     * probe support). REVERT AFTER MEASURED. */
+    static int probe_log_counter = 0;
+    if (++probe_log_counter >= 4) {
+        probe_log_counter = 0;
+        volatile uint64_t* probe = (volatile uint64_t*)(ddr_base + NV_PROBE_OFFSET);
+        uint64_t qw0 = probe[0];
+        uint64_t qw1 = probe[1];
+        uint64_t qw2 = probe[2];
+        uint64_t qw3 = probe[3];
+        uint32_t magic    = (uint32_t)qw0;
+        uint32_t fcnt_fpga= (uint32_t)(qw0 >> 32);
+        uint32_t src_line = (uint32_t)qw1;
+        uint32_t src_target = (uint32_t)(qw1 >> 32);
+        uint32_t src_width_fpga  = (uint32_t)qw2;
+        uint32_t src_height_fpga = (uint32_t)(qw2 >> 32);
+        uint32_t slot_low4 = (uint32_t)qw3;
+        uint32_t slot_4    = (uint32_t)(qw3 >> 32);
+        (void)slot_low4; (void)slot_4;  /* unused — packing changed below */
+        if (magic == NV_PROBE_MAGIC) {
+            /* FPGA packs slot_src_line[0..4] as 12 bits each in qw3:
+             * bits [11:0]=slot[0], [23:12]=slot[1], [35:24]=slot[2],
+             * [47:36]=slot[3], [59:48]=slot[4]. Each slot value is a
+             * source line number (or 0x7FF = unassigned). */
+            uint16_t s0 = (uint16_t)( qw3        & 0xFFF);
+            uint16_t s1 = (uint16_t)((qw3 >> 12) & 0xFFF);
+            uint16_t s2 = (uint16_t)((qw3 >> 24) & 0xFFF);
+            uint16_t s3 = (uint16_t)((qw3 >> 36) & 0xFFF);
+            uint16_t s4 = (uint16_t)((qw3 >> 48) & 0xFFF);
+            fprintf(stderr,
+                "[PROBE] fpga_frame=%u src_target=%u src_line=%u "
+                "src_dim=%ux%u slot_src[0..4]=%u,%u,%u,%u,%u\n",
+                fcnt_fpga, src_target, src_line,
+                src_width_fpga, src_height_fpga,
+                s0, s1, s2, s3, s4);
+        } else {
+            fprintf(stderr, "[PROBE] no magic yet (got 0x%08X)\n", magic);
+        }
+    }
 }
 
 uint32_t NativeVideoWriter_CheckCart(void) {
