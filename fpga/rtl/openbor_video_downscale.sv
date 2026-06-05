@@ -103,7 +103,36 @@ always @(posedge clk_vid) begin
     if (reset) frame_start_sync <= 2'b0;
     else       frame_start_sync <= {frame_start_sync[0], src_frame_start};
 end
-wire frame_start_pulse = frame_start_sync[0] & ~frame_start_sync[1];
+wire src_frame_start_edge = frame_start_sync[0] & ~frame_start_sync[1];
+
+// ===================================================================
+// Phase 5 task #21: vsync-aligned frame_start_pulse
+// ===================================================================
+// Previously: frame_start_pulse fired on src_frame_start_edge whenever
+// the reader detected a new ctrl word — could be mid-scanline. That
+// causes downscale's H+V state to reset mid-emit -> horizontal tear
+// band visible on screen.
+//
+// Now: latch a `pending` flag on the source-side edge, fire the
+// frame_start_pulse on the next vblank rising edge. Reset is clean,
+// no mid-scanline tear. Worst case adds <1 frame latency.
+// ===================================================================
+reg frame_start_pending;
+reg vblank_d;
+always @(posedge clk_vid) begin
+    if (reset) begin
+        frame_start_pending <= 1'b0;
+        vblank_d            <= 1'b0;
+    end
+    else begin
+        vblank_d <= vblank;
+        if (src_frame_start_edge)
+            frame_start_pending <= 1'b1;
+        else if (frame_start_pulse)
+            frame_start_pending <= 1'b0;
+    end
+end
+wire frame_start_pulse = frame_start_pending & vblank & ~vblank_d;
 
 // Latch source dims at frame start (CDC: src_width / src_height are
 // stable across frames once written by ARM's atomic DIM word). Async

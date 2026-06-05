@@ -246,6 +246,12 @@ localparam [4:0] ST_PLAN_AUDIO      = 5'd16;
 localparam [4:0] ST_READ_AUDIO_RING = 5'd17;
 localparam [4:0] ST_WAIT_AUDIO_RING = 5'd18;
 localparam [4:0] ST_WRITE_AUDIO_RD  = 5'd19;
+// Phase 5 task #19: multi-burst source-line reads for width > 1024.
+// Each source line splits into ceil(qwords_per_line / 128) bursts.
+// ST_LINE_BEGIN sets up addr+remaining; ST_BURST_DONE loops back to
+// ST_READ_LINE if more bursts needed, else advances to ST_LINE_DONE.
+localparam [4:0] ST_LINE_BEGIN      = 5'd20;
+localparam [4:0] ST_BURST_DONE      = 5'd21;
 
 reg  [4:0]  state;
 reg  [31:0] ctrl_word;
@@ -263,6 +269,9 @@ reg  [10:0] src_height;         // 1..1080
 reg  [9:0]  qwords_per_line;    // ceil(src_width / 4)  (1..480 for max 1920)
 reg  [28:0] line_base_addr;     // buf_base_addr + (src_line * qwords_per_line)
 reg  [8:0]  beat_count;
+// Phase 5 task #19: multi-burst per source line.
+reg  [9:0]  qwords_remaining;   // qwords left in current source line
+localparam [9:0] MAX_BURST_QW = 10'd128;  // Max qwords per Avalon-MM burst
 reg         first_frame_loaded;
 reg  [4:0]  stale_vblank_count;
 reg         preloading;
@@ -337,6 +346,7 @@ always @(posedge ddr_clk) begin
         qwords_per_line    <= 10'd80;    /* ceil(320/4) */
         line_base_addr     <= 29'd0;
         beat_count         <= 9'd0;
+        qwords_remaining   <= 10'd0;     /* Phase 5 task #19 */
         first_frame_loaded <= 1'b0;
         frame_ready_reg    <= 1'b0;
         stale_vblank_count <= 5'd0;
@@ -584,7 +594,7 @@ always @(posedge ddr_clk) begin
                     preloading         <= 1'b1;
                     fifo_aclr_cnt      <= 4'd8;
                     src_frame_start_r  <= 1'b1;  /* Option Y Phase 4: pulse to downscale */
-                    state              <= ST_READ_LINE;
+                    state              <= ST_LINE_BEGIN;   /* Phase 5 task #19 */
                 end
                 else if (first_frame_loaded) begin
                     // Stale frame -- re-read previous buffer
@@ -595,23 +605,35 @@ always @(posedge ddr_clk) begin
                     src_line      <= 11'd0;
                     preloading    <= 1'b1;
                     fifo_aclr_cnt <= 4'd8;
-                    state         <= ST_READ_LINE;
+                    state         <= ST_LINE_BEGIN;        /* Phase 5 task #19 */
                 end
                 else
                     state <= ST_IDLE;
             end
 
-            ST_READ_LINE: begin
-                if (!ddr_busy && !fifo_aclr_ddr_active) begin
-                    /* Option Y Phase 3: variable-res line read. Each source
-                     * line is `qwords_per_line` qwords starting at
-                     * buf_base_addr + (src_line * qwords_per_line).
-                     * burstcnt is the low 8 bits of qwords_per_line — for
-                     * widths up to 1024 this fits in one burst (Phase 4
-                     * may add multi-burst for HD PAKs > 1024 px wide). */
-                    ddr_addr     <= buf_base_addr +
+            ST_LINE_BEGIN: begin
+                /* Phase 5 task #19: set up addr + remaining for a new
+                 * source line. ST_READ_LINE then issues bursts of up to
+                 * MAX_BURST_QW until qwords_remaining hits 0.
+                 *
+                 * For 320 wide (80 qw): 1 burst. For 960 wide (240 qw):
+                 * 2 bursts (128+112). For 1600 wide Lust Rush (401 qw):
+                 * 4 bursts (128+128+128+17). */
+                ddr_addr         <= buf_base_addr +
                                     ({19'd0, src_line} * {19'd0, qwords_per_line});
-                    ddr_burstcnt <= qwords_per_line[7:0];
+                qwords_remaining <= qwords_per_line;
+                state            <= ST_READ_LINE;
+            end
+
+            ST_READ_LINE: begin
+                /* Issue one burst (size = min(remaining, MAX_BURST_QW)).
+                 * Gated on FIFO having room for one max burst (128 qw).
+                 * If qwords_remaining > 128, burst at full MAX; else
+                 * burst exactly qwords_remaining for the tail. */
+                if (!ddr_busy && !fifo_aclr_ddr_active &&
+                    (({2'd0, fifo_wrusedw} + {2'd0, MAX_BURST_QW[7:0]}) <= 10'd256)) begin
+                    ddr_burstcnt <= (qwords_remaining > MAX_BURST_QW) ?
+                                        MAX_BURST_QW[7:0] : qwords_remaining[7:0];
                     ddr_rd       <= 1'b1;
                     beat_count   <= 9'd0;
                     timeout_cnt  <= 20'd0;
@@ -620,12 +642,31 @@ always @(posedge ddr_clk) begin
             end
 
             ST_WAIT_LINE: begin
-                if (beat_count == qwords_per_line[8:0])
-                    state <= ST_LINE_DONE;
+                /* Phase 5 task #19: compare against THIS BURST's count,
+                 * not whole-line qwords_per_line. ddr_burstcnt was set
+                 * to min(remaining, MAX_BURST_QW) by ST_READ_LINE. */
+                if (beat_count == {1'b0, ddr_burstcnt})
+                    state <= ST_BURST_DONE;
                 else if (timeout_cnt == TIMEOUT_MAX)
                     state <= ST_IDLE;
                 else if (!ddr_dout_ready)
                     timeout_cnt <= timeout_cnt + 20'd1;
+            end
+
+            ST_BURST_DONE: begin
+                /* Phase 5 task #19: decrement remaining by this burst's
+                 * count; advance addr by same. Loop to ST_READ_LINE for
+                 * next burst if more remain, else ST_LINE_DONE.
+                 *
+                 * Note: ddr_addr advances by qword count (Avalon-MM
+                 * address is qword-indexed in this design). */
+                qwords_remaining <= qwords_remaining - {2'd0, ddr_burstcnt};
+                ddr_addr         <= ddr_addr + {21'd0, ddr_burstcnt};
+
+                if (qwords_remaining > {2'd0, ddr_burstcnt})
+                    state <= ST_READ_LINE;       /* more bursts for this line */
+                else
+                    state <= ST_LINE_DONE;       /* line complete */
             end
 
             ST_LINE_DONE: begin
@@ -638,7 +679,7 @@ always @(posedge ddr_clk) begin
                     state              <= ST_IDLE;
                 end
                 else if (preloading && src_line < 11'd1)
-                    state <= ST_READ_LINE;
+                    state <= ST_LINE_BEGIN;       /* Phase 5 task #19 */
                 else begin
                     preloading <= 1'b0;
                     state      <= ST_WAIT_DISPLAY;
@@ -646,23 +687,13 @@ always @(posedge ddr_clk) begin
             end
 
             ST_WAIT_DISPLAY: begin
-                /* Option Y Phase 4 hotfix (2026-06-05): pacing changed from
-                 * new_line-gated to FIFO-availability-gated. Phase 3's
-                 * new_line gate broke for any src_height > dest_height
-                 * (ATOV 240, PDC2 272, He-Man 480 all need MORE reads per
-                 * dest scanline than 1:1). Reader paced 1 line per scanline
-                 * couldn't keep up — V-pass would constantly stall waiting
-                 * for source lines that hadn't been read yet.
-                 *
-                 * New pacing: reader free-runs gated only on line_fifo
-                 * having room for the next burst (qwords_per_line entries).
-                 * H-pass drains line_fifo at clk_vid speed; V-pass paces
-                 * H-pass via slot-ring backpressure (Phase 4c handshake).
-                 * Backpressure naturally rate-limits reader through the
-                 * pipeline. */
+                /* Phase 5 task #19: pace by FIFO room for one max-size
+                 * burst (128 qw). Multi-burst lines reissue ST_READ_LINE
+                 * which has its own per-burst FIFO check, so this state
+                 * just gates the START of a new source line. */
                 if (src_line < src_height &&
-                    (({2'd0, fifo_wrusedw} + {2'd0, qwords_per_line[7:0]}) <= 10'd256))
-                    state <= ST_READ_LINE;
+                    (({2'd0, fifo_wrusedw} + {2'd0, MAX_BURST_QW[7:0]}) <= 10'd256))
+                    state <= ST_LINE_BEGIN;       /* Phase 5 task #19 */
             end
 
             // -- Audio path: poll wr_ptr, read ring, write rd_ptr ---
@@ -761,7 +792,8 @@ assign src_fifo_empty_o   = fifo_empty;
 assign src_width_o        = src_width;
 assign src_height_o       = src_height;
 // src_frame_start_o pulses 1 ddr_clk when ST_CHECK_CTRL transitions to
-// ST_READ_LINE on a new-frame detection (src_line set to 0).
+// ST_LINE_BEGIN on a new-frame detection (src_line set to 0). Phase 5
+// task #21 downscale aligns this to vblank in clk_vid domain.
 reg src_frame_start_r;
 assign src_frame_start_o  = src_frame_start_r;
 
