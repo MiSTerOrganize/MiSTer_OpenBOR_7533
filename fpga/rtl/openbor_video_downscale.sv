@@ -230,6 +230,44 @@ function automatic [9:0] slot_base(input s);
 endfunction
 
 // ===================================================================
+// V-pass state declarations (Phase 4c)
+// ===================================================================
+// Declared here so H-pass can read v_pass_needed_top / v_pass_needed_bot
+// for its backpressure check (Phase 4c). Sequential logic in V-pass
+// always block below.
+
+reg [10:0] dest_line_out;       // 0..223
+reg [31:0] phase_v;
+reg [10:0] hpos;
+reg        line_active;
+
+// needed_top / needed_bot are COMBINATIONAL from phase_v / dest_line_out.
+// They update every clk_vid cycle. V-pass advance is GATED on slots
+// being ready; H-pass backpressure is GATED on these lines being held.
+wire [10:0] needed_top_raw = phase_v[26:16];
+wire [10:0] needed_top = (needed_top_raw >= src_h_latched)
+                        ? (src_h_latched - 11'd1)
+                        : needed_top_raw;
+wire [11:0] needed_bot_raw = {1'b0, needed_top} + 12'd1;
+wire [10:0] needed_bot = (needed_bot_raw >= {1'b0, src_h_latched})
+                        ? (src_h_latched - 11'd1)
+                        : needed_bot_raw[10:0];
+
+// Slot lookup — combinational find. Returns whether each slot holds
+// the needed line. With only 2 slots, find is a 2-way comparison.
+wire slot0_matches_top = slot_valid[0] && (slot_src_line[0] == needed_top);
+wire slot1_matches_top = slot_valid[1] && (slot_src_line[1] == needed_top);
+wire slot0_matches_bot = slot_valid[0] && (slot_src_line[0] == needed_bot);
+wire slot1_matches_bot = slot_valid[1] && (slot_src_line[1] == needed_bot);
+
+wire slot_top_ready    = slot0_matches_top | slot1_matches_top;
+wire slot_top_idx      = slot1_matches_top;   // 0 if slot0 matches; 1 if slot1
+wire slot_bot_ready    = slot0_matches_bot | slot1_matches_bot;
+wire slot_bot_idx      = slot1_matches_bot;
+
+wire v_pass_stall      = ~slot_top_ready | ~slot_bot_ready;
+
+// ===================================================================
 // H-pass datapath — Phase 4b (clk_vid domain)
 // ===================================================================
 // Reads source pixels from line_fifo, downscales X with edge-aware
@@ -265,6 +303,15 @@ reg [31:0] phase_h;
 reg [10:0] dest_col_out;
 reg        h_pass_active;
 reg        write_slot;
+reg        h_eol_pending;    // Phase 4c backpressure: end-of-line pending advance
+
+// H-pass backpressure check: if NEXT slot to be written holds a line
+// V-pass is currently using (needed_top or needed_bot), stall.
+wire        h_next_slot         = ~write_slot;
+wire        h_next_slot_v_needed =
+    slot_valid[h_next_slot] &&
+    ((slot_src_line[h_next_slot] == needed_top) ||
+     (slot_src_line[h_next_slot] == needed_bot));
 
 // Current source pixel: 16-bit slice from src_pixel_word at sub*16.
 wire [15:0] src_pix_cur = src_pixel_word[{src_pixel_sub, 4'b0000} +: 16];
@@ -324,6 +371,7 @@ always @(posedge clk_vid) begin
         dest_col_out      <= 11'd0;
         h_pass_active     <= 1'b0;
         write_slot        <= 1'b0;
+        h_eol_pending     <= 1'b0;
         slot_src_line[0]  <= 11'h7FF;
         slot_src_line[1]  <= 11'h7FF;
         slot_valid        <= 2'b00;
@@ -344,61 +392,71 @@ always @(posedge clk_vid) begin
             dest_col_out   <= 11'd0;
             h_pass_active  <= 1'b1;
             write_slot     <= 1'b0;
+            h_eol_pending  <= 1'b0;
             slot_src_line[0] <= 11'h7FF;
             slot_src_line[1] <= 11'h7FF;
             slot_valid     <= 2'b00;
         end
-
-        if (h_pass_active) begin
-            // Fetch new FIFO qword when current is exhausted.
-            if (!src_word_valid && !src_fifo_empty && !src_fifo_rd) begin
-                src_pixel_word <= src_fifo_rd_data;
-                src_pixel_sub  <= 2'd0;
-                src_word_valid <= 1'b1;
-                src_fifo_rd    <= 1'b1;
-            end
-
-            // Process one source pixel per cycle when valid.
-            if (src_word_valid) begin
-                // Shift register update.
-                sh_p0 <= sh_p1;
-                sh_p1 <= src_pix_cur;
-
-                // Bresenham phase advance.
-                phase_h <= phase_h_post;
-
-                // Emit dest pixel into line_buf.
-                if (emit_pix) begin
-                    line_buf[{1'b0, slot_base(write_slot)} +
-                             {1'b0, dest_col_out[8:0]}] <= h_emit_pix;
-                    dest_col_out <= dest_col_out + 11'd1;
-                end
-
-                // Advance source pixel position.
-                if (src_pixel_sub == 2'd3) begin
-                    src_word_valid <= 1'b0;       // need next qword
-                end
-                else begin
-                    src_pixel_sub <= src_pixel_sub + 2'd1;
-                end
-
-                src_col <= src_col + 11'd1;
-
-                // End of source line: rotate slot, latch slot metadata.
-                if (src_col == src_w_latched - 11'd1) begin
-                    src_col      <= 11'd0;
-                    phase_h      <= 32'd0;
-                    dest_col_out <= 11'd0;
-                    sh_p0        <= 16'd0;
-                    sh_p1        <= 16'd0;
+        else if (h_pass_active) begin
+            // Phase 4c backpressure: at end of line, before rotating
+            // write_slot, check if the next slot still holds a line
+            // V-pass needs. If yes, STALL (don't process pixels) until
+            // V-pass advances past those lines. If no, do the normal
+            // end-of-line advance.
+            if (h_eol_pending) begin
+                if (!h_next_slot_v_needed) begin
+                    // Safe to advance: latch slot metadata + rotate.
                     slot_src_line[write_slot] <= src_line_in;
                     slot_valid[write_slot]     <= 1'b1;
-                    write_slot   <= ~write_slot;
-                    src_line_in  <= src_line_in + 11'd1;
-
-                    // End of frame.
+                    write_slot    <= ~write_slot;
+                    src_line_in   <= src_line_in + 11'd1;
+                    src_col       <= 11'd0;
+                    phase_h       <= 32'd0;
+                    dest_col_out  <= 11'd0;
+                    sh_p0         <= 16'd0;
+                    sh_p1         <= 16'd0;
+                    src_word_valid <= 1'b0;        /* force fresh FIFO read */
+                    h_eol_pending <= 1'b0;
                     if (src_line_in == src_h_latched - 11'd1)
                         h_pass_active <= 1'b0;
+                end
+                // else: STALL — wait for V-pass to advance past needed lines
+            end
+            else begin
+                // Normal pixel processing.
+                if (!src_word_valid && !src_fifo_empty && !src_fifo_rd) begin
+                    src_pixel_word <= src_fifo_rd_data;
+                    src_pixel_sub  <= 2'd0;
+                    src_word_valid <= 1'b1;
+                    src_fifo_rd    <= 1'b1;
+                end
+
+                if (src_word_valid) begin
+                    sh_p0 <= sh_p1;
+                    sh_p1 <= src_pix_cur;
+                    phase_h <= phase_h_post;
+
+                    if (emit_pix) begin
+                        line_buf[{1'b0, slot_base(write_slot)} +
+                                 {1'b0, dest_col_out[8:0]}] <= h_emit_pix;
+                        dest_col_out <= dest_col_out + 11'd1;
+                    end
+
+                    if (src_pixel_sub == 2'd3) begin
+                        src_word_valid <= 1'b0;
+                    end
+                    else begin
+                        src_pixel_sub <= src_pixel_sub + 2'd1;
+                    end
+
+                    if (src_col == src_w_latched - 11'd1) begin
+                        // Reached end of source line — defer slot advance
+                        // to next cycle's backpressure check.
+                        h_eol_pending <= 1'b1;
+                    end
+                    else begin
+                        src_col <= src_col + 11'd1;
+                    end
                 end
             end
         end
@@ -406,21 +464,117 @@ always @(posedge clk_vid) begin
 end
 
 // ===================================================================
-// V-pass datapath — Phase 4c (placeholder)
+// V-pass datapath — Phase 4c (clk_vid domain)
 // ===================================================================
-// Phase 4b output: still BLACK. Phase 4c implements V-pass that reads
-// from line_buf via slot ring + 2-tap edge-aware blend + emit to r/g/b.
+// For each dest scanline:
+//   1. phase_v_next computes src_line_for_dest = phase_v / FP_ONE
+//   2. needed_top, needed_bot derived combinationally (declared above)
+//   3. find_slot looks up which physical slot holds each needed line
+//   4. If either slot not ready (v_pass_stall) → don't advance dest_line
+//   5. Per dest pixel (ce_pix && de):
+//      - pix_top = line_buf[slot_base(slot_top_idx) + hpos]
+//      - pix_bot = line_buf[slot_base(slot_bot_idx) + hpos]
+//      - luma_top, luma_bot computed
+//      - v_edge = edge_sharp_2(luma_top, luma_bot, edge_threshold)
+//      - frac_v = phase_v[15:0] (fractional Y position between top and bot)
+//      - NN choice: closer source line (frac_v < 0x8000 → top)
+//      - Bilinear: per-channel blend
+//      - Final RGB output: NN on edge, bilinear on smooth
+
+// Edge-detect + emit logic (combinational, read at every ce_pix)
+wire [10:0] v_hpos = hpos;
+wire [15:0] pix_top = line_buf[{1'b0, slot_base(slot_top_idx)} + {1'b0, v_hpos[8:0]}];
+wire [15:0] pix_bot = line_buf[{1'b0, slot_base(slot_bot_idx)} + {1'b0, v_hpos[8:0]}];
+
+wire [7:0]  vl_top = luma_of_pix(pix_top);
+wire [7:0]  vl_bot = luma_of_pix(pix_bot);
+wire        v_edge_sharp = edge_sharp_2(vl_top, vl_bot, edge_threshold);
+
+wire [15:0] frac_v       = phase_v[15:0];
+wire [15:0] inv_frac_v   = 16'hFFFF - frac_v;
+wire [7:0]  pt_r = {pix_top[15:11], pix_top[15:13]};
+wire [7:0]  pt_g = {pix_top[10:5],  pix_top[10:9]};
+wire [7:0]  pt_b = {pix_top[ 4:0],  pix_top[ 4:2]};
+wire [7:0]  pb_r = {pix_bot[15:11], pix_bot[15:13]};
+wire [7:0]  pb_g = {pix_bot[10:5],  pix_bot[10:9]};
+wire [7:0]  pb_b = {pix_bot[ 4:0],  pix_bot[ 4:2]};
+
+wire [23:0] v_blend_r24 = pt_r * inv_frac_v + pb_r * frac_v;
+wire [23:0] v_blend_g24 = pt_g * inv_frac_v + pb_g * frac_v;
+wire [23:0] v_blend_b24 = pt_b * inv_frac_v + pb_b * frac_v;
+wire [7:0]  v_blend_r   = v_blend_r24[23:16];
+wire [7:0]  v_blend_g   = v_blend_g24[23:16];
+wire [7:0]  v_blend_b   = v_blend_b24[23:16];
+
+// NN choice: which of top/bot is "nearer" to the current dest line in
+// fractional space. frac_v < 0x8000 → top is nearer; else bot.
+wire [15:0] v_nn_pix = frac_v[15] ? pix_bot : pix_top;
+wire [7:0]  v_nn_r   = {v_nn_pix[15:11], v_nn_pix[15:13]};
+wire [7:0]  v_nn_g   = {v_nn_pix[10:5],  v_nn_pix[10:9]};
+wire [7:0]  v_nn_b   = {v_nn_pix[ 4:0],  v_nn_pix[ 4:2]};
+
+// new_line edge detect (gated on !vblank)
+reg new_line_active_d;
+wire new_line_active = new_line & ~vblank;
+wire new_line_active_pulse = new_line_active & ~new_line_active_d;
 
 always @(posedge clk_vid) begin
     if (reset) begin
-        r_out <= 8'd0;
-        g_out <= 8'd0;
-        b_out <= 8'd0;
+        dest_line_out      <= 11'd0;
+        phase_v            <= 32'd0;
+        hpos               <= 11'd0;
+        line_active        <= 1'b0;
+        new_line_active_d  <= 1'b0;
+        r_out              <= 8'd0;
+        g_out              <= 8'd0;
+        b_out              <= 8'd0;
     end
-    else if (ce_pix) begin
-        r_out <= 8'd0;
-        g_out <= 8'd0;
-        b_out <= 8'd0;
+    else begin
+        new_line_active_d <= new_line_active;
+
+        // Frame start — V-pass uses the SAME frame_start_pulse as H-pass.
+        // No parallel CDC = no race possible (the polyphase fix).
+        if (frame_start_pulse) begin
+            dest_line_out <= 11'd0;
+            phase_v       <= 32'd0;
+        end
+        else if (new_line_active_pulse && !v_pass_stall) begin
+            // Advance phase_v + dest_line when slots are ready.
+            // If stalled, dest_line holds — HDMI scanout repeats the
+            // last-emitted line (brief artifact, ≤1-2 scanlines during
+            // H-pass warm-up).
+            if (dest_line_out != DEST_HEIGHT - 11'd1)
+                dest_line_out <= dest_line_out + 11'd1;
+            phase_v <= phase_v + v_step_fp;
+        end
+
+        // Per-pixel output during active display.
+        if (ce_pix) begin
+            if (de && frame_ready_vid && !v_pass_stall) begin
+                line_active <= 1'b1;
+                if (!line_active) hpos <= 11'd0;
+                else              hpos <= hpos + 11'd1;
+
+                // Edge-aware select: NN on sharp, bilinear on smooth.
+                if (v_edge_sharp) begin
+                    r_out <= v_nn_r;
+                    g_out <= v_nn_g;
+                    b_out <= v_nn_b;
+                end
+                else begin
+                    r_out <= v_blend_r;
+                    g_out <= v_blend_g;
+                    b_out <= v_blend_b;
+                end
+            end
+            else begin
+                line_active <= 1'b0;
+                hpos        <= 11'd0;
+                r_out       <= 8'd0;
+                g_out       <= 8'd0;
+                b_out       <= 8'd0;
+            end
+        end
     end
 end
 
