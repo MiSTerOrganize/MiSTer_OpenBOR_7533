@@ -272,13 +272,15 @@ endif
     # Profiling 2026-05-22 showed video_copy_screen consumed ~22ms of every
     # ~25ms update() call (89%). The chain SDL_UpdateTexture → blit() (which
     # does SDL_RenderClear + SDL_RenderCopy + SDL_RenderPresent) does at
-    # least 3 memcpys of the 320×224×4 = 286KB framebuffer plus internal
-    # SDL2 renderer overhead. Even with the dummy driver, this all runs on
-    # CPU. To recover the budget, we bypass the entire SDL renderer chain
-    # and write directly to DDR3 via NativeVideoWriter_WriteFrame (which
-    # already does the anisotropic NN squish to 320x224 for non-native
-    # source dimensions). Expected savings: ~15ms per frame → ~10ms total
-    # update() = ~100 fps native on Cortex-A9.
+    # least 3 memcpys of the surface (286 KB or more) plus internal SDL2
+    # renderer overhead. Even with the dummy driver, this all runs on CPU.
+    # To recover the budget, we bypass the entire SDL renderer chain and
+    # write directly to DDR3 via NativeVideoWriter_WriteFrame.
+    #
+    # Option Y Phase 2-4 (2026-06-05): WriteFrame now writes source-NATIVE
+    # resolution to DDR3 (was: anisotropic NN squish to 320×224 in software).
+    # FPGA-side openbor_video_downscale.sv handles the W×H → 320×224 with
+    # edge-aware NN/bilinear hybrid. See docs/dev/option_y_phase1_architecture.md.
     print("Patching sdl/video.c (bypass SDL2 renderer — direct WriteFrame)...")
     video_path = os.path.join(obor, 'sdl/video.c')
     video_c = read(video_path)
@@ -307,8 +309,10 @@ endif
         '\n'
         '#ifdef MISTER_NATIVE_VIDEO\n'
         '\t/* Bypass SDL2 renderer chain (saves ~15ms/frame on Cortex-A9).\n'
-        '\t * NativeVideoWriter_WriteFrame writes directly to DDR3 with\n'
-        '\t * anisotropic NN squish to 320×224 (Sega CD V28 NTSC). */\n'
+        '\t * Option Y Phase 2-4: WriteFrame writes source-NATIVE pixels\n'
+        '\t * to DDR3. FPGA edge-aware downscale module handles W×H →\n'
+        '\t * 320×224. surface->width/height are PAK-native dimensions\n'
+        '\t * (320×240 ATOV, 480×272 PDC2, 960×480 He-Man, etc.). */\n'
         '\tNativeVideoWriter_WriteFrame(surface->data,\n'
         '\t                              surface->width, surface->height,\n'
         '\t                              surface->pitch,\n'

@@ -4,10 +4,14 @@
 //  Pushes 48 kHz stereo S16 PCM samples into a DDR3 ring buffer read by
 //  the FPGA native audio path. No ALSA, no Linux sound kernel.
 //
-//  Memory map (matches openbor_audio_reader.sv):
+//  Memory map (matches openbor_video_reader.sv after Option Y Phase 4):
 //    0x3A000030  audio_wr_ptr  (32-bit byte offset into ring; ARM writes)
 //    0x3A000038  audio_rd_ptr  (32-bit byte offset into ring; FPGA writes)
-//    0x3A0D0000  audio ring    (65,536 bytes = 16,384 stereo frames)
+//    0x3A880000  audio ring    (65,536 bytes = 16,384 stereo frames)
+//
+//  Moved from old 0x3A0D0000 to 0x3A880000 as part of Option Y Phase 4's
+//  variable-res memory map expansion (BUF1 at 0x3A400000 4MB-aligned;
+//  cart data at 0x3A800000; audio ring past cart data).
 //
 //  Copyright (C) 2026 MiSTer Organize -- GPL-3.0
 //

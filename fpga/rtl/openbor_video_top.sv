@@ -1,16 +1,16 @@
 //============================================================================
 //
-//  OpenBOR Native Video Top-Level Wrapper
+//  OpenBOR Native Video Top-Level Wrapper (Option Y Phase 4+)
 //
-//  Instantiates the timing generator and DDR3 reader, providing a clean
-//  interface for integration into OpenBOR.sv.
+//  Instantiates: timing generator + DDR3 reader (variable-res) +
+//  edge-aware NN/bilinear hybrid downscale. Provides a clean interface
+//  for integration into OpenBOR.sv.
 //
 //  Runs on CLK_VIDEO (53.693 MHz) with variable CE_PIXEL for exact
 //  Sega CD timing — 47.68 µs active, 15,700 Hz H rate.
 //
-//  Differences from pico8_video_top:
-//    - 320x224 (Sega CD V28 NTSC) instead of 256x256
-//    - 1:1 pixel mapping instead of 2x doubling
+//  Dest output: 320×224 (Sega CD V28 NTSC active area).
+//  Source: PAK-native dimensions (320×240, 480×272, 960×480, up to 1920×1080).
 //
 //  Cart loading via ioctl is preserved exactly as in PICO-8.
 //

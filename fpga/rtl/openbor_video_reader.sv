@@ -1,31 +1,39 @@
 //============================================================================
 //
-//  OpenBOR Native Video DDR3 Reader
+//  OpenBOR Native Video DDR3 Reader (Option Y Phase 3+)
 //
-//  Reads 320x240 RGB565 frames from DDR3 and outputs them 1:1 (no scaling).
+//  Reads variable-resolution RGB565 frames from DDR3 (source W×H up to
+//  1920×1080) and streams them into line_fifo for the downstream
+//  openbor_video_downscale module. Per-frame source dimensions come
+//  from the DIM word at 0x3A000004 (atomic read with CTRL).
 //
-//  OpenBOR's software render path produces 320x240 pixels natively, so we
-//  do not need pixel doubling or line doubling like the PICO-8 reader does.
-//  This simplifies the pixel output state machine considerably.
+//  Pre-polyphase note: this module USED to output pixels 1:1 to vga
+//  directly (assumed fixed 320×224 from a software-squished ARM frame).
+//  Option Y Phase 4 routes line_fifo through openbor_video_downscale.sv
+//  which does the W×H → 320×224 edge-aware NN/bilinear hybrid downscale.
+//  The legacy 1:1 pixel output block is preserved but its r/g/b outputs
+//  are unwired in openbor_video_top.sv (downscale's outputs drive vga).
 //
 //  Cart loading via ioctl is PRESERVED from the PICO-8 design — PAKs are
 //  loaded via the MiSTer OSD file browser exactly the way PICO-8 cartridges
 //  are. Same ioctl byte collection, same flow control via ioctl_wait, same
 //  state machine integration with the video reader.
 //
-//  DDR3 Memory Map (physical addresses):
-//    0x3A000000 + 0x000     : Control word (frame_counter[31:2], active_buffer[1:0])
-//    0x3A000000 + 0x008     : Joystick data (FPGA writes, ARM reads)
+//  DDR3 Memory Map (physical addresses, post Option Y Phase 4):
+//    0x3A000000 + 0x000     : CTRL  (32-bit, [0:1]=active_buf, [2:31]=frame_counter)
+//    0x3A000000 + 0x004     : DIM   (32-bit, [10:0]=width, [21:11]=height)
+//                             (CTRL+DIM read atomically as one 64-bit qword)
+//    0x3A000000 + 0x008     : Joystick P1
 //    0x3A000000 + 0x010     : Cart control (file_size, ARM polls)
 //    0x3A000000 + 0x018     : Joystick P2
 //    0x3A000000 + 0x020     : Joystick P3
 //    0x3A000000 + 0x028     : Joystick P4
 //    0x3A000000 + 0x030     : Audio ring write pointer (ARM writes)
 //    0x3A000000 + 0x038     : Audio ring read pointer  (FPGA writes)
-//    0x3A000000 + 0x040     : Buffer 0 (320x240 RGB565 = 153,600 bytes; 256KB region)
-//    0x3A040040             : Buffer 1 (320x240 RGB565; 256KB region)
-//    0x3A080000             : Cart data buffer (past video buffers)
-//    0x3A0D0000             : Audio ring buffer (64 KiB, 16,384 stereo S16 frames)
+//    0x3A000000 + 0x040     : Buffer 0 (variable W×H up to 1920×1080 ≈ 4 MB)
+//    0x3A400000             : Buffer 1 (4MB-aligned)
+//    0x3A800000             : Cart data buffer (PAK file from OSD)
+//    0x3A880000             : Audio ring buffer (64 KiB, 16,384 stereo S16 frames)
 //
 //  Bandwidth: 153,600 bytes x 60fps = 9.2 MB/s (DDR3 can do >1000)
 //

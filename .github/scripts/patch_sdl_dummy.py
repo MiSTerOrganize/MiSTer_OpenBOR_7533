@@ -27,14 +27,21 @@ INJECT_INCLUDES = """
 #include <stdint.h>
 #include <pthread.h>
 
+/* Option Y Phase 4 (2026-06-05): these constants are now LEGACY — used
+ * only by mister_ddr_init() to set up the keepalive-thread mmap (1 MB is
+ * enough since keepalive only touches CTRL+DIM at offset 0x000-0x007).
+ * The mister_present render path forwards to NativeVideoWriter_WriteFrame
+ * which manages its own 16 MB mmap with the new memory map (BUF1 at
+ * 0x400000, audio ring at 0x880000). DO NOT add new code that uses
+ * MISTER_BUF[01]_OFFSET or MISTER_FRAME_W/H — they're stale. */
 #define MISTER_DDR_PHYS_BASE   0x3A000000u
-#define MISTER_DDR_REGION_SIZE 0x00100000u
+#define MISTER_DDR_REGION_SIZE 0x00100000u   /* LEGACY: only for keepalive ddr_init */
 #define MISTER_CTRL_OFFSET     0x00000000u
-#define MISTER_BUF0_OFFSET     0x00000040u
-#define MISTER_BUF1_OFFSET     0x00040040u
-#define MISTER_FRAME_W         320
-#define MISTER_FRAME_H         224  /* Sega CD V28 NTSC */
-#define MISTER_FRAME_BYTES     (MISTER_FRAME_W * MISTER_FRAME_H * 2)
+#define MISTER_BUF0_OFFSET     0x00000040u   /* LEGACY */
+#define MISTER_BUF1_OFFSET     0x00040040u   /* LEGACY — collides with Phase 4 BUF0! */
+#define MISTER_FRAME_W         320           /* LEGACY */
+#define MISTER_FRAME_H         224           /* LEGACY */
+#define MISTER_FRAME_BYTES     (MISTER_FRAME_W * MISTER_FRAME_H * 2)  /* LEGACY */
 
 static int                 mister_fd        = -1;
 static volatile uint8_t   *mister_ddr       = NULL;
@@ -96,7 +103,14 @@ static void mister_ddr_init(void) {
         return;
     }
     mister_ctrl = (volatile uint32_t *)(mister_ddr + MISTER_CTRL_OFFSET);
-    *mister_ctrl = 0;
+    /* Option Y Phase 4: do NOT write *mister_ctrl = 0 here. CTRL+DIM
+     * initialization is owned by NativeVideoWriter_Init (atomic 64-bit
+     * write at offset 0). If this init runs AFTER NativeVideoWriter_Init
+     * (typical case — engine starts before any SDL surface present),
+     * clobbering CTRL=0 would wipe the frame counter NativeVideoWriter
+     * has already started incrementing, causing the FPGA reader to
+     * think we're at frame 0 again and possibly mis-sync the buffer
+     * swap. Leave CTRL alone here. */
     fprintf(stderr, "MiSTer SDL2: DDR3 mapped @ 0x%08X (driver=dummy_native)\\n",
             MISTER_DDR_PHYS_BASE);
     mister_keepalive_run = 1;

@@ -18,10 +18,16 @@
 #include <unistd.h>
 
 #define NA_DDR_PHYS_BASE    0x3A000000u
-#define NA_DDR_REGION_SIZE  0x00100000u   /* 1 MB -- shared with video writer */
+/* Option Y Phase 4 (2026-06-05): DDR3 memory map expanded for variable-res
+ * source frames (up to 1920×1080 → 4 MB per video buffer). Audio ring moved
+ * from old 0x0D0000 to new 0x880000 (past both 4MB video buffers + 512KB
+ * cart data region). Reader-side: AUDIO_RING_ADDR=29'h07510000 in
+ * openbor_video_reader.sv matches. Region mmap size bumped from 1 MB to
+ * 16 MB to span past the audio ring. */
+#define NA_DDR_REGION_SIZE  0x01000000u   /* 16 MB -- matches video writer */
 #define NA_WR_PTR_OFFSET    0x00000030u
 #define NA_RD_PTR_OFFSET    0x00000038u
-#define NA_RING_OFFSET      0x000D0000u
+#define NA_RING_OFFSET      0x00880000u   /* Option Y Phase 4: was 0x000D0000 */
 #define NA_RING_BYTES       0x00010000u   /* 64 KiB, must match RTL */
 #define NA_RING_MASK        (NA_RING_BYTES - 1u)
 
