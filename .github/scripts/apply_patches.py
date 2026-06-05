@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-apply_patches.py — Apply all MiSTer patches to OpenBOR 4.0 Build 7533 source tree.
+apply_patches.py -- Apply all MiSTer patches to OpenBOR 4.0 Build 7533 source tree.
 
 Usage: python3 apply_patches.py <openbor_source_dir> <patches_dir>
 
@@ -17,7 +17,7 @@ import sys
 import os
 
 def read(path):
-    # Explicit UTF-8 — Linux CI defaults to UTF-8 but Windows defaults to
+    # Explicit UTF-8 -- Linux CI defaults to UTF-8 but Windows defaults to
     # cp1252 which fails on Unicode arrows etc. in patched comments.
     # Making it explicit lets local dry-runs validate before push.
     with open(path, 'r', encoding='utf-8') as f:
@@ -35,7 +35,7 @@ def strict_replace(content, old, new, label, count=1):
     silent no-op would corrupt the build. The 2026-05-19 ATOV palette
     session uncovered that the original `source/utils.c` COPY_ROOT_PATH
     macro replacement had been silently failing since the patch was written
-    — pattern expected `strncpy(buf, "./", 2)` but pristine upstream v7533
+    -- pattern expected `strncpy(buf, "./", 2)` but pristine upstream v7533
     has `strcpy(buf, "./")`. Saves/Config/SaveStates redirect had been
     broken without anyone noticing because plain `.replace()` returns the
     source unchanged when the pattern doesn't match.
@@ -108,12 +108,12 @@ def main():
     obor = sys.argv[1]
     patches = sys.argv[2]
 
-    # ── 1. Patch Makefile ─────────────────────────────────────────────
+    # -- 1. Patch Makefile ---------------------------------------------
     print("Patching Makefile...")
     mf = read(os.path.join(obor, 'Makefile'))
 
     # Add BUILD_MISTER target block after BUILD_LINUX_LE_arm endif.
-    # v7533 dropped BUILD_OPENDINGUX entirely — the closest analog is
+    # v7533 dropped BUILD_OPENDINGUX entirely -- the closest analog is
     # BUILD_LINUX_LE_arm. Headers under include/SDL2 (v7533 source uses
     # SDL2 unconditionally; no BUILD_SDL2 toggle exists). Match the
     # warning suppressions that BUILD_LINUX_LE_arm uses for GCC 9+.
@@ -148,7 +148,7 @@ endif
     if marker in mf:
         mf = mf.replace(marker, marker + "\n" + mister_target)
     else:
-        print("  ERROR: BUILD_LINUX_LE_arm anchor not found — Makefile structure may have changed")
+        print("  ERROR: BUILD_LINUX_LE_arm anchor not found -- Makefile structure may have changed")
 
     # Add MISTER_NATIVE_VIDEO CFLAGS. v7533 uses SDL2 natively; no
     # -DSDL2 needed (no codepaths gate on it).
@@ -156,10 +156,10 @@ endif
     # Step 25 (v3.1 perf, 2026-05-27): upgrade -O1 -> -O2 + funroll-loops.
     # Original choice of -O1 was to dodge GCC aggressive-loop UB in 4086's
     # openbor.c. The cleaner fix is explicit -fno-aggressive-loop-optimizations
-    # at -O2 — keeps the protection while enabling -O2's broader inlining,
+    # at -O2 -- keeps the protection while enabling -O2's broader inlining,
     # vectorization, and register allocation. -funroll-loops gives further
     # gain on the palette LUT inner loops which are the hot path.
-    # NOTE: -flto was tried but pulled — link-time optimization can surface
+    # NOTE: -flto was tried but pulled -- link-time optimization can surface
     # latent ODR/visibility issues on this engine codebase; the marginal
     # 2-5% gain isn't worth the LOW-MEDIUM risk. Revisit if measurement
     # shows leftover ceiling.
@@ -210,7 +210,7 @@ endif
             strip_anchor + "\nifdef BUILD_MISTER\nSTRIP           = strip $(TARGET) -o $(TARGET_FINAL)\nendif"
         )
     else:
-        print("  WARN: BUILD_PANDORA strip anchor not found — binary may not be stripped")
+        print("  WARN: BUILD_PANDORA strip anchor not found -- binary may not be stripped")
 
     # Force SDL2 link libs for MiSTer (-lSDL2 instead of -lSDL),
     # plus -ldl for dlopen, -lpthread for native writer threads.
@@ -224,7 +224,7 @@ endif
     write(os.path.join(obor, 'Makefile'), mf)
     print("  Makefile patched.")
 
-    # ── 1b. Patch packfile.c — bump CACHEBLOCKS 96 -> 255 + readahead 0 -> 64KB
+    # -- 1b. Patch packfile.c -- bump CACHEBLOCKS 96 -> 255 + readahead 0 -> 64KB
     # MiSTer 2026-05-24: PAK init speedup on heavy carts via filecache tuning.
     #
     # Background: OpenBOR's filecache (engine/source/gamelib/filecache.c +
@@ -261,25 +261,27 @@ endif
     write(pf_path, pf)
     print("  packfile.c: CACHEBLOCKS=255 + readahead=65536 (paired filecache speedup)")
 
-    # ── 2. Patch openbor.c — replace pausemenu() ─────────────────────
+    # -- 2. Patch openbor.c -- replace pausemenu() ---------------------
     print("Patching openbor.c (pausemenu)...")
     src = read(os.path.join(obor, 'openbor.c'))
     src = replace_function(src, "void pausemenu()", "pausemenu_patch.c", patches)
     write(os.path.join(obor, 'openbor.c'), src)
     print("  pausemenu() replaced.")
 
-    # ── 3. sdl/video.c — bypass SDL2 renderer chain in video_copy_screen ─
+    # -- 3. sdl/video.c -- bypass SDL2 renderer chain in video_copy_screen -
     # Profiling 2026-05-22 showed video_copy_screen consumed ~22ms of every
-    # ~25ms update() call (89%). The chain SDL_UpdateTexture → blit() (which
+    # ~25ms update() call (89%). The chain SDL_UpdateTexture -> blit() (which
     # does SDL_RenderClear + SDL_RenderCopy + SDL_RenderPresent) does at
-    # least 3 memcpys of the 320×224×4 = 286KB framebuffer plus internal
-    # SDL2 renderer overhead. Even with the dummy driver, this all runs on
-    # CPU. To recover the budget, we bypass the entire SDL renderer chain
-    # and write directly to DDR3 via NativeVideoWriter_WriteFrame (which
-    # already does the anisotropic NN squish to 320x224 for non-native
-    # source dimensions). Expected savings: ~15ms per frame → ~10ms total
-    # update() = ~100 fps native on Cortex-A9.
-    print("Patching sdl/video.c (bypass SDL2 renderer — direct WriteFrame)...")
+    # least 3 memcpys of the surface (286 KB or more) plus internal SDL2
+    # renderer overhead. Even with the dummy driver, this all runs on CPU.
+    # To recover the budget, we bypass the entire SDL renderer chain and
+    # write directly to DDR3 via NativeVideoWriter_WriteFrame.
+    #
+    # Option Y Phase 2-4 (2026-06-05): WriteFrame now writes source-NATIVE
+    # resolution to DDR3 (was: anisotropic NN squish to 320x224 in software).
+    # FPGA-side openbor_video_downscale.sv handles the WxH -> 320x224 with
+    # edge-aware NN/bilinear hybrid. See docs/dev/option_y_phase1_architecture.md.
+    print("Patching sdl/video.c (bypass SDL2 renderer -- direct WriteFrame)...")
     video_path = os.path.join(obor, 'sdl/video.c')
     video_c = read(video_path)
 
@@ -307,25 +309,35 @@ endif
         '\n'
         '#ifdef MISTER_NATIVE_VIDEO\n'
         '\t/* Bypass SDL2 renderer chain (saves ~15ms/frame on Cortex-A9).\n'
-        '\t * NativeVideoWriter_WriteFrame writes directly to DDR3 with\n'
-        '\t * anisotropic NN squish to 320×224 (Sega CD V28 NTSC). */\n'
-        '\tNativeVideoWriter_WriteFrame(surface->data,\n'
-        '\t                              surface->width, surface->height,\n'
-        '\t                              surface->pitch,\n'
-        '\t                              stored_videomodes.pixel * 8,\n'
-        '\t                              NULL);\n'
-        '\treturn 1;\n'
-        '#else\n'
+        '\t * Option Y Phase 2-4: WriteFrame writes source-NATIVE pixels\n'
+        '\t * to DDR3. FPGA edge-aware downscale module handles WxH ->\n'
+        '\t * 320x224. surface->width/height are PAK-native dimensions\n'
+        '\t * (320x240 ATOV, 480x272 PDC2, 960x480 He-Man, etc.).\n'
+        '\t * Phase 5 task #20: gate on stored_videomodes.pixel != 1.\n'
+        '\t * WriteFrame 8bpp path requires non-NULL palette; we pass\n'
+        '\t * NULL. 8bpp PAKs fall through to SDL chain (palette-aware\n'
+        '\t * via screen->format). Safe on 7533 (v7533 hardcodes vscreen\n'
+        '\t * PIXEL_32); defense-in-depth against future engine changes\n'
+        '\t * -- same pattern as 4086 commit 64b5501 2026-05-23. */\n'
+        '\tif (stored_videomodes.pixel != 1) {\n'
+        '\t\tNativeVideoWriter_WriteFrame(surface->data,\n'
+        '\t\t                              surface->width, surface->height,\n'
+        '\t\t                              surface->pitch,\n'
+        '\t\t                              stored_videomodes.pixel * 8,\n'
+        '\t\t                              NULL);\n'
+        '\t\treturn 1;\n'
+        '\t}\n'
+        '\t/* Fallthrough for 8bpp paletted screen. */\n'
+        '#endif\n'
         '\tSDL_UpdateTexture(texture, NULL, surface->data, surface->pitch);\n'
-        '\tblit();\n'
-        '#endif',
+        '\tblit();',
         'sdl/video.c video_copy_screen bypass'
     )
 
     write(video_path, video_c)
     print("  sdl/video.c: video_copy_screen now writes directly to DDR3, bypassing SDL2 renderer chain")
 
-    # ── 4. Patch sdl/control.c — replace control_update() ────────────
+    # -- 4. Patch sdl/control.c -- replace control_update() ------------
     print("Patching sdl/control.c (input mapping)...")
     src = read(os.path.join(obor, 'sdl/control.c'))
 
@@ -341,7 +353,7 @@ endif
     write(os.path.join(obor, 'sdl/control.c'), src)
     print("  control_update() replaced.")
 
-    # ── 5. Patch sdl/sdlport.c — replace main() ─────────────────────
+    # -- 5. Patch sdl/sdlport.c -- replace main() ---------------------
     print("Patching sdl/sdlport.c (main + NativeVideoWriter init)...")
     src = read(os.path.join(obor, 'sdl/sdlport.c'))
 
@@ -358,7 +370,7 @@ endif
     start = src.find(main_sig)
     if start >= 0:
         patch = read(os.path.join(patches, 'sdlport_patch.c'))
-        # Find the first #ifdef MISTER_NATIVE_VIDEO before main() —
+        # Find the first #ifdef MISTER_NATIVE_VIDEO before main() --
         # that's where our pre-main code starts (swap thread, globals)
         premain_marker = "#ifdef MISTER_NATIVE_VIDEO\n/* Crash handler"
         premain_start = patch.find(premain_marker)
@@ -372,14 +384,14 @@ endif
     write(os.path.join(obor, 'sdl/sdlport.c'), src)
     print("  main() replaced.")
 
-    # ── 6. Patch source/utils.c — redirect save + log paths ─────────────
+    # -- 6. Patch source/utils.c -- redirect save + log paths -------------
     print("Patching source/utils.c (save path redirect + log path absolute)...")
     src = read(os.path.join(obor, 'source/utils.c'))
 
-    # Pristine v7533 source/utils.c line ~102 (LINUX target — the #else
+    # Pristine v7533 source/utils.c line ~102 (LINUX target -- the #else
     # branch after WII/VITA/ANDROID variants) uses strcpy/strcat, NOT
     # strncpy/strncat. The previous pattern's strncpy form was silently
-    # failing — saves/config/savestates redirect to /media/fat/... never
+    # failing -- saves/config/savestates redirect to /media/fat/... never
     # took effect since the macro was never replaced. Caught by audit
     # 2026-05-19 (see feedback_ci_set_minus_e_hides_patch_failures.md +
     # the new strict_replace helper above which now RAISES instead of
@@ -388,7 +400,7 @@ endif
     # https://raw.githubusercontent.com/DCurrent/openbor/v7533/engine/source/utils.c L102
     old_macro = '#define COPY_ROOT_PATH(buf, name) strcpy(buf, "./"); strcat(buf, name); strcat(buf, "/");'
 
-    # Note: Logs path is /media/fat/logs/OpenBOR_7533/ — per-build, matching
+    # Note: Logs path is /media/fat/logs/OpenBOR_7533/ -- per-build, matching
     # the saves/savestates per-build pattern (sister cores share PAK content
     # at games/OpenBOR/Paks/ but write to separate save/savestate/log dirs
     # because the data is build-specific). This prevents cross-build log
@@ -419,8 +431,8 @@ endif
     # engine's writeToLogFile() unconditionally (NOT via COPY_ROOT_PATH),
     # so they need their own replacement. Writing to cwd's Logs/ directory
     # violates the canonical single-location log rule
-    # (/media/fat/logs/{CoreName}/) — patch to absolute paths.
-    # 4 / 5 occurrences — intentional multi-match (LOGFILE macros).
+    # (/media/fat/logs/{CoreName}/) -- patch to absolute paths.
+    # 4 / 5 occurrences -- intentional multi-match (LOGFILE macros).
     src = strict_replace(
         src,
         '"./Logs/OpenBorLog.txt"',
@@ -439,11 +451,11 @@ endif
     write(os.path.join(obor, 'source/utils.c'), src)
     print("  Save path redirected; log path absolute (/media/fat/logs/OpenBOR_7533/).")
 
-    # ── 6c. Patch openbor.c — route .cfg/.hi to Config, .s00 to SaveStates ──
+    # -- 6c. Patch openbor.c -- route .cfg/.hi to Config, .s00 to SaveStates --
     print("Patching openbor.c (split save directories)...")
     obor_c = read(os.path.join(obor, 'openbor.c'))
 
-    # 2 occurrences each — intentional multi-match (savesettings + loadsettings pairs).
+    # 2 occurrences each -- intentional multi-match (savesettings + loadsettings pairs).
     obor_c = strict_replace(
         obor_c,
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpname, 4);',
@@ -486,11 +498,11 @@ endif
     write(os.path.join(obor, 'openbor.c'), obor_c)
     print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
 
-    # ── Step 31 v2 (2026-05-28): Respect cart's EXPLICIT subject_to_gravity 0
+    # -- Step 31 v2 (2026-05-28): Respect cart's EXPLICIT subject_to_gravity 0
     #
     # Stock OpenBOR v7533's ent_default_init() at line ~23625 forcefully RE-ADDS
     # MOVE_CONFIG_SUBJECT_TO_GRAVITY to ALL TYPE_NONE entities at spawn time.
-    # This OVERRIDES the cart's `subject_to_gravity 0` directive — but it's also
+    # This OVERRIDES the cart's `subject_to_gravity 0` directive -- but it's also
     # the DEFAULT BEHAVIOR many carts rely on without explicit opt-in.
     #
     # Step 31 v1 (commit 832996a) BLINDLY removed the forced gravity. This
@@ -511,15 +523,15 @@ endif
     #   3. In ent_default_init TYPE_NONE case: only force-add gravity if !gravity_directive_seen.
     #
     # Behavior matrix:
-    #   - Cart says `subject_to_gravity 0` → flag cleared by parser, seen=1,
-    #     ent_default_init skips force-add → no gravity ✓ (our shield, sun, etc)
-    #   - Cart says `subject_to_gravity 1` → flag set by parser, seen=1,
-    #     ent_default_init skips force-add → flag stays as parser set it ✓
-    #   - Cart silent → flag at parse-default (0 if MOVE_CONFIG_NONE), seen=0,
-    #     ent_default_init force-adds → gravity ON (matches stock behavior) ✓
+    #   - Cart says `subject_to_gravity 0` -> flag cleared by parser, seen=1,
+    #     ent_default_init skips force-add -> no gravity  (our shield, sun, etc)
+    #   - Cart says `subject_to_gravity 1` -> flag set by parser, seen=1,
+    #     ent_default_init skips force-add -> flag stays as parser set it 
+    #   - Cart silent -> flag at parse-default (0 if MOVE_CONFIG_NONE), seen=0,
+    #     ent_default_init force-adds -> gravity ON (matches stock behavior) 
     # NOTE: Step 31 v2's gravity_directive_seen field is added to s_model END
     # later in this script (extending the v3.10 has_palette_directive patch).
-    # Parser + ent_default_init patches below use the field — both go into
+    # Parser + ent_default_init patches below use the field -- both go into
     # openbor.c which is compiled AFTER apply_patches.py finishes, so the
     # field needs to exist by then. The openbor.h s_model extension at the
     # v3.10 section ensures that.
@@ -594,7 +606,7 @@ endif
     write(ob_path_g, ob_g)
     print("  Step 31 v3: ent_default_init now respects cart's explicit subject_to_gravity AND no_adjust_base directives")
 
-    # ── Step 31 v3 (2026-05-28): parser patch for CMD_MODEL_NO_ADJUST_BASE ──
+    # -- Step 31 v3 (2026-05-28): parser patch for CMD_MODEL_NO_ADJUST_BASE --
     # Sister to the CMD_MODEL_SUBJECT_TO_GRAVITY parser patch above.
     # Sets newchar->no_adjust_base_directive_seen = 1 whenever the cart's
     # character.txt declares `no_adjust_base N`, regardless of value.
@@ -638,7 +650,7 @@ endif
     write(ob_path_g, ob_g)
     print("  Step 31 v3: CMD_MODEL_NO_ADJUST_BASE parser now records directive_seen")
 
-    # ── Step 32 (2026-05-28): defensive entity-pointer validation in script bridge ─
+    # -- Step 32 (2026-05-28): defensive entity-pointer validation in script bridge -
     # Crash investigation: TMNT Rescue Palooza "Continue from save" SIGSEGV in
     # kill_entity+0xe7, called from script's killentity() via openbor_killentity.
     # The save+continue flow restored a level where a scroll-spawn script holds
@@ -744,7 +756,7 @@ endif
     write(obs_path_k, obs_k)
     print("  Step 32: openbor_killentity now validates script-supplied pointer (TMNT-RP continue crash fix)")
 
-    # ── Step 35 (2026-05-29): normalize in_*screen openborvariant returns ──
+    # -- Step 35 (2026-05-29): normalize in_*screen openborvariant returns --
     # Damon Caskey's 2022-04-21 engine refactor consolidated 17 individual
     # `in_<screen>` integer flags into a single bitmask `screen_status`. The
     # openborvariant getters for these properties now return the bit value
@@ -804,7 +816,7 @@ endif
     write(obs_s35_path, obs_s35)
     print(f"  Step 35: normalized {s35_fixed} of {len(s35_props)} in_*screen openborvariant getters to return 0/1 (was bitmask value)")
 
-    # ── Step 33 (2026-05-28): NULL-check ent_list[i] in kill_entity loop ──
+    # -- Step 33 (2026-05-28): NULL-check ent_list[i] in kill_entity loop --
     # User reported TMNT-RP continue-from-save still SIGSEGVing AFTER Step 32.
     # Step 32 validated the ent passed to openbor_killentity (it was in
     # ent_list[]). But the crash was DEEPER -- inside kill_entity's loop
@@ -843,7 +855,7 @@ endif
     write(ob_path_g, ob_k33)
     print("  Step 33: kill_entity loop now NULL-safe against stale ent_list[] slots")
 
-    # ── Step 36 (2026-05-29): validate victim at kill_entity ENTRY ─────────
+    # -- Step 36 (2026-05-29): validate victim at kill_entity ENTRY ---------
     # 2026-05-29 user reported TMNT-RP continue-from-save SIGSEGV REGRESSION
     # after Steps 32+33 should have fixed it. Crash signature: kill_entity+0xed
     # (slightly shifted from original +0xe7 by Step 33's added bytes), fault
@@ -937,7 +949,7 @@ endif
     print("  Step 36: kill_entity entry validates victim (catches recursive stale-pointer entry)")
     print("  Step 38: kill_entity entry also defends victim->parent + victim->subentity (TMNT-RP save-restore crash)")
 
-    # ── Step 39 TEMPORARY DIAG (2026-05-29): bounded checkpoint logging in
+    # -- Step 39 TEMPORARY DIAG (2026-05-29): bounded checkpoint logging in
     # kill_entity body. Steps 36+37+38 did NOT fix TMNT-RP save-game-continue
     # SIGSEGV (still crashing at kill_entity+0x363 = same source-level site as
     # before Step 38, just shifted by Step 38's added bytes). Hypothesis about
@@ -975,7 +987,7 @@ endif
         "    defense_object = defense_find_current_object(self, NULL, attack.attack_type);"
     )
     diag_block_new = (
-        "    /* MiSTer Step 39 TEMPORARY DIAG (REVERT AFTER MEASURED) ─────────────── */\n"
+        "    /* MiSTer Step 39 TEMPORARY DIAG (REVERT AFTER MEASURED) --------------- */\n"
         "    /* Bounded checkpoint logging to pin save-game SIGSEGV site in kill_entity */\n"
         "    /* body. Last logged CP before crash tells us which block faulted.        */\n"
         "    { static int _diag_call = 0; if (_diag_call < 10) { _diag_call++; \\\n"
@@ -1022,7 +1034,7 @@ endif
     write(ob_path_g, ob_k39)
     print("  Step 39 TEMPORARY DIAG: bounded checkpoints A-H injected in kill_entity body (REVERT AFTER MEASURED)")
 
-    # ── Step 40 (2026-05-29): fix NULL self deref in kill_entity's
+    # -- Step 40 (2026-05-29): fix NULL self deref in kill_entity's
     # defense_find_current_object call. Step 39 DIAG pinned the TMNT-RP
     # save-game-continue SIGSEGV to this call:
     #
@@ -1036,7 +1048,7 @@ endif
     # derefs first arg's ->defense field; NULL self -> NULL->defense
     # SIGSEGV.
     #
-    # 4086 source has ZERO defense_find_current_object calls — this is a
+    # 4086 source has ZERO defense_find_current_object calls -- this is a
     # Damon Caskey v7533 addition that introduced the NULL deref risk.
     #
     # Fix: pass `victim` instead of `self`. victim is validated by Step 36
@@ -1069,9 +1081,9 @@ endif
     ob_k40 = strict_replace(ob_k40, s40_diag_old, s40_diag_new,
                              'Step 40: kill_entity defense_find_current_object uses victim not self (NULL deref fix)')
     write(ob_path_g, ob_k40)
-    print("  Step 40: defense_find_current_object now uses victim (was self=NULL from script bridge) — TMNT-RP save-game crash root cause fix")
+    print("  Step 40: defense_find_current_object now uses victim (was self=NULL from script bridge) -- TMNT-RP save-game crash root cause fix")
 
-    # ── Step 34 (2026-05-28): restore 4086's permissive range.base default ─
+    # -- Step 34 (2026-05-28): restore 4086's permissive range.base default -
     # User reported Aliens Clash platform-mounted Prin shooters don't fire,
     # while ground-level Prin shooters work fine. Same enemy type, different
     # behavior by altitude. Confirmed on hardware with 4086 vs 7533.
@@ -1084,7 +1096,7 @@ endif
     # 4086 default (openbor.c af23dc9c lines 8486-8487):
     #     newanim->range.min.base = -1000;
     #     newanim->range.max.base = 1000;
-    # = always ±1000 regardless of jumpheight. Platform layouts up to 1000
+    # = always 1000 regardless of jumpheight. Platform layouts up to 1000
     # units of altitude difference work transparently.
     #
     # 7533 default (openbor.c v7533 line 14716):
@@ -1095,8 +1107,8 @@ endif
     # never found -> enemy never attacks.
     #
     # Aliens Clash was authored against 4086 era when this defaulted to
-    # ±1000. Cart's character.txt doesn't explicitly call `rangebase` so
-    # 7533's tighter default applies. Fix: restore 4086's ±1000 default.
+    # 1000. Cart's character.txt doesn't explicitly call `rangebase` so
+    # 7533's tighter default applies. Fix: restore 4086's 1000 default.
     #
     # Carts that explicitly set `rangebase A B` per anim still get their
     # cart-set values (parser writes to range.base.{min,max} after this
@@ -1137,7 +1149,7 @@ endif
     write(ob_path_g, ob_k34)
     print("  Step 34 v2: range.base AND range.y defaults = [-1000, +1000] (was both jumpheight-derived)")
 
-    # ── Step 37 (2026-05-29): restore 4086 instant-death semantics for carts
+    # -- Step 37 (2026-05-29): restore 4086 instant-death semantics for carts
     # without anim fall.
     #
     # User reported TMNT-RP enemies (foot ninja, mini_turret, bubblecopter)
@@ -1235,7 +1247,7 @@ endif
     write(ob_path_g, ob_k37)
     print("  Step 37: death_try_sequence_damage now triggers set_death immediately when DEATH flag set + no anim fall (TMNT-RP explosion fix)")
 
-    # ── Step 42 (2026-05-29): defensive force SUBJECT_TO_GRAVITY for TYPE_PLAYER
+    # -- Step 42 (2026-05-29): defensive force SUBJECT_TO_GRAVITY for TYPE_PLAYER
     # User reported Raph respawn-goes-vertical-upward regression after Step 37 v2
     # deploy. Step 41 DIAG (since removed) pinned the cause: engine's
     # ent_copy_uninit (openbor.c:23923) does:
@@ -1244,8 +1256,8 @@ endif
     #
     # which unconditionally inherits old model's flags via set_model_ex (called
     # by weapon swaps etc.). If a weapon swap cleared SUBJECT_TO_GRAVITY on
-    # the player model, the respawn entity inherits the cleared bit → no
-    # gravity → flies upward.
+    # the player model, the respawn entity inherits the cleared bit -> no
+    # gravity -> flies upward.
     #
     # DIAG log (now removed) showed: model_gravity=1 at initial Raph spawn,
     # model_gravity=0 at respawn. Pre-existing engine bug, only surfaced after
@@ -1297,9 +1309,9 @@ endif
     ob_s42 = strict_replace(ob_s42, s42_old, s42_new,
                              'Step 42 v2: force-set ALL standard player physics flags in ent_default_init')
     write(ob_path_g, ob_s42)
-    print("  Step 42: TYPE_PLAYER force SUBJECT_TO_GRAVITY (hardware-verified — fixes Raph respawn-vertical)")
+    print("  Step 42: TYPE_PLAYER force SUBJECT_TO_GRAVITY (hardware-verified -- fixes Raph respawn-vertical)")
 
-    # ── Step 67 (2026-06-01): respect cart's `subject_to_hole 0` (flying characters) ──
+    # -- Step 67 (2026-06-01): respect cart's `subject_to_hole 0` (flying characters) --
     # User reported Bearz OWL (the flying character, type PLAYER + subject_to_hole 0
     # per cart) falls into holes like a ground character. ROOT CAUSE: Step 42 v2's
     # unconditional OR of MOVE_CONFIG_SUBJECT_TO_HOLE overrides the cart's explicit
@@ -1387,7 +1399,7 @@ endif
     write(ob_path_g, ob_s67b)
     print("  Step 67b: Step 42 v2 SUBJECT_TO_HOLE now gated on !hole_directive_seen (respects cart's subject_to_hole 0)")
 
-    # ── Step 68 (2026-06-01): respect cart's subject_to_obstacle 0 and subject_to_platform 0 ──
+    # -- Step 68 (2026-06-01): respect cart's subject_to_obstacle 0 and subject_to_platform 0 --
     # Same pattern as Step 67 (hole), extended to obstacle + platform.
     # OWL also has `subject_to_obstacle 0` (passes through obstacles) and
     # `subject_to_platform 0` (doesn't interact with platforms). Step 42 v2's
@@ -1499,7 +1511,7 @@ endif
     write(ob_path_g, ob_s68c)
     print("  Step 68c: SUBJECT_TO_OBSTACLE + SUBJECT_TO_PLATFORM now gated on directive_seen flags")
 
-    # ── Step 44 TEMPORARY DIAG (2026-05-29): SUBTYPE_ARROW base-lock investigation ───
+    # -- Step 44 TEMPORARY DIAG (2026-05-29): SUBTYPE_ARROW base-lock investigation ---
     # User reports TMNT-RP construction-level rolling barrels FLOAT at spawn Y=130
     # (in air, above player) instead of falling+bouncing+rolling like PC version.
     # Cart's rolling_barrel.txt: subtype arrow + aironly 1 + subject_to_hole 1
@@ -1560,7 +1572,7 @@ endif
         "                    (int)e->direction);\n"
         "                fflush(stderr);\n"
         "            } }\n"
-        "            /* ── end Step 44 DIAG (a) ─────────────────────────────────── */\n"
+        "            /* -- end Step 44 DIAG (a) ----------------------------------- */\n"
         "            break;\n"
     )
     ob_s44 = read(ob_path_g)
@@ -1599,7 +1611,7 @@ endif
         "                fflush(stderr);\n"
         "              }\n"
         "            }\n"
-        "            /* ── end Step 44+52+53 DIAG (b) ────────────────────────── */\n"
+        "            /* -- end Step 44+52+53 DIAG (b) -------------------------- */\n"
         "            if(self->modeldata.move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY)\n"
         "            {\n"
         "                self->velocity.y += gravity * 100.0 / GAME_SPEED;\n"
@@ -1611,7 +1623,7 @@ endif
     write(ob_path_g, ob_s44)
     print("  Step 44 TEMPORARY DIAG: SUBTYPE_ARROW entry + per-tick gravity log (REVERT AFTER MEASURED)")
 
-    # ── Step 54 TEMPORARY DIAG (2026-05-31): Bearz weapon-swap + projectile spawn ──
+    # -- Step 54 TEMPORARY DIAG (2026-05-31): Bearz weapon-swap + projectile spawn --
     # Bearz rocket bug: on first weapon pickup, rocket fires backwards (LEFT)
     # regardless of player facing, and player direction locks to RIGHT until
     # death+respawn. Confirmed pre-existing (exists on v3.1 ship binary).
@@ -1694,7 +1706,7 @@ endif
     write(ob_path_g, ob_s54)
     print("  Step 54 TEMPORARY DIAG: set_weapon + spawn(smoke/bazo) entry log (REVERT AFTER MEASURED)")
 
-    # ── Step 61 (2026-05-31): fix Bearz rocket-fires-LEFT-on-first-pickup bug ─────
+    # -- Step 61 (2026-05-31): fix Bearz rocket-fires-LEFT-on-first-pickup bug -----
     # ROOT CAUSE (confirmed via Step 56 v4 DIAG hardware capture 2026-05-31):
     # The e_direction enum has THREE values:
     #   DIRECTION_NONE  = -1   (engine/openbor.h:1391)
@@ -1753,7 +1765,7 @@ endif
     write(obs_path_s61, obs_s61)
     print("  Step 61: DIRECTION_NONE now defaults to RIGHT in projectile direction resolution")
 
-    # ── Step 62 (2026-05-31): implicit wait at group transition (TMNT-RP barrel wave fix) ──
+    # -- Step 62 (2026-05-31): implicit wait at group transition (TMNT-RP barrel wave fix) --
     # User reported TMNT-RP construction barrels appear with leftover ninjas
     # on screen. Cart structure:
     #   group 4 4 / [12 crooked_ninja spawns] / group 1 3 / [9 rolling_barrel
@@ -1808,7 +1820,7 @@ endif
     write(ob_path_g, ob_s62)
     print("  Step 62: group transition now waits for previous enemies to die before applying new groupmin/max")
 
-    # ── Step 64 (2026-06-01): handle DIRECTION_NONE in player_think input handler ──
+    # -- Step 64 (2026-06-01): handle DIRECTION_NONE in player_think input handler --
     # User reported Bearz can't face LEFT on first pickup/spawn (intermittent).
     # Cart-side: HUB.TXT attack scripts use changeentityproperty(self,
     # "direction", -1) to set DIRECTION_NONE during special-move animations.
@@ -1865,14 +1877,14 @@ endif
     write(ob_path_g, ob_s64)
     print("  Step 64: player_think MOVELEFT/MOVERIGHT handlers now normalize DIRECTION_NONE on input")
 
-    # ── Step 56 v3 TEMPORARY DIAG (2026-05-31): Bearz projectile direction root-cause ────
+    # -- Step 56 v3 TEMPORARY DIAG (2026-05-31): Bearz projectile direction root-cause ----
     # SPAWN-PROJ entries from Step 54b confirmed all rockets fire dir=0 (LEFT).
     # The openbor_projectile() script function resolves direction from
     # self->direction when relative=1 (Bearz cart uses `@cmd projectile 1 "smoke" ...`).
     # Hypothesis: hubertb (with-bazooka) is TYPE_NONE; model swap from hubert
     # (TYPE_PLAYER) leaves self->direction stuck at whatever it was at swap time.
     # Step 56 v3 logs self->direction + modeldata.type + modeldata.name + playerindex
-    # at the moment of openbor_projectile() entry — confirms or refutes hypothesis.
+    # at the moment of openbor_projectile() entry -- confirms or refutes hypothesis.
     # CI auto-skip via TEMPORARY DIAG marker per [[no-diagnostic-binaries-in-db]].
     print("Patching openborscript.c (Step 56 v3 TEMPORARY DIAG: openbor_projectile self state)...")
     obs_path_s56 = os.path.join(obor, 'openborscript.c')
@@ -1886,7 +1898,7 @@ endif
         "{\n"
         "    //printf(\"\\n openbor_projectile()\");\n"
         "    /* MiSTer Step 56 v4 TEMPORARY DIAG (REVERT AFTER MEASURED): openbor_projectile self state */\n"
-        "    /* v4: tighten filter to ONLY hubertb (rocket-launcher model) — hubert's */\n"
+        "    /* v4: tighten filter to ONLY hubertb (rocket-launcher model) -- hubert's */\n"
         "    /* regular smoke attacks ate the v3 quota before user reached pickup.    */\n"
         "    /* v4 bound bumped 30 -> 200 to capture every rocket firing.            */\n"
         "    { static int _d_sp3=0;\n"
@@ -1917,15 +1929,15 @@ endif
                              'Step 56 v3 TEMPORARY DIAG: openbor_projectile self state log')
     write(obs_path_s56, obs_s56)
     print("  Step 56 v3 TEMPORARY DIAG: openbor_projectile self state log (REVERT AFTER MEASURED)")
-    # ── Step 70 (2026-06-01): MERGED into Step 16c's find_ent_here patch ──
+    # -- Step 70 (2026-06-01): MERGED into Step 16c's find_ent_here patch --
     # See Step 16c (later in this file) for the DEATH_STATE_CORPSE filter that
     # fixes the Bearz captive-box "invisible wall" bug. Patches that target the
     # same engine function must be merged to avoid strict_replace anchor
     # conflicts (per [[strict-replace-count-check]]).
 
-    # ── Step 57 (2026-05-31): rolling at-rest fix for aironly SUBTYPE_ARROW ─────
+    # -- Step 57 (2026-05-31): rolling at-rest fix for aironly SUBTYPE_ARROW -----
     # User reported TMNT-RP construction barrels appear stuck on right side of
-    # screen — barrels DO roll a bit (Step 55 DIAG confirmed vel.x=-0.7 + pos.x
+    # screen -- barrels DO roll a bit (Step 55 DIAG confirmed vel.x=-0.7 + pos.x
     # decrementing 1.05/tick while airborne) but then halt. PC TMNT-RP rolls
     # barrels across the entire screen in waves 1/2/3 smoothly.
     #
@@ -1944,14 +1956,14 @@ endif
     # The cart's `anim idle` has no `move` or `axis.y` per-frame directives, so
     # this branch fires and ZEROES vel.x. After this tick, the entity is
     # at-rest (vel.y=0, pos.y=base, !falling). NEXT tick, check_gravity's
-    # airborne condition `(falling || vel.y || pos.y != base)` is FALSE → the
-    # entire airborne block (including Step 48/55) is SKIPPED → barrel sits
+    # airborne condition `(falling || vel.y || pos.y != base)` is FALSE -> the
+    # entire airborne block (including Step 48/55) is SKIPPED -> barrel sits
     # frozen at landing point. Steps 48 and 55 only ever fire inside the
     # airborne block, so they cannot re-lock vel.x once the entity rests.
     #
     # PC TMNT-RP probably uses a custom-engine `arrow_move`-style path that
     # keeps SUBTYPE_ARROW + aironly entities rolling at rest. Stock v7533
-    # does not — once a SUBTYPE_ARROW lands and the bounce cascade decays,
+    # does not -- once a SUBTYPE_ARROW lands and the bounce cascade decays,
     # it's stationary forever (until offscreenkill).
     #
     # FIX: inject an UNCONDITIONAL rolling block at END of check_gravity,
@@ -2023,7 +2035,7 @@ endif
         "                self->animating = 0;\n"
         "            }\n"
         "        }\n"
-        "        /* ── end Step 57 + 66 v2 + 69 ────────────────────────────── */\n"
+        "        /* -- end Step 57 + 66 v2 + 69 ------------------------------ */\n"
         "        \n"
         "\t\tif(self->toss_time <= _time)\n"
     )
@@ -2033,17 +2045,17 @@ endif
     write(ob_path_g, ob_s57)
     print("  Step 57: unconditional rolling block at end of check_gravity (fires for at-rest barrels)")
 
-    # ── Step 45 (2026-05-30): auto-transition cart-spawned in-air arrows to ANI_FALL ────
+    # -- Step 45 (2026-05-30): auto-transition cart-spawned in-air arrows to ANI_FALL ----
     # User-reported TMNT-RP construction-level rolling barrels float at spawn
     # Y=130 (in air) instead of falling+bouncing+rolling like PC version.
     # Step 44 DIAG pinned the cause:
     #   - SUBTYPE_ARROW base auto-adjusts correctly to floor (56)
     #   - SUBJECT_TO_GRAVITY is enabled on both model and animation
-    #   - BUT barrel stays in animnum=1 (ANI_IDLE) forever — never transitions
+    #   - BUT barrel stays in animnum=1 (ANI_IDLE) forever -- never transitions
     #     to its cart-defined `anim fall`
-    #   - vel.y oscillates 0 ↔ -0.05 every animation-frame transition (3-tick
+    #   - vel.y oscillates 0  -0.05 every animation-frame transition (3-tick
     #     cycle matches cart's `delay 10` per frame). At this rate the barrel
-    #     falls ~0.22 units per second → 5.6 MINUTES to reach floor.
+    #     falls ~0.22 units per second -> 5.6 MINUTES to reach floor.
     #
     # Cart's rolling_barrel.txt design intent (verified by inspecting cart):
     #   subtype arrow + aironly 1 + anim fall (loop 0, bouncefactor 2, sound)
@@ -2051,20 +2063,20 @@ endif
     # air entity, play fall anim on spawn."
     #
     # Stock OpenBOR (both 4086 + v7533) leaves SUBTYPE_ARROW entities in
-    # ANI_IDLE on spawn — doesn't auto-transition to ANI_FALL. PC TMNT-RP
+    # ANI_IDLE on spawn -- doesn't auto-transition to ANI_FALL. PC TMNT-RP
     # probably uses a custom-built engine (Damon Caskey routinely ships
     # custom engines with carts) that auto-transitions.
     #
     # FIX: in SUBTYPE_ARROW case, after base assignment, transition to ANI_FALL
     # if ALL FOUR cart-design signals are present (option C tightest gating):
-    #   (1) aironly_directive_seen  — cart declared `aironly 1` (air-only entity)
-    #   (2) position.y > 0          — actually spawned in air (not ground)
-    #   (3) !owner                  — level-spawned, not projectile-fired-by-entity
-    #   (4) validanim(e, ANI_FALL)  — cart explicitly authored a fall animation
+    #   (1) aironly_directive_seen  -- cart declared `aironly 1` (air-only entity)
+    #   (2) position.y > 0          -- actually spawned in air (not ground)
+    #   (3) !owner                  -- level-spawned, not projectile-fired-by-entity
+    #   (4) validanim(e, ANI_FALL)  -- cart explicitly authored a fall animation
     #
     # All 4 conditions are CART-AUTHOR'S EXPLICIT SIGNALS. Projectiles fired
     # from launchers (have owner) and arrows without a fall anim are
-    # unaffected → no regression risk to standard arrow projectiles.
+    # unaffected -> no regression risk to standard arrow projectiles.
     #
     # Companion to Step 31 v2/v3 directive_seen pattern. Same defensive
     # END-of-struct field placement (no offset shifts).
@@ -2108,12 +2120,12 @@ endif
     print("Patching openbor.c (Step 45c: SUBTYPE_ARROW auto-transitions to ANI_FALL)...")
     s45c_old = (
         "            } }\n"
-        "            /* ── end Step 44 DIAG (a) ─────────────────────────────────── */\n"
+        "            /* -- end Step 44 DIAG (a) ----------------------------------- */\n"
         "            break;\n"
     )
     s45c_new = (
         "            } }\n"
-        "            /* ── end Step 44 DIAG (a) ─────────────────────────────────── */\n"
+        "            /* -- end Step 44 DIAG (a) ----------------------------------- */\n"
         "            /* MiSTer Step 45 (2026-05-30): auto-transition cart-spawned     */\n"
         "            /* in-air arrows to ANI_FALL. TMNT-RP construction-level rolling */\n"
         "            /* barrels declare `aironly 1` + `anim fall` and spawn at Y=130. */\n"
@@ -2127,7 +2139,7 @@ endif
         "            {\n"
         "                ent_set_anim(e, ANI_FALL, 0);\n"
         "            }\n"
-        "            /* ── end Step 45 ──────────────────────────────────────────── */\n"
+        "            /* -- end Step 45 -------------------------------------------- */\n"
         "            break;\n"
     )
     ob_s45 = strict_replace(ob_s45, s45c_old, s45c_new,
@@ -2135,19 +2147,19 @@ endif
     write(ob_path_g, ob_s45)
     print("  Step 45: SUBTYPE_ARROW auto-transitions to ANI_FALL when aironly+!owner+validanim ANI_FALL")
 
-    # ── Step 47 (2026-05-30): assign common_trymove for aironly SUBTYPE_ARROW ─────
+    # -- Step 47 (2026-05-30): assign common_trymove for aironly SUBTYPE_ARROW -----
     # After Step 46 transitioned barrels to ANI_IDLE + set vel.x, user reports
-    # barrels roll IN PLACE — animation plays but no horizontal motion.
+    # barrels roll IN PLACE -- animation plays but no horizontal motion.
     #
     # Root cause: engine main loop at openbor.c:29293 accumulates
     #   self->movex += self->velocity.x * speedmul * (100.0 / GAME_SPEED)
-    # per tick. So vel.x → movex correctly. But check_move() at line 29151 has
+    # per tick. So vel.x -> movex correctly. But check_move() at line 29151 has
     # a gate:
     #   if (self->trymove) { ... call self->trymove(movex, movez) ... }
     # SUBTYPE_ARROW init at openbor.c:23183-23207 SKIPS trymove assignment
     # entirely (only the else-branch at 23211 sets e->trymove=common_trymove
-    # for non-arrow entities). So trymove=NULL → check_move's gate fails →
-    # movex accumulates but never applies to position.x → barrel rolls in
+    # for non-arrow entities). So trymove=NULL -> check_move's gate fails ->
+    # movex accumulates but never applies to position.x -> barrel rolls in
     # place visually.
     #
     # Fix: in SUBTYPE_ARROW init, for cart-spawned aironly entities, assign
@@ -2156,7 +2168,7 @@ endif
     # via cart's `subject_to_wall 1` + `subject_to_hole 1` directives.
     #
     # Standard arrow projectiles (no aironly_directive_seen) keep their
-    # trymove=NULL stock behavior — they rely on arrow_move (via aimove arrow
+    # trymove=NULL stock behavior -- they rely on arrow_move (via aimove arrow
     # declaration) which handles motion differently.
     #
     # Anchored at end of Step 45's block (just before `break;` in
@@ -2165,13 +2177,13 @@ endif
     s47_old = (
         "                ent_set_anim(e, ANI_FALL, 0);\n"
         "            }\n"
-        "            /* ── end Step 45 ──────────────────────────────────────────── */\n"
+        "            /* -- end Step 45 -------------------------------------------- */\n"
         "            break;\n"
     )
     s47_new = (
         "                ent_set_anim(e, ANI_FALL, 0);\n"
         "            }\n"
-        "            /* ── end Step 45 ──────────────────────────────────────────── */\n"
+        "            /* -- end Step 45 -------------------------------------------- */\n"
         "            /* MiSTer Step 47 + 51 (2026-05-30): assign common_trymove for  */\n"
         "            /* level-spawned aironly SUBTYPE_ARROW. Engine SUBTYPE_ARROW    */\n"
         "            /* init normally SKIPS trymove assignment. Without trymove,    */\n"
@@ -2185,7 +2197,7 @@ endif
         "            {\n"
         "                e->trymove = common_trymove;\n"
         "            }\n"
-        "            /* ── end Step 47 + 51 ─────────────────────────────────────── */\n"
+        "            /* -- end Step 47 + 51 --------------------------------------- */\n"
         "            break;\n"
     )
     ob_s47 = read(ob_path_g)
@@ -2194,11 +2206,11 @@ endif
     write(ob_path_g, ob_s47)
     print("  Step 47: aironly SUBTYPE_ARROW gets common_trymove (enables horizontal motion via movex)")
 
-    # ── Step 48 (2026-05-30): direct position.x update for aironly SUBTYPE_ARROW idle ──
+    # -- Step 48 (2026-05-30): direct position.x update for aironly SUBTYPE_ARROW idle --
     # User reports barrels STILL roll in place after Step 47 (trymove assignment).
     # trymove path may be failing for wall/collision/state reasons. Engine has
     # multiple potential blockers in common_trymove (grab checks, Z bounds,
-    # wall checks, hole checks, base mismatch) — any could prevent motion for
+    # wall checks, hole checks, base mismatch) -- any could prevent motion for
     # SUBTYPE_ARROW with unusual physics state.
     #
     # Direct approach: bypass trymove entirely. In check_gravity (which fires
@@ -2211,7 +2223,7 @@ endif
     #
     # Risks: bypasses wall collision (cart's subject_to_wall ignored for X).
     # But: cart's `offscreenkill 130` directive removes the barrel when it
-    # exits the screen by 130 pixels — so even passing through level boundary
+    # exits the screen by 130 pixels -- so even passing through level boundary
     # walls, barrel is killed shortly after.
     #
     # Anchor: inject in check_gravity, after gravity y-update. Adds ~5
@@ -2241,7 +2253,7 @@ endif
     write(ob_path_g, ob_s48)
     print("  Step 48 + 49: direct position.x + re-establish vel.x after engine zero (guarantees continuous rolling)")
 
-    # ── Step 46 (2026-05-30): landing transition ANI_FALL → ANI_IDLE + roll vel.x ────
+    # -- Step 46 (2026-05-30): landing transition ANI_FALL -> ANI_IDLE + roll vel.x ----
     # Step 45 made TMNT-RP rolling barrels fall (animnum=6 ANI_FALL, vel.y
     # accumulating correctly). User hardware-verified barrels reach the ground.
     # BUT they don't roll forward + scroll-lock prevents player from advancing.
@@ -2257,10 +2269,10 @@ endif
     #     (this is the ROLLING animation with attack hitbox)
     #   - anim fall = 1 frame + loop 0 + bouncefactor 2
     #     (this is the falling-then-bouncing animation)
-    # Cart expects post-landing transition: ANI_FALL → ANI_IDLE so the barrel
+    # Cart expects post-landing transition: ANI_FALL -> ANI_IDLE so the barrel
     # rolls forward damaging the player.
     #
-    # SUBTYPE_ARROW alone doesn't drive horizontal motion either — `arrow_move`
+    # SUBTYPE_ARROW alone doesn't drive horizontal motion either -- `arrow_move`
     # only fires when cart declares `aimove arrow` (rolling_barrel.txt does
     # NOT). And SUBTYPE_ARROW's init handler SKIPS `e->trymove = common_trymove`.
     # So velocity.x stays at 0 unless explicitly set. PC TMNT-RP probably uses
@@ -2270,7 +2282,7 @@ endif
     # `self->hithead = NULL;`), if entity is SUBTYPE_ARROW + aironly + not
     # already in ANI_IDLE + has ANI_IDLE defined + has speed.x > 0:
     #   (a) transition to ANI_IDLE (the rolling animation)
-    #   (b) set vel.x = direction × speed.x so engine continues rolling
+    #   (b) set vel.x = direction x speed.x so engine continues rolling
     #
     # Scroll-lock fix follow-on: once barrels roll, they exit the screen via
     # cart's `offscreenkill 130` directive, count_ents drops, scroll-lock
@@ -2278,7 +2290,7 @@ endif
     #
     # Anchored on the END of the landing block (after checkdamageonlanding,
     # before self->hithead = NULL).
-    print("Patching openbor.c (Step 46: landing transition ANI_FALL → ANI_IDLE + roll vel.x)...")
+    print("Patching openbor.c (Step 46: landing transition ANI_FALL -> ANI_IDLE + roll vel.x)...")
     s46_old = (
         "                        // Taking damage on a landing?\n"
         "                        checkdamageonlanding(self);\n"
@@ -2293,7 +2305,7 @@ endif
         "                        /* MiSTer Step 46 (2026-05-30): aironly SUBTYPE_ARROW       */\n"
         "                        /* transitions ANI_FALL -> ANI_IDLE on landing + sets       */\n"
         "                        /* roll velocity = cart's speed.x (engine arrow_move        */\n"
-        "                        /* canon). Step 59 v2 reverted the fall-energy bonus —      */\n"
+        "                        /* canon). Step 59 v2 reverted the fall-energy bonus --      */\n"
         "                        /* cart spec doesn't include it; bonus diverges from PC.    */\n"
         "                        if (self->modeldata.subtype == SUBTYPE_ARROW\n"
         "                            && self->modeldata.aironly_directive_seen\n"
@@ -2306,18 +2318,18 @@ endif
         "                                               ? -self->modeldata.speed.x\n"
         "                                               : self->modeldata.speed.x;\n"
         "                        }\n"
-        "                        /* ── end Step 46 ──────────────────────────────────── */\n"
+        "                        /* -- end Step 46 ------------------------------------ */\n"
         "\n"
         "                        // in case landing, set hithead to NULL\n"
         "                        self->hithead = NULL;\n"
     )
     ob_s46 = read(ob_path_g)
     ob_s46 = strict_replace(ob_s46, s46_old, s46_new,
-                             'Step 46: landing transition ANI_FALL → ANI_IDLE + roll vel.x')
+                             'Step 46: landing transition ANI_FALL -> ANI_IDLE + roll vel.x')
     write(ob_path_g, ob_s46)
     print("  Step 46: landing event transitions aironly SUBTYPE_ARROW to ANI_IDLE + sets roll vel.x")
 
-    # ── 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' ──
+    # -- 8a. Legacy entity-property alias 'dot' -> 'damage_on_landing' --
     # Avengers - United Battle Force (and likely other late-build PAKs)
     # call getentityproperty(self, "dot") in scripts. v7533 renamed
     # this property to "damage_on_landing". Inject an alias so legacy
@@ -2348,13 +2360,13 @@ endif
     else:
         print("  WARN: eplist MAPSTRINGS anchor not found")
 
-    # ── 8b. Register `cheats` as openborvariant ──
+    # -- 8b. Register `cheats` as openborvariant --
     # Some PAKs (Pocket Dimensional Clash 2, He-Man, Avengers UBF) call
     # openborvariant("cheats") which v7533 doesn't expose. Add it.
     # Three coordinated edits required: enum, svlist[], switch case.
     print("Patching openborscript.c + config.h (expose cheats to openborvariant)...")
 
-    # 8b.1 — config.h enum (insert SYSTEM_PROPERTY_CHEATS alphabetically
+    # 8b.1 -- config.h enum (insert SYSTEM_PROPERTY_CHEATS alphabetically
     # between BRANCHNAME and COUNT_ENEMIES)
     cfg_path = os.path.join(obor, 'source/openborscript/config.h')
     cfg = read(cfg_path)
@@ -2367,7 +2379,7 @@ endif
     else:
         print("  WARN: enum anchor not found in config.h")
 
-    # 8b.2 — openborscript.c svlist[] alphabetical insert
+    # 8b.2 -- openborscript.c svlist[] alphabetical insert
     obs_path = os.path.join(obor, 'openborscript.c')
     obs = read(obs_path)
     sv_old = '    "branchname",\n    "count_enemies",'
@@ -2378,7 +2390,7 @@ endif
     else:
         print("  WARN: svlist anchor not found")
 
-    # 8b.3 — switch case in getsyspropertybyindex
+    # 8b.3 -- switch case in getsyspropertybyindex
     sw_old = '    case SYSTEM_PROPERTY_BRANCHNAME:\n\n        ScriptVariant_ChangeType(var, VT_STR);\n        var->strVal = StrCache_CreateNewFrom(branch_name);\n        break;\n\n    case SYSTEM_PROPERTY_COUNT_ENEMIES:'
     sw_new = '    case SYSTEM_PROPERTY_BRANCHNAME:\n\n        ScriptVariant_ChangeType(var, VT_STR);\n        var->strVal = StrCache_CreateNewFrom(branch_name);\n        break;\n\n    case SYSTEM_PROPERTY_CHEATS:\n\n        ScriptVariant_ChangeType(var, VT_INTEGER);\n        var->lVal = global_config.cheats;\n        break;\n\n    case SYSTEM_PROPERTY_COUNT_ENEMIES:'
     if sw_old in obs:
@@ -2389,12 +2401,12 @@ endif
 
     write(obs_path, obs)
 
-    # ── 9. Register PLAYER_MIN_Z / PLAYER_MAX_Z as openborconstant ──
+    # -- 9. Register PLAYER_MIN_Z / PLAYER_MAX_Z as openborconstant --
     # v7533 only registers these in the openborvariant lookup, not
     # the openborconstant table. Several PAKs (Pocket Dimensional
     # Clash 2, others) call openborconstant("PLAYER_MIN_Z") and
     # die with "Can't find openbor constant" + script compile error.
-    # Adding ICMPCONST entries makes both lookups work — backward
+    # Adding ICMPCONST entries makes both lookups work -- backward
     # compatible (no PAK that already worked will break, since the
     # variant lookup is unchanged and the constant lookup just gains
     # two more entries).
@@ -2416,7 +2428,7 @@ endif
     else:
         print("  WARN: constants.c not found at expected path")
 
-    # ── 6b. Patch logsDir default to /media/fat/logs/OpenBOR_7533 ────
+    # -- 6b. Patch logsDir default to /media/fat/logs/OpenBOR_7533 ----
     print("Patching logsDir default in sdl/sdlport.c...")
     sdlport = read(os.path.join(obor, 'sdl/sdlport.c'))
     # v7533 uses MAX_FILENAME_LEN macro instead of literal 128
@@ -2438,19 +2450,19 @@ endif
     # -- 8. Fix R/B swap bug in 32-bit blend functions ------------------
     # pixelformat.c's blend_screen32 / blend_multiply32 / blend_half32
     # pass arguments to _color() in swapped (B, G, R) order. Same bug
-    # carried over from 4086 — verify and fix if still present.
+    # carried over from 4086 -- verify and fix if still present.
     #
     # 2026-05-18: DISABLED. 4086 has the SAME blend code and renders
     # A Tale of Vengeance correctly, while our patched 7533 renders
     # alpha-blended girls in wrong green-purple palette. Testing the
     # hypothesis that step 8's "fix" actually introduced the girls bug
-    # (R/B interpretation was wrong — the blend functions are part of
+    # (R/B interpretation was wrong -- the blend functions are part of
     # the engine's BGR-LE pipeline and produce BGR-LE output that
     # matches input convention; our patch broke this). Toggle to True
     # to re-enable if the test refutes the hypothesis.
-    # 2026-05-18 evening: tested STEP_8_ENABLED=False — girls still green-purple,
+    # 2026-05-18 evening: tested STEP_8_ENABLED=False -- girls still green-purple,
     # so step 8 is NOT the girls bug cause. Re-enabled to restore pre-session
-    # state — step 8 was originally added to fix SOMETHING (likely a different
+    # state -- step 8 was originally added to fix SOMETHING (likely a different
     # bug not yet identified) and disabling it might silently reintroduce that.
     # Default-safer position: leave it enabled until we have positive evidence
     # it's wrong-shaped.
@@ -2458,7 +2470,7 @@ endif
     print("Patching source/gamelib/pixelformat.c (32-bit blend R/B fix)...")
     pf_path = os.path.join(obor, 'source/gamelib/pixelformat.c')
     if not STEP_8_ENABLED:
-        print("  SKIPPED (step 8 disabled — testing if it caused green-purple girls)")
+        print("  SKIPPED (step 8 disabled -- testing if it caused green-purple girls)")
     elif os.path.exists(pf_path):
         pf = read(pf_path)
         fixes = [
@@ -2498,16 +2510,16 @@ endif
         write(pf_path, pf)
         print(f"  {applied}/{len(fixes)} blend R/B fixes applied.")
     else:
-        print("  WARN: pixelformat.c not found at expected path — may have moved in 7533")
+        print("  WARN: pixelformat.c not found at expected path -- may have moved in 7533")
 
-    # ── 8b. Per-sprite palette (fixes A Tale of Vengeance Hugo/Vice/Playa) ──
+    # -- 8b. Per-sprite palette (fixes A Tale of Vengeance Hugo/Vice/Playa) --
     #
     # 7533 keeps pixelformat=PIXEL_x8 default but hardcodes vscreen to PIXEL_32
     # (engine/openbor.c:49037), forcing rendering through putsprite_x8p32. The
     # engine then "helpfully" loads model->palette from the FIRST animation
     # frame's GIF and FORCE-ASSIGNS that palette to EVERY subsequent sprite
     # (line ~16821). For ATOV's `remap run2.gif map1.gif` declarations, the
-    # first arg is run2.gif which has a BLUE palette — so every Hugo sprite
+    # first arg is run2.gif which has a BLUE palette -- so every Hugo sprite
     # (idle, atk, hit, fall, walk) gets the blue palette, regardless of its
     # OWN embedded palette.
     #
@@ -2547,7 +2559,7 @@ endif
     # hardcoded offsets (scripting layer, assembly, memcpy with sizeof
     # snapshot), the shifted offsets corrupt rendering subtly. ATOV
     # characters in v3.5 rendered with WRONG palettes (Hugo blue instead
-    # of green, etc.) — suspected offset-shift corruption.
+    # of green, etc.) -- suspected offset-shift corruption.
     #
     # User-reported 2026-05-20: "atov wrong colors for hugo, vice, playa"
     # on v3.5 build (md5 babf017daf173f8b8682c054e165ec62).
@@ -2556,7 +2568,7 @@ endif
     # `int maps_loaded` (already in s_model since stock 7533) as the
     # discriminator. It's incremented by load_colourmap() each time
     # CMD_MODEL_REMAP fires, so it naturally equals 0 for modern PAKs
-    # (no `remap` declarations → load_colourmap never called → stays 0)
+    # (no `remap` declarations -> load_colourmap never called -> stays 0)
     # and > 0 for legacy PAKs (Hugo=6, Vice=6, Playa=4 remap declarations).
     #
     # NO STRUCT MODIFICATIONS in v3.6. No new fields. No offset shifts.
@@ -2574,7 +2586,7 @@ endif
     print("       -- Legacy ATOV PAKs need sprite->palette bypass for canonical per-frame render.")
     print("       -- Struct fields added at END of s_model + s_drawmethod (no offset shifts).")
 
-    # ── Step 0 (v3.9): add `int has_remap_directive;` to END of s_model struct
+    # -- Step 0 (v3.9): add `int has_remap_directive;` to END of s_model struct
     # in openbor.h. Adding AT END = no offset shifts for existing fields
     # (v3.5 regression cause was middle-of-struct insertion).
     print("Patching openbor.h (add s_model.has_remap_directive at end of struct)...")
@@ -2601,7 +2613,7 @@ endif
     write(obh_path, obh)
     print("  s_model.has_palette_directive added at struct end (v3.10)")
 
-    # ── Step 0b (v3.9): add `int has_remap_directive;` to END of s_drawmethod
+    # -- Step 0b (v3.9): add `int has_remap_directive;` to END of s_drawmethod
     # struct in types.h. Drawmethod is per-render-call so this field carries
     # the legacy flag from model to sprite.c::dispatch.
     print("Patching types.h (add s_drawmethod.has_remap_directive at end of struct)...")
@@ -2625,7 +2637,7 @@ endif
     ob_path = os.path.join(obor, 'openbor.c')
     ob = read(ob_path)
 
-    # ── Step 0c (v3.9): set newchar->has_remap_directive = 1 inside CMD_MODEL_REMAP.
+    # -- Step 0c (v3.9): set newchar->has_remap_directive = 1 inside CMD_MODEL_REMAP.
     # Anchor on the unique CMD_MODEL_REMAP case opener.
     set_flag_old = "            case CMD_MODEL_REMAP:\n            {\n                // This command should not be used under 24bit mode, but for old mods, just give it a default palette"
     set_flag_new = "            case CMD_MODEL_REMAP:\n            {\n                newchar->has_remap_directive = 1; /* MiSTer v3.9: legacy-remap discriminator (NOT set by alternatepal which only increments maps_loaded) */\n                // This command should not be used under 24bit mode, but for old mods, just give it a default palette"
@@ -2643,7 +2655,7 @@ endif
     ob = strict_replace(ob, set_pal_flag_old, set_pal_flag_new, 'v3.10 step 0g: set newchar->has_palette_directive=1 in CMD_MODEL_PALETTE')
     print("  set newchar->has_palette_directive=1 inside CMD_MODEL_PALETTE case (v3.10)")
 
-    # ── Step 0d (v3.9): copy has_remap_directive from model to drawmethod at
+    # -- Step 0d (v3.9): copy has_remap_directive from model to drawmethod at
     # render time. Inject right after `drawmethod = &commonmethod;` (line ~29635
     # in stock; that's where per-frame drawmethod is finalized).
     print("Patching openbor.c (copy has_remap_directive into per-render drawmethod)...")
@@ -2663,20 +2675,20 @@ endif
     # Step 1: loadsprite uses PIXEL_x8 ONLY for legacy-remap PAKs (ATOV-style).
     # Modern PAKs keep upstream behavior: `nopalette ? PIXEL_x8 : PIXEL_8`.
     #
-    # GATE v3.9: `newchar->has_remap_directive` — set by CMD_MODEL_REMAP only.
+    # GATE v3.9: `newchar->has_remap_directive` -- set by CMD_MODEL_REMAP only.
     # ATOV chars have `remap` declarations BEFORE anim/frame blocks, so
     # has_remap_directive=1 by the time the first frame's loadsprite fires.
-    # Cap/He-Man have `alternatepal` (not `remap`) → flag stays 0 → modern path.
+    # Cap/He-Man have `alternatepal` (not `remap`) -> flag stays 0 -> modern path.
     loadsprite_old = "loadsprite(value, offset.x, offset.y, nopalette ? PIXEL_x8 : PIXEL_8); //don't use palette for the sprite since it will one palette from the entity's remap list in 24bit mode"
     loadsprite_new = "loadsprite(value, offset.x, offset.y, (newchar->has_remap_directive || nopalette) ? PIXEL_x8 : PIXEL_8); // MiSTer v3.9 2026-05-20: force PIXEL_x8 for ATOV-style legacy `remap` PAKs; modern PAKs (alternatepal-only Cap/He-Man) keep stock PIXEL_8 path"
     ob = strict_replace(ob, loadsprite_old, loadsprite_new, 'step 1: loadsprite PIXEL_x8 gated on newchar->has_remap_directive')
-    print("  loadsprite → PIXEL_x8 ONLY for ATOV-style legacy `remap` PAKs")
+    print("  loadsprite -> PIXEL_x8 ONLY for ATOV-style legacy `remap` PAKs")
 
     # Step 2: skip force-assign ONLY for legacy-remap PAKs. Modern PAKs keep
     # the force-assign so sprite->palette = newchar->palette consistently
-    # across all frames — same as stock 7533.
+    # across all frames -- same as stock 7533.
     force_assign_old = "                            sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
-    force_assign_new = "                            // MiSTer v3.9 2026-05-20: skip force-assign for ATOV-style legacy `remap` PAKs.\n                            // Legacy PAKs keep per-sprite GIF palette (canonical per-frame); rendered via step 4 v2 bypass.\n                            // Modern PAKs keep stock force-assign: sprite->palette = newchar->palette = `palette FILE` master.\n                            // Render path: stock uses drawmethod->table (NOT step 4 v2 bypass — gated off for modern PAKs).\n                            if (!newchar->has_remap_directive) sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
+    force_assign_new = "                            // MiSTer v3.9 2026-05-20: skip force-assign for ATOV-style legacy `remap` PAKs.\n                            // Legacy PAKs keep per-sprite GIF palette (canonical per-frame); rendered via step 4 v2 bypass.\n                            // Modern PAKs keep stock force-assign: sprite->palette = newchar->palette = `palette FILE` master.\n                            // Render path: stock uses drawmethod->table (NOT step 4 v2 bypass -- gated off for modern PAKs).\n                            if (!newchar->has_remap_directive) sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
     ob = strict_replace(ob, force_assign_old, force_assign_new, 'step 2: skip force-assign gated on newchar->has_remap_directive')
     print("  sprite->palette force-assign skipped ONLY for ATOV-style legacy PAKs")
 
@@ -2685,15 +2697,15 @@ endif
     # In 7533 default (pixelformat=PIXEL_x8), CMD_MODEL_REMAP loads
     # newchar->palette = first-remap-arg's GIF palette (e.g. run2.gif for Hugo).
     # This becomes the model's master palette, which feeds drawmethod->table via
-    # ent_set_colourmap → model_get_colourmap(model, 0) = model->palette.
+    # ent_set_colourmap -> model_get_colourmap(model, 0) = model->palette.
     # putsprite_x8p32 with drawmethod->table != NULL uses drawmethod->table
-    # OVERRIDING sprite->palette → all sprites render with run2's palette
+    # OVERRIDING sprite->palette -> all sprites render with run2's palette
     # regardless of step 1/2 per-sprite palette fix.
     #
     # Fix: skip the inner load here. The engine's auto-palette code (line ~16805)
     # then loads newchar->palette from the FIRST animation frame's GIF (idle00
-    # for Hugo, etc.) — the canonical color. drawmethod->table → idle00's
-    # palette → canonical render.
+    # for Hugo, etc.) -- the canonical color. drawmethod->table -> idle00's
+    # palette -> canonical render.
     remap_load_old = """if(pixelformat == PIXEL_x8 && newchar->palette == NULL)
                     {
                         newchar->palette = malloc(PAL_BYTES);
@@ -2705,7 +2717,7 @@ endif
                     }"""
     remap_load_new = """// PALETTE FIX (v3.6): skip inner palette load. Loading from `value`
                     // (first remap arg, e.g. run2.gif for Hugo) makes that GIF's
-                    // palette the model's master palette → overrides every sprite
+                    // palette the model's master palette -> overrides every sprite
                     // via drawmethod->table. Skip it so auto-palette code at line
                     // ~16895 loads from the first ANIM frame (idle01.gif for Hugo,
                     // idle00.gif for Vice/Playa) = CANONICAL palette per character.
@@ -2720,9 +2732,9 @@ endif
         ob = ob.replace(remap_load_old, remap_load_new)
         print("  CMD_MODEL_REMAP inner palette load skipped (auto-loads from first anim frame)")
     else:
-        raise RuntimeError("openbor.c: CMD_MODEL_REMAP palette load pattern not found — moved?")
+        raise RuntimeError("openbor.c: CMD_MODEL_REMAP palette load pattern not found -- moved?")
 
-    # v3.6 (2026-05-20): Step 3b (pre-scan) REMOVED — no longer needed.
+    # v3.6 (2026-05-20): Step 3b (pre-scan) REMOVED -- no longer needed.
     # The pre-scan was set has_legacy_remaps before the parse loop because
     # the gate in steps 1+2 used `newchar->has_legacy_remaps`. v3.6 switches
     # to `newchar->maps_loaded > 0` which is set NATURALLY by load_colourmap()
@@ -2801,13 +2813,13 @@ endif
 
     # Patch 2: REPLACE the linear scan entirely with hash-map lookup.
     # Phase 1 first attempt kept the linear scan as fallback after the hash
-    # lookup — but the fallback always ran on cache MISSES (where hash bucket
+    # lookup -- but the fallback always ran on cache MISSES (where hash bucket
     # is empty), still paying O(N) on every miss. Since most loadsprite calls
     # in a fresh PAK load are misses (~70%), the linear scan dominated
     # wall-clock time. User reported "still feels like 70 sec" on DD Reloaded.
     #
     # The hash table is COMPLETE by construction (insert on every sprite_map
-    # entry creation). So the linear scan is genuinely redundant — anything
+    # entry creation). So the linear scan is genuinely redundant -- anything
     # the linear scan would find is also in the hash. Removing it is safe
     # given the hash insert is correct. Hash reset added in freesprites()
     # (see Patch 5) to handle PAK switch / resourceCleanUp mid-session.
@@ -2911,7 +2923,7 @@ endif
     # Patch 5: hash-table reset in freesprites().
     # freesprites() is called from resourceCleanUp() (line 4243 pristine) which
     # runs on PAK switch / engine reload. It frees sprite_map + resets
-    # sprites_loaded=0. The hash table holds indices into sprite_map — those
+    # sprites_loaded=0. The hash table holds indices into sprite_map -- those
     # indices become invalid after the reset. Clear the hash at the same time.
     # (On MiSTer hybrid core, each PAK launch is a fresh binary respawn via
     # Master_Daemon, so the hash starts empty for fresh loads. This handles
@@ -3011,7 +3023,7 @@ endif
     # interpretation, not cart-file edit).
     #
     # WHY: some PAKs declare `loadingbg set=LS_TYPE_BOTH` (bar requested)
-    # but with bar coords at (-1000, -1000) and/or bsize=0 — bar is
+    # but with bar coords at (-1000, -1000) and/or bsize=0 -- bar is
     # invisible. Combined with all-black `data/bgs/loading.gif` background
     # (common cart-authoring shortcut), user sees pure black during the
     # multi-second model-cache init phase with no feedback at all.
@@ -3020,11 +3032,11 @@ endif
     #
     # FIX: detect off-screen origin OR zero-size and override to a
     # sensible bottom-center default (1/3 screen width, 25px from bottom).
-    # Only fires when bar is genuinely unrenderable — PAKs with on-screen
+    # Only fires when bar is genuinely unrenderable -- PAKs with on-screen
     # bar coords (TMNT-RP, He-Man, etc.) are unchanged.
     #
     # Trade-off: PAKs that intentionally hid the bar via off-screen coords
-    # (if any) will now show a default bar. User-accepted trade — better
+    # (if any) will now show a default bar. User-accepted trade -- better
     # to surface progress feedback than to silently respect the off-screen
     # authoring choice that produces user-confusing black screens.
     loadingbar_old = (
@@ -3627,7 +3639,7 @@ endif
         "                       _mister_fps_script_ms,\n"
         "                       other_ms,\n"
         "                       interval);\n"
-        "                /* SUB-PROFILE v8 — REVERT AFTER MEASURED — entity-internal breakdown. */\n"
+        "                /* SUB-PROFILE v8 -- REVERT AFTER MEASURED -- entity-internal breakdown. */\n"
         "                printf(\"[SUB] entity=%ums = script=%ums + ai=%ums + anim=%ums + coll=%ums + arrange=%ums\\n\",\n"
         "                       _mister_fps_entity_ms,\n"
         "                       _mister_se_script_ms,\n"
@@ -3635,7 +3647,7 @@ endif
         "                       _mister_se_anim_ms,\n"
         "                       _mister_se_coll_ms,\n"
         "                       _mister_se_arr_ms);\n"
-        "                /* SUB-PROFILE v9+v10 — REVERT AFTER MEASURED — outer-loop breakdown. */\n"
+        "                /* SUB-PROFILE v9+v10 -- REVERT AFTER MEASURED -- outer-loop breakdown. */\n"
         "                printf(\"[OTH] input=%ums keysc=%ums vwait=%ums vcopy=%ums audio=%ums spriteq=%ums\\n\",\n"
         "                       _mister_o9_input_ms,\n"
         "                       _mister_o9_keysc_ms,\n"
@@ -3643,13 +3655,13 @@ endif
         "                       _mister_o9_vcopy_ms,\n"
         "                       _mister_o9_audio_ms,\n"
         "                       _mister_o10_spriteq_ms);\n"
-        "                /* SUB-PROFILE v11 — REVERT AFTER MEASURED — spriteq internal. */\n"
+        "                /* SUB-PROFILE v11 -- REVERT AFTER MEASURED -- spriteq internal. */\n"
         "                printf(\"[SPQ] sort=%ums putsprite=%ums (%u calls) putother=%ums\\n\",\n"
         "                       _mister_o11_sort_ms,\n"
         "                       _mister_o11_putsprite_ms,\n"
         "                       _mister_o11_putsprite_count,\n"
         "                       _mister_o11_putother_ms);\n"
-        "                /* SUB-PROFILE v12 — REVERT AFTER MEASURED — putother breakdown. */\n"
+        "                /* SUB-PROFILE v12 -- REVERT AFTER MEASURED -- putother breakdown. */\n"
         "                printf(\"[SP2] putscreen=%ums (%u calls) putpixel=%ums putline=%ums putbox=%ums (%u calls)\\n\",\n"
         "                       _mister_o12_putscreen_ms,\n"
         "                       _mister_o12_putscreen_count,\n"
@@ -3839,7 +3851,7 @@ endif
     ob = strict_replace(ob, o9_keysc_old, o9_keysc_new,
                         'Step 13u: SUB-PROFILE v9 timer around execute_keyscripts()')
 
-    # Patch 13v: time vga_vwait() inside update() (the vsync wait — main suspect).
+    # Patch 13v: time vga_vwait() inside update() (the vsync wait -- main suspect).
     o9_vwait_old = (
         "    if(usevwait)\n"
         "    {\n"
@@ -3882,7 +3894,7 @@ endif
                         'Step 13x: SUB-PROFILE v9 timer around sound_update_music()')
 
     # -- TEMPORARY SUB-PROFILE v10 2026-05-27 (REVERT AFTER MEASURED).
-    # Times spriteq_draw() — the post-tick sprite-rasterization-to-vscreen call
+    # Times spriteq_draw() -- the post-tick sprite-rasterization-to-vscreen call
     # that we infer is responsible for the ~6 ms/frame unmeasured remainder in
     # the [FPS] 'other' bucket on JL Legacy. If v10 measurement confirms it,
     # spriteq_draw becomes the next optimization target. If it's smaller than
@@ -3902,8 +3914,8 @@ endif
                         'Step 13y: SUB-PROFILE v10 timer around spriteq_draw() inside update()')
 
     print("  TEMPORARY per-frame profile inserted (5 patches: globals + entity/render/script timers + [FPS] printf gated on ingame==1 && !_pause)")
-    print("  TEMPORARY SUB-PROFILE v8 inserted (3 strict_replace patches inside update_ents() — adds [SUB] entity-internal breakdown line)")
-    print("  TEMPORARY SUB-PROFILE v9 inserted (5 patches in outer update() loop — adds [OTH] outer-loop breakdown line)")
+    print("  TEMPORARY SUB-PROFILE v8 inserted (3 strict_replace patches inside update_ents() -- adds [SUB] entity-internal breakdown line)")
+    print("  TEMPORARY SUB-PROFILE v9 inserted (5 patches in outer update() loop -- adds [OTH] outer-loop breakdown line)")
 
     # ----- BELOW: original diagnostic patches removed 2026-05-26 ------
     # (FPS profile + SUB-PROFILE v8 served their purpose; reverted now that
@@ -3912,7 +3924,7 @@ endif
     # fps_script, fps_print, se_globals, se_script (+ai), se_anim (+coll), se_arrange.
 
     write(ob_path, ob)
-    print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 — line-29499 fallback intact, no struct mods).")
+    print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 -- line-29499 fallback intact, no struct mods).")
 
     # -- TEMPORARY SUB-PROFILE v11 2026-05-27 (REVERT AFTER MEASURED) on spriteq.c.
     # Times the inner calls of spriteq_draw() to identify which dispatch
@@ -3940,7 +3952,7 @@ endif
         "#include \"sprite.h\"\n"
         "#include \"draw.h\"\n"
         "#include \"globals.h\"\n"
-        "#include \"timer.h\"  /* TEMP SUB-PROFILE v11 — timer_gettick() */\n"
+        "#include \"timer.h\"  /* TEMP SUB-PROFILE v11 -- timer_gettick() */\n"
         "\n"
         "/* TEMPORARY SUB-PROFILE v11 (REVERT AFTER MEASURED). */\n"
         "/* Globals DEFINED in openbor.c v9/v10 globals block. */\n"
@@ -4082,9 +4094,9 @@ endif
                         'v11.2: spriteq_draw inner timer pairs around sort + putsprite + putother')
 
     write(spq_path, spq)
-    print("  TEMPORARY SUB-PROFILE v11 inserted (2 patches in spriteq.c — adds [SPQ] sort/putsprite/putother breakdown)")
+    print("  TEMPORARY SUB-PROFILE v11 inserted (2 patches in spriteq.c -- adds [SPQ] sort/putsprite/putother breakdown)")
 
-    # ── Step 22 (2026-05-27): scalar tightening of palette-LUT inner loops ─────────
+    # -- Step 22 (2026-05-27): scalar tightening of palette-LUT inner loops ---------
     #
     # MOTIVATION (from v9/v10/v11/v12 diagnostic cycles):
     #   - Avengers 36.9 fps: putscreen=9.78 ms/frame, putsprite=8.54 ms/frame
@@ -4301,7 +4313,7 @@ endif
     write(sc32_path, sc32)
     print("  screen32.c: putscreenx8p32 no-blend no-key path tightened (forward iter + 4x unroll + prefetch).")
 
-    # ── Step 23 (v3.1 perf, 2026-05-27): background pre-decode 8 -> 32bpp ────────
+    # -- Step 23 (v3.1 perf, 2026-05-27): background pre-decode 8 -> 32bpp --------
     #
     # MOTIVATION (v12 [SP2] measurement on Avengers):
     #   - putscreen = 99.3% of putother bucket (9.78 ms/frame = 36% of budget)
@@ -4315,12 +4327,12 @@ endif
     # walk 8bpp source bytes through palette LUT, write 32bpp result.
     # putscreen subsequently sees src->pixelformat == PIXEL_32 (matches
     # dest's PIXEL_32 on 7533) and routes to blendscreen32's memcpy
-    # fast path (screen32.c:322-332) — 4-10x faster than per-pixel LUT.
+    # fast path (screen32.c:322-332) -- 4-10x faster than per-pixel LUT.
     #
     # SAFE IN MISTER BUILD:
     #   - background->palette read post-load only at line 4040-4045
     #     (cache_background_replace) which is gated by #ifdef CACHE_BACKGROUNDS
-    #     — our MISTER build does NOT define CACHE_BACKGROUNDS
+    #     -- our MISTER build does NOT define CACHE_BACKGROUNDS
     #   - allocscreen(PIXEL_32) sets palette=NULL but no other code reads it
     #   - Visual output identical: same per-pixel palette lookup, just done
     #     once at load instead of every frame
@@ -4379,7 +4391,7 @@ endif
     write(ob_path_step23, ob_step23)
     print("  openbor.c: load_background pre-decodes 8bpp -> 32bpp; putscreen routes to memcpy fast path.")
 
-    # ── 4. Step 4 v2 (sprite.c bypass) — RESTORED in v3.7 (2026-05-20).
+    # -- 4. Step 4 v2 (sprite.c bypass) -- RESTORED in v3.7 (2026-05-20).
     #
     # WHY THIS WAS RESTORED:
     # Empirical user testing 2026-05-20:
@@ -4387,7 +4399,7 @@ endif
     #   - v3.6 binary (b12a94e, without step 4 v2):       ATOV WRONG,   Cap correct
     #
     # Step 4 v2 is LOAD-BEARING for ATOV correctness. Earlier feedback memory
-    # claimed step 4 v2 "silently failed in celebrated" — that was wrong. The
+    # claimed step 4 v2 "silently failed in celebrated" -- that was wrong. The
     # apply_patches.py at afd4de1 uses `drawmethod->flipx` which matches
     # pristine v7533 verbatim. Step 4 v2 DID apply and IS what makes ATOV's
     # Hugo/Vice/Playa render canonically (via sprite->palette = each frame's
@@ -4399,28 +4411,28 @@ endif
     #   sprite->palette = each frame's INCIDENTAL GIF palette (NOT canonical)
     # because step 1 universal forced PIXEL_x8 load AND step 2 universal
     # removed the force-assign that would set sprite->palette to canonical.
-    # Step 4 v2's bypass then used those incidental palettes → Cap pink.
+    # Step 4 v2's bypass then used those incidental palettes -> Cap pink.
     #
     # v3.7 = v3.6 gated step 1+2 + step 4 v2 restored:
     #   - Hugo (legacy, maps_loaded > 0):
-    #       step 1 → PIXEL_x8 → sprite->palette = frame GIF palette
-    #       step 2 SKIPS force-assign → sprite->palette stays at GIF palette
-    #       step 4 v2 → frame->palette non-NULL → bypass drawmethod->table
-    #       → putsprite uses sprite->palette = canonical Hugo per frame ✓
+    #       step 1 -> PIXEL_x8 -> sprite->palette = frame GIF palette
+    #       step 2 SKIPS force-assign -> sprite->palette stays at GIF palette
+    #       step 4 v2 -> frame->palette non-NULL -> bypass drawmethod->table
+    #       -> putsprite uses sprite->palette = canonical Hugo per frame 
     #
     #   - Cap (modern, maps_loaded == 0):
-    #       step 1 → PIXEL_8 → sprite->palette = NULL after loadsprite
+    #       step 1 -> PIXEL_8 -> sprite->palette = NULL after loadsprite
     #       step 2 FORCE-ASSIGNS sprite->palette = newchar->palette
     #         = classic.gif (canonical Cap master)
-    #       step 4 v2 → frame->palette non-NULL (= canonical) → bypass
-    #       → putsprite uses sprite->palette = canonical Cap ✓
-    #       (same palette across all frames → no flashing)
+    #       step 4 v2 -> frame->palette non-NULL (= canonical) -> bypass
+    #       -> putsprite uses sprite->palette = canonical Cap 
+    #       (same palette across all frames -> no flashing)
     #
     # WHY NO HE-MAN FLASHING:
     # He-Man (modern) was reported flashing in v3 (option 2) which had
     # universal step 1+2 + step 4 v3 line-29499 gate (no step 4 v2). v3.7
     # uses GATED step 2 so He-Man's sprite->palette = newchar->palette
-    # uniformly across frames → no per-frame palette mismatch → no flashing.
+    # uniformly across frames -> no per-frame palette mismatch -> no flashing.
     print("Patching sprite.c (step 4 v2: conditional NULL drawmethod->table for PIXEL_32)...")
     sprite_path = os.path.join(obor, 'source/gamelib/sprite.c')
     sp = read(sprite_path)
@@ -4473,12 +4485,12 @@ endif
     write(sprite_path, sp)
     print("  sprite.c PIXEL_32 dispatch: NULL if frame->palette else drawmethod->table")
 
-    # ── 10. Audio Stage 1: NO PATCH (Option C v2, 2026-05-15 evening).
+    # -- 10. Audio Stage 1: NO PATCH (Option C v2, 2026-05-15 evening).
     #
     # Engine runs at UPSTREAM NATIVE 44.1 kHz (Sega CD Red Book CDDA rate).
     # Sample reads use upstream FIX_TO_INT(fp_pos) nearest-neighbor.
-    # Our sblaster_patch.c glue layer handles 44.1 → 48 kHz conversion via
-    # linear interpolation before DDR3 submission — same architectural
+    # Our sblaster_patch.c glue layer handles 44.1 -> 48 kHz conversion via
+    # linear interpolation before DDR3 submission -- same architectural
     # pattern as PICO-8 (zepto8 at 22050 native, mister_main.cpp resamples
     # to 48 kHz). Matches the NTSC-region-match rule: engine produces at
     # platform's native reference rate, glue layer converts at boundary.
@@ -4487,10 +4499,10 @@ endif
     #   2026-05-15 (morning): force-48-kHz patch added (Option A) to kill
     #     the rate-mismatch pitch shift. Worked but engine output at 48 kHz
     #     diverges from Sega CD's native 44.1 kHz Red Book rate.
-    #   2026-05-15 (afternoon): Option C v1 attempt — kept engine at 44.1k
+    #   2026-05-15 (afternoon): Option C v1 attempt -- kept engine at 44.1k
     #     native, cubic Hermite resampler in glue. Failed with "constant
     #     per Stage 2 tick" 187 Hz buzz (implementation bug, not method).
-    #   2026-05-15 (evening): Option C v2 — engine at 44.1k native, LINEAR
+    #   2026-05-15 (evening): Option C v2 -- engine at 44.1k native, LINEAR
     #     resample in glue (no cubic overshoot, no cross-tick state). User
     #     direction: skip userspace test harness, deploy and test on MiSTer.
     #     Force-48-kHz patch REMOVED (this step is now a no-op).
@@ -4508,7 +4520,7 @@ endif
     #         continue;
     #     }
     # When heavy MvC gameplay triggers soundcache eviction, channels see
-    # NULL sampleptr and get deactivated. Once all voices deactivated →
+    # NULL sampleptr and get deactivated. Once all voices deactivated ->
     # silent output until new audio events fire. Build 3366 doesn't have
     # this null-check (samples stayed loaded forever) so audio always plays.
     #
@@ -4548,7 +4560,7 @@ endif
     # FIX for task #10 audio level (2026-05-17 evening):
     # Build 7533 added * 2.5 multiplier to music mix and * 1.5 multiplier to
     # SFX mix vs Build 3366's * 1.0 unity. This makes 7533 audio ~4-8 dB
-    # louder than 3366 — peaks regularly clip when summed at the mixer.
+    # louder than 3366 -- peaks regularly clip when summed at the mixer.
     # User-confirmed 2026-05-17: PC 3366 plays MvC heavy scenes with clean
     # continuous music. PC 7533 has audible artifacts on loud action.
     #
@@ -4577,7 +4589,7 @@ endif
     write(sm_path, sm)
     print("  soundmix.c patched (cache-reload + multiplier revert in mixaudio).")
 
-    # -- 11. REMOVED (2026-05-19) — caused He-Man flashing regression.
+    # -- 11. REMOVED (2026-05-19) -- caused He-Man flashing regression.
     #
     # Step 11 originally relaxed `pixelformat == PIXEL_x8` guards on:
     #   - auto-palette-from-first-frame block (line ~16895)
@@ -4595,11 +4607,11 @@ endif
     # User-reported 2026-05-19: He-Man flashing on every character because
     # step 2's universal skip-force-assign left sprite->palette = per-frame
     # GIF palette, while drawmethod->table = model->palette (= idle00) was
-    # applied uniformly → per-frame palette mismatch → flashing.
+    # applied uniformly -> per-frame palette mismatch -> flashing.
     #
     # FIX (v3.1): step 1 and step 2 now gated on has_legacy_remaps so
     # modern PAKs keep stock 7533 rendering paths entirely. Step 11 is
-    # removed entirely — the guards stay at upstream `pixelformat ==
+    # removed entirely -- the guards stay at upstream `pixelformat ==
     # PIXEL_x8` which passes naturally for both legacy and modern PAKs
     # in our build. The whole ATOV palette fix now lives in:
     #   - Step 3: skip CMD_MODEL_REMAP inner palette load + set has_legacy_remaps
@@ -4607,7 +4619,7 @@ endif
     #   - Step 2 (gated): skip force-assign for legacy PAKs
     #   - Step 4 v3: gate line-29499 model->palette fallback on !has_legacy_remaps
     # Modern PAKs: untouched (has_legacy_remaps=0, all gates skip).
-    # (no patches in this step — step 11 was removed; see comment block above)
+    # (no patches in this step -- step 11 was removed; see comment block above)
 
     print("\nAll patches applied successfully.")
 

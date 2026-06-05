@@ -1,19 +1,32 @@
 //
-//  Native Video DDR3 Writer — OpenBOR MiSTer
+//  Native Video DDR3 Writer — OpenBOR MiSTer (Option Y — Phase 2)
 //
-//  Writes 320x224 RGB565 frames to DDR3 at 0x3A000000 for FPGA native
-//  video output. Double-buffered with control word handshake.
+//  Writes source-NATIVE-resolution RGB565 frames to DDR3 at 0x3A000000.
+//  FPGA-side reader + edge-aware downscale module handles the W×H → 320×224
+//  squish per docs/dev/option_y_phase1_architecture.md.
+//
+//  Source dimensions up to 1920×1080×16bpp (4MB per buffer). Per-frame
+//  CTRL+DIM 64-bit atomic write carries width+height in the DIM word so the
+//  FPGA reader knows how many pixels per row to read.
 //
 //  DDR3 Memory Map (must match openbor_video_reader.sv):
-//    0x3A000000 + 0x000     : Control word (frame_counter[31:2] | active_buf[1:0])
-//    0x3A000000 + 0x008     : Joystick P1 (32 bits)
-//    0x3A000000 + 0x010     : Cart control (file_size from FPGA)
-//    0x3A000000 + 0x018     : Joystick P2 (32 bits)
-//    0x3A000000 + 0x020     : Joystick P3 (32 bits)
-//    0x3A000000 + 0x028     : Joystick P4 (32 bits)
-//    0x3A000000 + 0x040     : Buffer 0 (320*224*2 = 143,360 bytes)
-//    0x3A000000 + 0x40040   : Buffer 1 (153,600 bytes)
-//    0x3A000000 + 0x80000   : Cart data (PAK file from OSD)
+//    0x3A000000 + 0x000      : CTRL  (32-bit, [0:1]=active_buf, [2:31]=frame_counter)
+//    0x3A000000 + 0x004      : DIM   (32-bit, [10:0]=width, [21:11]=height)
+//    0x3A000000 + 0x008      : Joystick P1 (32 bits)
+//    0x3A000000 + 0x010      : Cart control (file_size from FPGA)
+//    0x3A000000 + 0x018      : Joystick P2 (32 bits)
+//    0x3A000000 + 0x020      : Joystick P3 (32 bits)
+//    0x3A000000 + 0x028      : Joystick P4 (32 bits)
+//    0x3A000000 + 0x030      : Audio ring write pointer
+//    0x3A000000 + 0x038      : Audio ring read pointer
+//    0x3A000000 + 0x040      : Buffer 0 (up to 1920×1080×2 = ~4 MB)
+//    0x3A000000 + 0x400000   : Buffer 1 (4MB aligned)
+//    0x3A000000 + 0x800000   : Cart data (PAK file from OSD)
+//    0x3A000000 + 0x880000   : Audio ring buffer (64 KiB)
+//
+//  Total mmap region: 16 MB (8MB buffers + 512KB cart + 64KB audio + headroom).
+//
+//  Source row stride in DDR3 = width × 2 bytes (RGB565 packed, no padding).
 //
 //  Copyright (C) 2026 MiSTer Organize — GPL-3.0
 //
@@ -31,21 +44,33 @@
  * build flags (see CLAUDE.md OpenBOR build config) guarantee NEON support. */
 #include <arm_neon.h>
 
-#define NV_DDR_PHYS_BASE    0x3A000000u
-#define NV_DDR_REGION_SIZE  0x00100000u   /* 1MB covers buffers + control + cart data */
-#define NV_CTRL_OFFSET      0x00000000u
-#define NV_JOY0_OFFSET      0x00000008u
+#define NV_DDR_PHYS_BASE     0x3A000000u
+#define NV_DDR_REGION_SIZE   0x01000000u   /* 16 MB covers 8MB buffers + cart + audio + headroom */
+#define NV_CTRL_OFFSET       0x00000000u
+#define NV_DIM_OFFSET        0x00000004u   /* Option Y: per-frame source dimensions */
+#define NV_JOY0_OFFSET       0x00000008u
 #define NV_CART_CTRL_OFFSET  0x00000010u
-#define NV_JOY1_OFFSET      0x00000018u
-#define NV_JOY2_OFFSET      0x00000020u
-#define NV_JOY3_OFFSET      0x00000028u
-#define NV_BUF0_OFFSET      0x00000040u
-#define NV_BUF1_OFFSET      0x00040040u
-#define NV_CART_DATA_OFFSET  0x00080000u
-#define NV_CART_MAX_SIZE     0x00040000u  /* 256KB max PAK size via OSD */
-#define NV_FRAME_WIDTH      320
-#define NV_FRAME_HEIGHT     224   /* Sega CD V28 NTSC */
-#define NV_FRAME_BYTES      (NV_FRAME_WIDTH * NV_FRAME_HEIGHT * 2)  /* 143,360 */
+#define NV_JOY1_OFFSET       0x00000018u
+#define NV_JOY2_OFFSET       0x00000020u
+#define NV_JOY3_OFFSET       0x00000028u
+#define NV_BUF0_OFFSET       0x00000040u   /* row-major source pixels at native W×H */
+#define NV_BUF1_OFFSET       0x00400000u   /* 4MB-aligned per Option Y design */
+/* Phase 7a: NV_CART_DATA_OFFSET + NV_CART_MAX_SIZE removed (dead code).
+ * OpenBOR loads PAKs via filesystem; nothing reads back the cart-DDR3
+ * region. NV_CART_CTRL_OFFSET retained for joystick-scan ctrl zeroing
+ * in Init. */
+
+/* Option Y: max source dimensions FPGA reader/downscale supports.
+ * 1920×1080 future-proofs against any HD-authored PAK (Lust Rush et al). */
+#define NV_MAX_SRC_WIDTH     1920
+#define NV_MAX_SRC_HEIGHT    1080
+#define NV_MAX_BUF_BYTES     (NV_MAX_SRC_WIDTH * NV_MAX_SRC_HEIGHT * 2)  /* 4,147,200 */
+
+/* Legacy DEST dims preserved for any code path that needs them. The FPGA
+ * downscale module handles WxH → 320×224 internally; these are NOT used
+ * by WriteFrame anymore (source written at NATIVE resolution). */
+#define NV_FRAME_WIDTH       320
+#define NV_FRAME_HEIGHT      224   /* Sega CD V28 NTSC */
 
 static const uint32_t joy_offsets[4] = {
     NV_JOY0_OFFSET, NV_JOY1_OFFSET, NV_JOY2_OFFSET, NV_JOY3_OFFSET
@@ -55,6 +80,11 @@ static int mem_fd = -1;
 static volatile uint8_t* ddr_base = NULL;
 static uint32_t frame_counter = 0;
 static int active_buf = 0;
+/* Option Y: last source dimensions written. KeepaliveTick re-emits these
+ * along with the bumped frame counter so the FPGA reader's latched DIM
+ * stays valid during idle (e.g., wait-for-PAK window). */
+static uint32_t cur_src_width  = 320;
+static uint32_t cur_src_height = 224;
 
 bool NativeVideoWriter_Init(void) {
     mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
@@ -73,25 +103,35 @@ bool NativeVideoWriter_Init(void) {
         return false;
     }
 
-    /* Clear both buffers, control words, AND all per-player joystick
-     * offsets. Cart's frame-0 reads stale DDR3 from previous core if
-     * Init doesn't zero everything the engine polls. OpenBOR currently
-     * uses btn() (held state) more than btn_pressed() so the symptom
-     * doesn't surface, but matches the universal hybrid-core rule. */
-    memset((void*)(ddr_base + NV_BUF0_OFFSET), 0, NV_FRAME_BYTES);
-    memset((void*)(ddr_base + NV_BUF1_OFFSET), 0, NV_FRAME_BYTES);
-    volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
-    *ctrl = 0;
+    /* Clear both buffers (full max-sized regions so any leftover bytes
+     * from a previous core's PAK swap can't render as garbage during the
+     * first frame). Cart's frame-0 reads stale DDR3 from previous core if
+     * Init doesn't zero everything the engine polls. Per the universal
+     * hybrid-core rule. */
+    memset((void*)(ddr_base + NV_BUF0_OFFSET), 0, NV_MAX_BUF_BYTES);
+    memset((void*)(ddr_base + NV_BUF1_OFFSET), 0, NV_MAX_BUF_BYTES);
+    /* Atomic CTRL+DIM init: CTRL=0 (frame_counter=0, active_buf=0);
+     * DIM=default 320x224 so the FPGA reader has SOMETHING valid until
+     * the first WriteFrame supplies real dimensions. */
+    /* Phase 7e: NEON vst1_u64 — guaranteed atomic 64-bit store for the
+     * initial CTRL+DIM word. CTRL=0, DIM=default 320x224 so the FPGA
+     * reader has SOMETHING valid until first WriteFrame. */
+    uint32_t dim_init = ((uint32_t)NV_FRAME_HEIGHT << 11) | (uint32_t)NV_FRAME_WIDTH;
+    uint64_t ctrl_dim_init = ((uint64_t)dim_init << 32) | 0u;
+    vst1_u64((uint64_t *)(ddr_base + NV_CTRL_OFFSET), vcreate_u64(ctrl_dim_init));
     volatile uint32_t* cart_ctrl = (volatile uint32_t*)(ddr_base + NV_CART_CTRL_OFFSET);
     *cart_ctrl = 0;
     for (int i = 0; i < 4; i++) {
         *(volatile uint32_t*)(ddr_base + joy_offsets[i]) = 0;
     }
-    frame_counter = 0;
-    active_buf = 0;
+    frame_counter  = 0;
+    active_buf     = 0;
+    cur_src_width  = NV_FRAME_WIDTH;
+    cur_src_height = NV_FRAME_HEIGHT;
 
-    fprintf(stderr, "NativeVideoWriter: mapped 0x%08X, %dx%d @ %d bytes/frame\n",
-            NV_DDR_PHYS_BASE, NV_FRAME_WIDTH, NV_FRAME_HEIGHT, NV_FRAME_BYTES);
+    fprintf(stderr, "NativeVideoWriter: mapped 0x%08X region=%uMB, max %dx%d/frame (Option Y)\n",
+            NV_DDR_PHYS_BASE, NV_DDR_REGION_SIZE >> 20,
+            NV_MAX_SRC_WIDTH, NV_MAX_SRC_HEIGHT);
     return true;
 }
 
@@ -113,61 +153,39 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
     if (!ddr_base || !pixels) return;
     if (width <= 0 || height <= 0) return;
 
-    /* Anisotropic nearest-neighbor squish: source W×H → NV_FRAME_WIDTH×HEIGHT.
-     * Sega CD V28 NTSC active area = 320×224. 320×240 PAKs (ATOV, etc.)
-     * get ~7% Y compress; sub-native PAKs (480×272, 960×480) get larger
-     * downscale. Aspect distortion intentional — matches Sega CD displayed
-     * area edge-to-edge per NTSC region match rule. NN avoids the per-pixel
-     * cost of bilinear (~4× faster on Cortex-A9 — 2026-05-22 measurement). */
-    int sx256 = (width * 256) / NV_FRAME_WIDTH;
-    int sy256 = (height * 256) / NV_FRAME_HEIGHT;
-    if (sx256 == 0) sx256 = 1;
-    if (sy256 == 0) sy256 = 1;
-
-    /* MiSTer 2026-05-27 Step 18: precompute src_x lookup table once per
-     * frame. Hoists (x * sx256) / 256 + clamp out of the inner pixel loop.
-     * Saves 1 mul + 1 div + 1 compare per dest pixel (71680 px/frame on
-     * 320x224). Same arithmetic, byte-identical output, ~20-30% lift on
-     * the WriteFrame inner loop. Identifies vcopy as JL Legacy's dominant
-     * cost (53% of per-frame budget; SUB-PROFILE v9 measurement 2026-05-27). */
-    uint16_t src_x_table[NV_FRAME_WIDTH];
-    {
-        int wm1 = width - 1;
-        for (int x = 0; x < NV_FRAME_WIDTH; x++) {
-            int sx = (x * sx256) / 256;
-            src_x_table[x] = (uint16_t)((sx >= width) ? wm1 : sx);
-        }
-    }
+    /* Option Y (Phase 2 2026-06-05): write source pixels at NATIVE resolution
+     * to DDR3. NO software squish — FPGA edge-aware downscale module handles
+     * W×H → 320×224. Saves ~3ms ARM time per frame on ATOV (320×240 → 320×224
+     * squish removed); future-proofs for HD-authored PAKs (Lust Rush 1920×1080).
+     *
+     * Source row stride in DDR3 = width × 2 bytes (RGB565 tightly packed).
+     * The reader reads `width` pixels per row, advancing `width × 2` bytes per
+     * row. DIM word (offset 0x04) tells reader the W×H to expect. */
+    if (width  > NV_MAX_SRC_WIDTH)  width  = NV_MAX_SRC_WIDTH;
+    if (height > NV_MAX_SRC_HEIGHT) height = NV_MAX_SRC_HEIGHT;
 
     uint32_t buf_offset = (active_buf == 0) ? NV_BUF0_OFFSET : NV_BUF1_OFFSET;
     volatile uint16_t* dst = (volatile uint16_t*)(ddr_base + buf_offset);
+    int dst_stride_px = width;   /* uint16_t elements per row (1:1, no padding) */
 
     if (bpp == 16) {
         /* OpenBOR's 16bpp surfaces are BGR565 (B in high bits). The FPGA
          * decoder expects RGB565. Swap R and B 5-bit fields per pixel. */
         const uint8_t* src = (const uint8_t*)pixels;
-        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
-            int src_y = (y * sy256) / 256;
-            if (src_y >= height) src_y = height - 1;
-            const uint16_t* src_row = (const uint16_t*)(src + src_y * pitch);
-            volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
+        for (int y = 0; y < height; y++) {
+            const uint16_t* src_row = (const uint16_t*)(src + y * pitch);
+            volatile uint16_t* dst_row = dst + y * dst_stride_px;
 
-            /* Step 20 (2026-05-27): wider DDR3 stores. JL Legacy vcopy
-             * measured 53% of per-frame budget on heavy combat scenes
-             * (SUB-PROFILE v9, 2026-05-27). Per-pixel scalar 16-bit stores
-             * to DDR3 are bus-inefficient; widening to uint64_t (4 px) and
-             * NEON 128-bit (8 px) lets the write-combine buffer issue
-             * fuller DDR3 bursts. NV_FRAME_WIDTH=320 is divisible by 8 so
-             * neither path needs a scalar tail. */
-            if (width == NV_FRAME_WIDTH && ((uintptr_t)src_row & 15) == 0) {
-                /* NEON fast path — no squish + 16-byte-aligned source.
-                 * Process 8 pixels per iteration. BGR565 -> RGB565: swap
-                 * the low-5 (R) and high-5 (B) fields per pixel. Green (mid
-                 * 6 bits) stays in place. */
+            /* NEON fast path — 16-byte aligned + width multiple of 8. Most
+             * engine surfaces hit this path (320, 480, 640, 960, 1920 all
+             * %8==0; OpenBOR uses 16-byte aligned malloc). 8 pixels per
+             * iteration with BGR565→RGB565 swap. */
+            if (((uintptr_t)src_row & 15) == 0 && (width & 7) == 0) {
                 const uint16x8_t mask_r = vdupq_n_u16(0x001F);
                 const uint16x8_t mask_g = vdupq_n_u16(0x07E0);
                 const uint16x8_t mask_b = vdupq_n_u16(0xF800);
-                for (int x = 0; x < NV_FRAME_WIDTH; x += 8) {
+                int x;
+                for (x = 0; x < width; x += 8) {
                     uint16x8_t px = vld1q_u16(src_row + x);
                     uint16x8_t r = vandq_u16(px, mask_r);
                     uint16x8_t g = vandq_u16(px, mask_g);
@@ -178,46 +196,15 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                     vst1q_u16((uint16_t*)(dst_row + x), out);
                 }
             } else {
-                /* Step K v2 (v3.1 perf, 2026-05-28): NEON wide-source squish.
-                 *
-                 * v1 used gather[8] stack array + vld1q_u16(gather) which
-                 * incurred 8 STRH + 1 VLD1 = 9 wasteful memory ops just to
-                 * get values into a NEON register. Avengers v3.1 measurement
-                 * showed vcopy got SLOWER per-frame (7.21 vs 4.45 ms in v12)
-                 * partly because of this round-trip pattern.
-                 *
-                 * v2 uses vsetq_lane_u16 to pack values directly into NEON
-                 * register lanes — no memory traffic, just 8 LDRH + 8 lane-
-                 * insert micro-ops. Result: NEON convert + store still wins
-                 * over scalar uint64_t-packed for the wide-source squish.
-                 *
-                 * Expected: Avengers vcopy 7.21 -> ~3-4 ms/frame (+3-5 fps)
-                 *           He-Man vcopy ~6.1 -> ~3-4 ms/frame */
-                const uint16x8_t mask_r = vdupq_n_u16(0x001F);
-                const uint16x8_t mask_g = vdupq_n_u16(0x07E0);
-                const uint16x8_t mask_b = vdupq_n_u16(0xF800);
-                for (int x = 0; x < NV_FRAME_WIDTH; x += 8) {
-                    /* Pack 8 indexed scalar loads directly into NEON register
-                     * lanes — no stack round-trip. ARMv7 has no native gather
-                     * instruction, but vsetq_lane is a register-to-register
-                     * micro-op (after the LDRH brings the value into a GPR). */
-                    uint16x8_t px = vdupq_n_u16(0);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 0]], px, 0);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 1]], px, 1);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 2]], px, 2);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 3]], px, 3);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 4]], px, 4);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 5]], px, 5);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 6]], px, 6);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 7]], px, 7);
-                    /* NEON convert BGR565 -> RGB565 (same as Step 20 fast path). */
-                    uint16x8_t r = vandq_u16(px, mask_r);
-                    uint16x8_t g = vandq_u16(px, mask_g);
-                    uint16x8_t b = vandq_u16(px, mask_b);
-                    uint16x8_t r_shifted = vshlq_n_u16(r, 11);
-                    uint16x8_t b_shifted = vshrq_n_u16(b, 11);
-                    uint16x8_t out = vorrq_u16(vorrq_u16(r_shifted, g), b_shifted);
-                    vst1q_u16((uint16_t*)(dst_row + x), out);
+                /* Scalar fallback for unaligned or non-multiple-of-8 widths
+                 * (rare — most engine surfaces are aligned). Same BGR565 →
+                 * RGB565 swap, one pixel at a time. */
+                for (int x = 0; x < width; x++) {
+                    uint16_t p = src_row[x];
+                    uint16_t r = (p & 0x001F) << 11;
+                    uint16_t g = (p & 0x07E0);
+                    uint16_t b = (p & 0xF800) >> 11;
+                    dst_row[x] = r | g | b;
                 }
             }
         }
@@ -227,18 +214,18 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * OpenBOR s_screen palette: 3 bytes per entry (R, G, B), 256 entries. */
         const uint8_t* src = (const uint8_t*)pixels;
         const uint8_t* pal = (const uint8_t*)palette;
-        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
-            int src_y = (y * sy256) / 256;
-            if (src_y >= height) src_y = height - 1;
-            const uint8_t* row = src + src_y * pitch;
-            volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
-            /* Step 20: uint64_t-packed writes (4 px per store). Palette
-             * lookup gather makes NEON impractical; uint64_t packing alone
-             * gives ~1.5-2x DDR3 write-side speedup. */
-            for (int x = 0; x < NV_FRAME_WIDTH; x += 4) {
+        for (int y = 0; y < height; y++) {
+            const uint8_t* row = src + y * pitch;
+            volatile uint16_t* dst_row = dst + y * dst_stride_px;
+            /* uint64_t-packed writes (4 px per store) when width is multiple
+             * of 4. Palette gather defeats NEON; uint64_t packing alone gives
+             * ~1.5-2x DDR3 write-side speedup vs scalar 16-bit stores. */
+            int x = 0;
+            int wm4 = width & ~3;
+            for (; x < wm4; x += 4) {
                 uint16_t out[4];
                 for (int k = 0; k < 4; k++) {
-                    uint8_t idx = row[src_x_table[x + k]];
+                    uint8_t idx = row[x + k];
                     uint8_t r = pal[idx * 3 + 0];
                     uint8_t g = pal[idx * 3 + 1];
                     uint8_t b = pal[idx * 3 + 2];
@@ -248,23 +235,30 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                 | ((uint64_t)out[2] << 32) | ((uint64_t)out[3] << 48);
                 *(volatile uint64_t*)(dst_row + x) = packed;
             }
+            /* Scalar tail for width not multiple of 4. */
+            for (; x < width; x++) {
+                uint8_t idx = row[x];
+                uint8_t r = pal[idx * 3 + 0];
+                uint8_t g = pal[idx * 3 + 1];
+                uint8_t b = pal[idx * 3 + 2];
+                dst_row[x] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+            }
         }
     }
     else if (bpp == 32) {
         /* 32bpp RGBA — byte-0=R, byte-1=G, byte-2=B, byte-3=A. */
         const uint8_t* src = (const uint8_t*)pixels;
-        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
-            int src_y = (y * sy256) / 256;
-            if (src_y >= height) src_y = height - 1;
-            const uint8_t* row = src + src_y * pitch;
-            volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
-            /* Step 20: uint64_t-packed writes (4 px per store). Per-pixel
-             * RGBA-to-RGB565 conversion stays scalar; the win is in the
-             * DDR3 write width. */
-            for (int x = 0; x < NV_FRAME_WIDTH; x += 4) {
+        for (int y = 0; y < height; y++) {
+            const uint8_t* row = src + y * pitch;
+            volatile uint16_t* dst_row = dst + y * dst_stride_px;
+            /* uint64_t-packed writes (4 px per store) when width is multiple
+             * of 4. Per-pixel scalar conversion; the win is DDR3 write width. */
+            int x = 0;
+            int wm4 = width & ~3;
+            for (; x < wm4; x += 4) {
                 uint16_t out[4];
                 for (int k = 0; k < 4; k++) {
-                    int i = src_x_table[x + k] * 4;
+                    int i = (x + k) * 4;
                     uint8_t r = row[i + 0];
                     uint8_t g = row[i + 1];
                     uint8_t b = row[i + 2];
@@ -274,29 +268,48 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                 | ((uint64_t)out[2] << 32) | ((uint64_t)out[3] << 48);
                 *(volatile uint64_t*)(dst_row + x) = packed;
             }
+            /* Scalar tail for width not multiple of 4. */
+            for (; x < width; x++) {
+                int i = x * 4;
+                uint8_t r = row[i + 0];
+                uint8_t g = row[i + 1];
+                uint8_t b = row[i + 2];
+                dst_row[x] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+            }
         }
     }
     else {
         return;  /* unsupported format, skip frame */
     }
 
-    /* Step 20 (2026-05-27) defensive barrier: ensure ALL pixel writes
-     * (scalar, uint64_t-packed, OR NEON 128-bit) drain to DDR3 BEFORE
-     * the FPGA sees the new ctrl word and starts reading the buffer we
-     * just finished writing. The double-buffer flip already protects
-     * against most tearing (FPGA reads OPPOSITE buffer from the one we
-     * write), but NEON stores can drain through the write-combine buffer
-     * at a different rate than scalar stores -- if ctrl is updated before
-     * the buffer fully drains AND the FPGA pipeline races ahead, the very
-     * first lines of the new frame could read partially-written pixels.
-     * __sync_synchronize() generates ARMv7 DMB SY (full memory barrier);
-     * costs ~2 cycles, negligible. */
+    /* Memory barrier: ensure ALL pixel writes (scalar, uint64_t-packed, OR
+     * NEON 128-bit) drain to DDR3 BEFORE the FPGA sees the new ctrl+dim
+     * word and starts reading the buffer we just finished writing. Without
+     * this, the write-combine buffer can drain pixel data AFTER the ctrl
+     * update propagates, causing the FPGA reader to fetch partially-written
+     * rows on the first lines of the new frame. __sync_synchronize() =
+     * ARMv7 DMB SY (full memory barrier); ~2 cycles, negligible. */
     __sync_synchronize();
 
-    /* Flip control word */
+    /* Option Y (Phase 2): atomic 64-bit CTRL+DIM write per
+     * docs/dev/option_y_phase1_architecture.md §5-6. CTRL changes
+     * frame_counter (triggers FPGA reader to start new frame); DIM word
+     * carries source W×H so the FPGA reader knows row stride + pixels-per-row.
+     * Single 64-bit store guarantees both halves arrive together at the
+     * reader's CDC — no possibility of seeing new frame_counter with stale
+     * DIM (which was Step 60 Phase 5 Bug B class). */
     frame_counter++;
-    volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
-    *ctrl = (frame_counter << 2) | (active_buf & 1);
+    cur_src_width  = (uint32_t)width;
+    cur_src_height = (uint32_t)height;
+    uint32_t ctrl_val = (frame_counter << 2) | (active_buf & 1);
+    uint32_t dim_val  = (cur_src_height << 11) | cur_src_width;
+    /* Phase 7e (2026-06-05): NEON vst1_u64 explicitly guarantees a single
+     * 64-bit aligned store. The prior `*(volatile uint64_t*)x = y` form
+     * relied on GCC emitting STRD; -O2 ARMv7 typically does, but the
+     * NEON intrinsic removes the assumption. Address is offset 0 within
+     * the mmap, so 8-byte aligned by construction. */
+    uint64_t ctrl_dim_packed = ((uint64_t)dim_val << 32) | (uint64_t)ctrl_val;
+    vst1_u64((uint64_t *)(ddr_base + NV_CTRL_OFFSET), vcreate_u64(ctrl_dim_packed));
     active_buf ^= 1;
 }
 
@@ -311,37 +324,30 @@ void NativeVideoWriter_KeepaliveTick(void) {
      * flip it to a stale/empty buffer, causing jitter between frames
      * (verified 2026-05-22 — loading bar jitter root cause was a
      * separate keepalive thread maintaining its own frame_counter +
-     * active_buf state, racing with WriteFrame's state). */
+     * active_buf state, racing with WriteFrame's state).
+     *
+     * Option Y (Phase 2 2026-06-05): atomic 64-bit CTRL+DIM write —
+     * preserves the last DIM (cur_src_width/height) so the FPGA reader's
+     * latched dimensions stay valid during idle ticks. */
     if (!ddr_base) return;
     frame_counter++;
     int last_written = (!active_buf) & 1;
-    volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
-    *ctrl = (frame_counter << 2) | last_written;
+    uint32_t ctrl_val = (frame_counter << 2) | last_written;
+    uint32_t dim_val  = (cur_src_height << 11) | cur_src_width;
+    /* Phase 7e: NEON vst1_u64 — guaranteed atomic 64-bit store. */
+    uint64_t ctrl_dim_packed = ((uint64_t)dim_val << 32) | (uint64_t)ctrl_val;
+    vst1_u64((uint64_t *)(ddr_base + NV_CTRL_OFFSET), vcreate_u64(ctrl_dim_packed));
 }
 
-uint32_t NativeVideoWriter_CheckCart(void) {
-    if (!ddr_base) return 0;
-    volatile uint32_t *ctrl = (volatile uint32_t *)(ddr_base + NV_CART_CTRL_OFFSET);
-    uint32_t val = *ctrl;
-    if (val > NV_CART_MAX_SIZE) return 0;
-    return val;
-}
-
-uint32_t NativeVideoWriter_ReadCart(void* buf, uint32_t max_size) {
-    if (!ddr_base || !buf) return 0;
-    uint32_t file_size = NativeVideoWriter_CheckCart();
-    if (file_size == 0) return 0;
-    if (file_size > max_size) file_size = max_size;
-    if (file_size > NV_CART_MAX_SIZE) file_size = NV_CART_MAX_SIZE;
-    memcpy(buf, (const void *)(ddr_base + NV_CART_DATA_OFFSET), file_size);
-    return file_size;
-}
-
-void NativeVideoWriter_AckCart(void) {
-    if (!ddr_base) return;
-    volatile uint32_t *ctrl = (volatile uint32_t *)(ddr_base + NV_CART_CTRL_OFFSET);
-    *ctrl = 0;
-}
+/* Phase 7a (2026-06-05): cart-via-DDR3 path removed as dead code.
+ * OpenBOR loads PAKs via filesystem (fopen on /media/fat/.../PAKs/<name>.pak)
+ * driven by .s0 path. The CheckCart/ReadCart/AckCart functions were never
+ * called; the cart region at 0x800000-0x880000 was only 512KB before the
+ * audio ring at 0x880000 (would have corrupted audio for any PAK > 512KB).
+ * Removed: NativeVideoWriter_CheckCart, NativeVideoWriter_ReadCart,
+ * NativeVideoWriter_AckCart, NV_CART_DATA_OFFSET, NV_CART_MAX_SIZE.
+ * Kept: NV_CART_CTRL_OFFSET (used by Init to zero a 32-bit word at
+ * 0x10 for FPGA reader's joystick scan loop; not used for cart data). */
 
 uint32_t NativeVideoWriter_ReadJoystick(int player) {
     if (!ddr_base || player < 0 || player > 3) return 0;

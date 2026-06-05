@@ -1,16 +1,16 @@
 //============================================================================
 //
-//  OpenBOR Native Video Top-Level Wrapper
+//  OpenBOR Native Video Top-Level Wrapper (Option Y Phase 4+)
 //
-//  Instantiates the timing generator and DDR3 reader, providing a clean
-//  interface for integration into OpenBOR.sv.
+//  Instantiates: timing generator + DDR3 reader (variable-res) +
+//  edge-aware NN/bilinear hybrid downscale. Provides a clean interface
+//  for integration into OpenBOR.sv.
 //
 //  Runs on CLK_VIDEO (53.693 MHz) with variable CE_PIXEL for exact
 //  Sega CD timing — 47.68 µs active, 15,700 Hz H rate.
 //
-//  Differences from pico8_video_top:
-//    - 320x224 (Sega CD V28 NTSC) instead of 256x256
-//    - 1:1 pixel mapping instead of 2x doubling
+//  Dest output: 320×224 (Sega CD V28 NTSC active area).
+//  Source: PAK-native dimensions (320×240, 480×272, 960×480, up to 1920×1080).
 //
 //  Cart loading via ioctl is preserved exactly as in PICO-8.
 //
@@ -117,6 +117,13 @@ openbor_video_timing timing (
 // -- DDR3 Pixel Reader -------------------------------------------------
 wire [7:0]  reader_r, reader_g, reader_b;
 wire        reader_frame_ready;
+// Option Y Phase 4: line_fifo + dims plumbed from reader → downscale.
+wire [63:0] reader_src_fifo_rd_data;
+wire        reader_src_fifo_empty;
+wire [10:0] reader_src_width;
+wire [10:0] reader_src_height;
+wire        reader_src_frame_start;
+wire        downscale_src_fifo_rd;
 
 openbor_video_reader reader (
     .ddr_clk        (clk_sys),
@@ -162,13 +169,60 @@ openbor_video_reader reader (
 
     .clk_audio      (clk_audio),
     .audio_l        (audio_l),
-    .audio_r        (audio_r)
+    .audio_r        (audio_r),
+
+    // Option Y Phase 4: downscale-side interface
+    .src_fifo_rd_i        (downscale_src_fifo_rd),
+    .src_fifo_rd_data_o   (reader_src_fifo_rd_data),
+    .src_fifo_empty_o     (reader_src_fifo_empty),
+    .src_width_o          (reader_src_width),
+    .src_height_o         (reader_src_height),
+    .src_frame_start_o    (reader_src_frame_start)
+);
+
+// -- Edge-aware Downscale (Phase 4a skeleton) --------------------------
+// Consumes source pixels from reader's line_fifo at clk_vid.
+// Produces 320×224 dest pixels with edge-aware NN/bilinear hybrid.
+// Phase 4a: black output. Phase 4b adds H-pass. Phase 4c adds V-pass.
+wire [7:0]  downscale_r, downscale_g, downscale_b;
+
+openbor_video_downscale downscale (
+    .clk_vid          (clk_vid),
+    .clk_sys          (clk_sys),
+    .ce_pix           (ce_pix),
+    .reset            (reset),
+
+    .de               (tim_de),
+    .hblank           (tim_hblank),
+    .vblank           (tim_vblank),
+    .new_frame        (tim_new_frame),
+    .new_line         (tim_new_line),
+
+    .src_fifo_rd      (downscale_src_fifo_rd),
+    .src_fifo_rd_data (reader_src_fifo_rd_data),
+    .src_fifo_empty   (reader_src_fifo_empty),
+
+    .src_width        (reader_src_width),
+    .src_height       (reader_src_height),
+    .src_frame_start  (reader_src_frame_start),
+    .frame_ready      (reader_frame_ready),
+
+    .r_out            (downscale_r),
+    .g_out            (downscale_g),
+    .b_out            (downscale_b),
+
+    .edge_threshold   (8'd24)               // default threshold; tunable later
 );
 
 // -- Output assignments ------------------------------------------------
-assign vga_r     = reader_r;
-assign vga_g     = reader_g;
-assign vga_b     = reader_b;
+// Phase 4d (2026-06-05): vga driven by downscale's edge-aware NN/bilinear
+// output. Reader's legacy r/g/b stays as an unused output (no resource
+// cost — Quartus prunes the legacy pixel-output block once the only sink
+// is removed). Phase 4c verified downscale module synthesizes clean with
+// 55 warnings, no errors.
+assign vga_r     = downscale_r;
+assign vga_g     = downscale_g;
+assign vga_b     = downscale_b;
 assign vga_hs    = tim_hsync;
 assign vga_vs    = tim_vsync;
 assign vga_de    = tim_de;

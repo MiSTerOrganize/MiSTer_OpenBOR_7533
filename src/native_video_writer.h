@@ -46,13 +46,8 @@ void NativeVideoWriter_KeepaliveTick(void);
 /// Read joystick state for player 0-3 from DDR3 (written by FPGA).
 uint32_t NativeVideoWriter_ReadJoystick(int player);
 
-/// Check if FPGA has loaded a cart file (returns file size, 0 if none).
-uint32_t NativeVideoWriter_CheckCart(void);
-
-/// Read cart data from DDR3 into buffer. Returns bytes read.
-uint32_t NativeVideoWriter_ReadCart(void* buf, uint32_t max_size);
-
-/// Acknowledge cart receipt (clears FPGA cart control word).
-void NativeVideoWriter_AckCart(void);
+/* Phase 7a (2026-06-05): CheckCart / ReadCart / AckCart removed as
+ * dead code. OpenBOR loads PAKs via filesystem (.s0 path -> fopen)
+ * not via DDR3 ioctl streaming. */
 
 #endif
