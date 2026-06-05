@@ -55,8 +55,10 @@
 #define NV_JOY3_OFFSET       0x00000028u
 #define NV_BUF0_OFFSET       0x00000040u   /* row-major source pixels at native W×H */
 #define NV_BUF1_OFFSET       0x00400000u   /* 4MB-aligned per Option Y design */
-#define NV_CART_DATA_OFFSET  0x00800000u
-#define NV_CART_MAX_SIZE     0x00040000u   /* 256KB max PAK size via OSD */
+/* Phase 7a: NV_CART_DATA_OFFSET + NV_CART_MAX_SIZE removed (dead code).
+ * OpenBOR loads PAKs via filesystem; nothing reads back the cart-DDR3
+ * region. NV_CART_CTRL_OFFSET retained for joystick-scan ctrl zeroing
+ * in Init. */
 
 /* Option Y: max source dimensions FPGA reader/downscale supports.
  * 1920×1080 future-proofs against any HD-authored PAK (Lust Rush et al). */
@@ -111,9 +113,12 @@ bool NativeVideoWriter_Init(void) {
     /* Atomic CTRL+DIM init: CTRL=0 (frame_counter=0, active_buf=0);
      * DIM=default 320x224 so the FPGA reader has SOMETHING valid until
      * the first WriteFrame supplies real dimensions. */
-    volatile uint64_t* ctrl_dim = (volatile uint64_t*)(ddr_base + NV_CTRL_OFFSET);
+    /* Phase 7e: NEON vst1_u64 — guaranteed atomic 64-bit store for the
+     * initial CTRL+DIM word. CTRL=0, DIM=default 320x224 so the FPGA
+     * reader has SOMETHING valid until first WriteFrame. */
     uint32_t dim_init = ((uint32_t)NV_FRAME_HEIGHT << 11) | (uint32_t)NV_FRAME_WIDTH;
-    *ctrl_dim = ((uint64_t)dim_init << 32) | 0u;
+    uint64_t ctrl_dim_init = ((uint64_t)dim_init << 32) | 0u;
+    vst1_u64((uint64_t *)(ddr_base + NV_CTRL_OFFSET), vcreate_u64(ctrl_dim_init));
     volatile uint32_t* cart_ctrl = (volatile uint32_t*)(ddr_base + NV_CART_CTRL_OFFSET);
     *cart_ctrl = 0;
     for (int i = 0; i < 4; i++) {
@@ -298,8 +303,13 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
     cur_src_height = (uint32_t)height;
     uint32_t ctrl_val = (frame_counter << 2) | (active_buf & 1);
     uint32_t dim_val  = (cur_src_height << 11) | cur_src_width;
-    *(volatile uint64_t*)(ddr_base + NV_CTRL_OFFSET) =
-        ((uint64_t)dim_val << 32) | (uint64_t)ctrl_val;
+    /* Phase 7e (2026-06-05): NEON vst1_u64 explicitly guarantees a single
+     * 64-bit aligned store. The prior `*(volatile uint64_t*)x = y` form
+     * relied on GCC emitting STRD; -O2 ARMv7 typically does, but the
+     * NEON intrinsic removes the assumption. Address is offset 0 within
+     * the mmap, so 8-byte aligned by construction. */
+    uint64_t ctrl_dim_packed = ((uint64_t)dim_val << 32) | (uint64_t)ctrl_val;
+    vst1_u64((uint64_t *)(ddr_base + NV_CTRL_OFFSET), vcreate_u64(ctrl_dim_packed));
     active_buf ^= 1;
 }
 
@@ -324,33 +334,20 @@ void NativeVideoWriter_KeepaliveTick(void) {
     int last_written = (!active_buf) & 1;
     uint32_t ctrl_val = (frame_counter << 2) | last_written;
     uint32_t dim_val  = (cur_src_height << 11) | cur_src_width;
-    *(volatile uint64_t*)(ddr_base + NV_CTRL_OFFSET) =
-        ((uint64_t)dim_val << 32) | (uint64_t)ctrl_val;
+    /* Phase 7e: NEON vst1_u64 — guaranteed atomic 64-bit store. */
+    uint64_t ctrl_dim_packed = ((uint64_t)dim_val << 32) | (uint64_t)ctrl_val;
+    vst1_u64((uint64_t *)(ddr_base + NV_CTRL_OFFSET), vcreate_u64(ctrl_dim_packed));
 }
 
-uint32_t NativeVideoWriter_CheckCart(void) {
-    if (!ddr_base) return 0;
-    volatile uint32_t *ctrl = (volatile uint32_t *)(ddr_base + NV_CART_CTRL_OFFSET);
-    uint32_t val = *ctrl;
-    if (val > NV_CART_MAX_SIZE) return 0;
-    return val;
-}
-
-uint32_t NativeVideoWriter_ReadCart(void* buf, uint32_t max_size) {
-    if (!ddr_base || !buf) return 0;
-    uint32_t file_size = NativeVideoWriter_CheckCart();
-    if (file_size == 0) return 0;
-    if (file_size > max_size) file_size = max_size;
-    if (file_size > NV_CART_MAX_SIZE) file_size = NV_CART_MAX_SIZE;
-    memcpy(buf, (const void *)(ddr_base + NV_CART_DATA_OFFSET), file_size);
-    return file_size;
-}
-
-void NativeVideoWriter_AckCart(void) {
-    if (!ddr_base) return;
-    volatile uint32_t *ctrl = (volatile uint32_t *)(ddr_base + NV_CART_CTRL_OFFSET);
-    *ctrl = 0;
-}
+/* Phase 7a (2026-06-05): cart-via-DDR3 path removed as dead code.
+ * OpenBOR loads PAKs via filesystem (fopen on /media/fat/.../PAKs/<name>.pak)
+ * driven by .s0 path. The CheckCart/ReadCart/AckCart functions were never
+ * called; the cart region at 0x800000-0x880000 was only 512KB before the
+ * audio ring at 0x880000 (would have corrupted audio for any PAK > 512KB).
+ * Removed: NativeVideoWriter_CheckCart, NativeVideoWriter_ReadCart,
+ * NativeVideoWriter_AckCart, NV_CART_DATA_OFFSET, NV_CART_MAX_SIZE.
+ * Kept: NV_CART_CTRL_OFFSET (used by Init to zero a 32-bit word at
+ * 0x10 for FPGA reader's joystick scan loop; not used for cart data). */
 
 uint32_t NativeVideoWriter_ReadJoystick(int player) {
     if (!ddr_base || player < 0 || player > 3) return 0;

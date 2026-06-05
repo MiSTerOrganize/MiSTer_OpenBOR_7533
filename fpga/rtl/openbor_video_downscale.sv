@@ -426,6 +426,17 @@ always @(posedge clk_vid) begin
             slot_src_line[1] <= 11'h7FF;
             slot_valid     <= 2'b00;
         end
+        else if (frame_start_pending) begin
+            /* Phase 7d (2026-06-05): stall H-pass while a new frame
+             * is pending but not yet released by the vblank-aligned
+             * frame_start_pulse. Without this stall, the reader has
+             * cleared the FIFO + started filling it with NEW frame
+             * data, but H-pass would consume those NEW pixels at OLD
+             * frame's mid-line dest_col positions -> partial-slot
+             * corruption visible to V-pass for the remaining old-
+             * frame scanlines. Holding H-pass here means OLD slots
+             * keep their valid data until the vblank-aligned reset. */
+        end
         else if (h_pass_active) begin
             // Phase 4c backpressure: at end of line, before rotating
             // write_slot, check if the next slot still holds a line
