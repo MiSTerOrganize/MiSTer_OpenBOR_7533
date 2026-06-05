@@ -215,11 +215,14 @@ openbor_video_downscale downscale (
 );
 
 // -- Output assignments ------------------------------------------------
-// Phase 4a: keep legacy reader r/g/b on vga. Phase 4d swaps to downscale.
-//   assign vga_r = downscale_r;  // Phase 4d
-assign vga_r     = reader_r;
-assign vga_g     = reader_g;
-assign vga_b     = reader_b;
+// Phase 4d (2026-06-05): vga driven by downscale's edge-aware NN/bilinear
+// output. Reader's legacy r/g/b stays as an unused output (no resource
+// cost — Quartus prunes the legacy pixel-output block once the only sink
+// is removed). Phase 4c verified downscale module synthesizes clean with
+// 55 warnings, no errors.
+assign vga_r     = downscale_r;
+assign vga_g     = downscale_g;
+assign vga_b     = downscale_b;
 assign vga_hs    = tim_hsync;
 assign vga_vs    = tim_vsync;
 assign vga_de    = tim_de;
