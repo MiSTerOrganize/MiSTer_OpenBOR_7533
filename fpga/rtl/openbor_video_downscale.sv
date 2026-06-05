@@ -90,8 +90,21 @@ module openbor_video_downscale (
      *   bits [54:0]  = snap_slot_src_line packed (5 × 11)
      *   bits [57:55] = snap_slot_for_tap_0 (the SLOT V-pass picked)
      *   bits [68:58] = snap_src_line_for_dest (the LINE V-pass NEEDED)
-     * REVERT AFTER MEASURED. */
-    output reg  [68:0] dbg_vpass_snap_dest100,
+     *
+     * TEMPORARY DIAG Phase 12 (2026-06-05): added certainty probe fields:
+     *   bit  [69]    = snap_h_pass_active
+     *   bits [80:70] = snap_src_line_in (H-pass's source-line counter)
+     *   bits [91:81] = snap_reader_src_line (reader's src_line, CDC'd from clk_sys)
+     *   bits [99:92] = snap_src_frame_start_count (H-pass frame-starts seen)
+     *   bits [107:100] = snap_vpass_new_frame_count (V-pass new_frames seen)
+     * Diagnostics-only; REVERT AFTER MEASURED. */
+    output reg  [107:0] dbg_vpass_snap_dest100,
+
+    /* TEMPORARY DIAG Phase 12 (2026-06-05): reader's src_line (clk_sys
+     * domain) routed in for CDC + snap. Async sampling acceptable for
+     * diagnostic (src_line increments slowly: ~3.2us between increments,
+     * stable for ~320 cycles between increments). REVERT AFTER MEASURED. */
+    input  wire [10:0] reader_src_line_i,
 
     /* Phase 5 fix (Bug 2026-06-04): expose dest_line_out as gray-coded
      * value for safe multi-bit CDC into reader (clk_vid -> clk_sys).
@@ -190,6 +203,15 @@ reg [31:0] h_step_fp, v_step_fp;
 reg        frame_active;
 reg [1:0]  src_frame_start_sync;
 
+/* TEMPORARY DIAG Phase 12 (2026-06-05): event counters + CDC sync to
+ * distinguish CDC-race-vs-reader-burst-vs-fifo-prebuffer hypotheses.
+ * REVERT AFTER MEASURED. */
+reg [7:0]  src_frame_start_count;    // increments on H-pass src_frame_start_sync rising
+reg [7:0]  vpass_new_frame_count;    // increments on V-pass new_frame rising
+reg        new_frame_d;               // 1-cycle delayed for rising-edge detect
+reg [10:0] reader_src_line_sync0;    // 2-FF sync chain stage 0
+reg [10:0] reader_src_line_sync1;    // 2-FF sync chain stage 1 (= snapped value)
+
 always @(posedge clk_vid) begin
     if (reset) begin
         src_w_latched <= DEST_WIDTH;
@@ -198,8 +220,23 @@ always @(posedge clk_vid) begin
         v_step_fp     <= FP_ONE;
         frame_active  <= 1'b0;
         src_frame_start_sync <= 2'b0;
+        src_frame_start_count <= 8'd0;
+        vpass_new_frame_count <= 8'd0;
+        new_frame_d   <= 1'b0;
+        reader_src_line_sync0 <= 11'd0;
+        reader_src_line_sync1 <= 11'd0;
     end else begin
         src_frame_start_sync <= {src_frame_start_sync[0], src_frame_start};
+        /* TEMPORARY DIAG Phase 12: CDC reader's src_line through 2-FF sync */
+        reader_src_line_sync0 <= reader_src_line_i;
+        reader_src_line_sync1 <= reader_src_line_sync0;
+        /* TEMPORARY DIAG Phase 12: count frame-start events on H-pass side */
+        if (src_frame_start_sync[0] & ~src_frame_start_sync[1])
+            src_frame_start_count <= src_frame_start_count + 8'd1;
+        /* TEMPORARY DIAG Phase 12: count new_frame events on V-pass side */
+        new_frame_d <= new_frame;
+        if (new_frame & ~new_frame_d)
+            vpass_new_frame_count <= vpass_new_frame_count + 8'd1;
         if (src_frame_start_sync[0] & ~src_frame_start_sync[1]) begin
             // Latch source dims and compute Bresenham step for this frame.
             //
@@ -515,8 +552,12 @@ wire signed [19:0] vnorm_g = vsum_g_v >>> 8;
 wire signed [19:0] vnorm_b = vsum_b_v >>> 8;
 
 // Look up which physical slot holds source line N (or N clamped to
-// [0, src_height-1]). Returns slot index 0..4, or slot 0 if no match
-// (degraded but bounded -- emits last-valid frame data).
+// [0, src_height-1]). Returns slot index 0..4, or 3'd7 sentinel if no
+// match (TEMPORARY DIAG Phase 11 2026-06-05: was 3'd0 default which
+// emitted stale slot-0 pixels; now V-pass detects 3'd7 and emits black
+// instead of degraded data — see v_p0..v_p3 muxes below). REVERT
+// SENTINEL AFTER MEASURED if Phase 11 is rolled back; for the fix-keep
+// path, this becomes the production behavior.
 function [2:0] find_slot(input [10:0] src_line_idx);
     reg [10:0] target;
     begin
@@ -533,7 +574,7 @@ function [2:0] find_slot(input [10:0] src_line_idx);
         else if (slot_src_line[2] == target) find_slot = 3'd2;
         else if (slot_src_line[3] == target) find_slot = 3'd3;
         else if (slot_src_line[4] == target) find_slot = 3'd4;
-        else                                  find_slot = 3'd0;
+        else                                  find_slot = 3'd7;  /* sentinel = no match */
     end
 endfunction
 
@@ -615,6 +656,19 @@ always @(posedge clk_vid) begin
             src_word_valid     <= 1'b0;
             sh_p0 <= 16'd0; sh_p1 <= 16'd0; sh_p2 <= 16'd0; sh_p3 <= 16'd0;
             h_pass_active      <= 1'b1;
+            /* TEMPORARY DIAG Phase 11 (2026-06-05): reset slot_src_line[] to
+             * 11'h7FF (sentinel) on every new frame. Previously slots retained
+             * previous frame's last 5 src_line values (e.g., 235..239 for
+             * ATOV 240-line source) until H-pass overwrote them. V-pass
+             * find_slot() would return a non-match on the stale ring,
+             * defaulting to slot 0 with previous-frame end-of-frame pixels.
+             * Phase 10 probe data: 35% of frames showed snap_slot_src=235..239
+             * at dest_line=99. REVERT AFTER MEASURED. */
+            slot_src_line[0]   <= 11'h7FF;
+            slot_src_line[1]   <= 11'h7FF;
+            slot_src_line[2]   <= 11'h7FF;
+            slot_src_line[3]   <= 11'h7FF;
+            slot_src_line[4]   <= 11'h7FF;
         end
 
         if (h_pass_active) begin
@@ -859,7 +913,7 @@ always @(posedge clk_vid) begin
         vclip_b_s2 <= 8'd0;
         edge_v_pipe1 <= 1'b0; edge_v_pipe2 <= 1'b0;
         near_v_pipe1 <= 16'd0; near_v_pipe2 <= 16'd0;
-        dbg_vpass_snap_dest100 <= 69'd0;  /* TEMPORARY DIAG v2 (v3 reverted) */
+        dbg_vpass_snap_dest100 <= 108'd0;  /* TEMPORARY DIAG Phase 12 (108-bit) */
     end
     else begin
         if (new_frame) begin
@@ -943,6 +997,13 @@ always @(posedge clk_vid) begin
              * Reader includes this in next probe write. */
             if (dest_line_out == 11'd99) begin  /* fires at transition to 100 */
                 dbg_vpass_snap_dest100 <= {
+                    /* TEMPORARY DIAG Phase 12 fields (top-end of register): */
+                    vpass_new_frame_count,  /* [107:100] V-pass new_frames seen */
+                    src_frame_start_count,  /* [99:92]   H-pass frame-starts seen */
+                    reader_src_line_sync1,  /* [91:81]   Reader's src_line (CDC) */
+                    src_line_in,            /* [80:70]   H-pass's source-line counter */
+                    h_pass_active,          /* [69]      H-pass active flag */
+                    /* Existing Phase 10/11 fields: */
                     phase_v_next_w[26:16],  /* [68:58] src_line_needed */
                     find_slot(phase_v_next_w[26:16]),  /* [57:55] slot_picked */
                     slot_src_line[4],       /* [54:44] */
@@ -970,10 +1031,23 @@ always @(posedge clk_vid) begin
                 // above using POST-update phase_v per Bug 1 fix). Here
                 // we just read from those slots. Quartus auto-replicates
                 // line_buf to serve 4 simultaneous read ports.
-                v_p0 <= line_buf[slot_base(slot_for_tap_m1) + hpos];
-                v_p1 <= line_buf[slot_base(slot_for_tap_0)  + hpos];
-                v_p2 <= line_buf[slot_base(slot_for_tap_p1) + hpos];
-                v_p3 <= line_buf[slot_base(slot_for_tap_p2) + hpos];
+                //
+                // TEMPORARY DIAG Phase 11 (2026-06-05): when find_slot()
+                // returned the 3'd7 sentinel (no slot matched the needed
+                // src_line), substitute zero (black) for that tap.
+                // Without this, the tap would degenerate to slot 0's
+                // line_buf region (slot_base(7) maps to 0 via the
+                // default LUT case), emitting previous-frame stale
+                // pixels. REVERT AFTER MEASURED if Phase 11 rolled back;
+                // for the fix-keep path, this is production behavior.
+                v_p0 <= (slot_for_tap_m1 == 3'd7) ? 16'd0
+                        : line_buf[slot_base(slot_for_tap_m1) + hpos];
+                v_p1 <= (slot_for_tap_0  == 3'd7) ? 16'd0
+                        : line_buf[slot_base(slot_for_tap_0)  + hpos];
+                v_p2 <= (slot_for_tap_p1 == 3'd7) ? 16'd0
+                        : line_buf[slot_base(slot_for_tap_p1) + hpos];
+                v_p3 <= (slot_for_tap_p2 == 3'd7) ? 16'd0
+                        : line_buf[slot_base(slot_for_tap_p2) + hpos];
 
                 // Stage 1 (latched, per ce_pix tick):
                 //   4 muls per channel from CURRENT v_p* (registered)

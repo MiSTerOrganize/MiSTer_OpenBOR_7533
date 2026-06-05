@@ -138,8 +138,15 @@ module openbor_video_reader (
     input  wire [54:0] dbg_slot_src_line_packed_i,
 
     /* TEMPORARY DIAG v2: V-pass state snapshot at dest_line 100. 69 bits
-     * (v3 src_target snap reverted to reclaim pll_hdmi slack). */
-    input  wire [68:0] dbg_vpass_snap_dest100_i,
+     * (v3 src_target snap reverted to reclaim pll_hdmi slack).
+     * TEMPORARY DIAG Phase 12 (2026-06-05): expanded to 108 bits — adds
+     * h_pass_active + src_line_in + reader_src_line + frame counters. */
+    input  wire [107:0] dbg_vpass_snap_dest100_i,
+
+    /* TEMPORARY DIAG Phase 12 (2026-06-05): src_line exported to top.sv
+     * so downscale can CDC and snap it. Read this output combinationally
+     * (it's a reg in this module). REVERT AFTER MEASURED. */
+    output wire [10:0] src_line_o,
 
     /* Phase 5 fix (2026-06-04): V-pass's dest_line gray-coded for safe
      * multi-bit CDC clk_vid -> clk_sys. Reader uses this to compute
@@ -302,6 +309,9 @@ reg  [29:0] prev_frame_counter;
 reg         active_buffer;
 reg  [28:0] buf_base_addr;
 reg  [10:0] src_line;          // 0 .. src_height-1
+/* TEMPORARY DIAG Phase 12 (2026-06-05): export src_line for downscale-side
+ * CDC snap. REVERT AFTER MEASURED. */
+assign      src_line_o = src_line;
 reg  [7:0]  beat_count;
 reg         first_frame_loaded;
 reg  [4:0]  stale_vblank_count;
@@ -356,7 +366,7 @@ reg  [10:0] src_target;       // floor(dest_phase_v[26:16]) + LOOKAHEAD
  * and clears after 4 qword writes complete. probe_idx selects which
  * qword to write. REVERT AFTER MEASURED. */
 reg        probe_pending;
-reg  [2:0] probe_idx;  /* 3 bits — supports up to 8 qwords (currently 6) */
+reg  [2:0] probe_idx;  /* 3 bits — supports up to 8 qwords (currently 7) */
 
 // 2026-06-03 fix: original wire-based formula
 //   wire [31:0] step_v_per_dest = ({src_height_o, 16'd0}) / DEFAULT_HEIGHT;
@@ -1156,6 +1166,20 @@ always @(posedge ddr_clk) begin
                                           snap_dest_line_bin_r,
                                           dbg_vpass_snap_dest100_i[57:55],
                                           dbg_vpass_snap_dest100_i[68:58]};
+                        /* qw6 (TEMPORARY DIAG Phase 12 2026-06-05):
+                         * bit  [0]     = snap_h_pass_active            (dbg[69])
+                         * bits [11:1]  = snap_src_line_in              (dbg[80:70])
+                         * bits [22:12] = snap_reader_src_line          (dbg[91:81])
+                         * bits [30:23] = snap_src_frame_start_count    (dbg[99:92])
+                         * bits [38:31] = snap_vpass_new_frame_count    (dbg[107:100])
+                         * bits [63:39] = pad
+                         * REVERT AFTER MEASURED. */
+                        3'd6: ddr_din <= {25'd0,
+                                          dbg_vpass_snap_dest100_i[107:100],
+                                          dbg_vpass_snap_dest100_i[99:92],
+                                          dbg_vpass_snap_dest100_i[91:81],
+                                          dbg_vpass_snap_dest100_i[80:70],
+                                          dbg_vpass_snap_dest100_i[69]};
                     endcase
                     state <= ST_WAIT_PROBE;
                 end
@@ -1163,7 +1187,7 @@ always @(posedge ddr_clk) begin
 
             ST_WAIT_PROBE: begin
                 if (!ddr_busy && !ddr_we) begin
-                    if (probe_idx == 3'd5) begin
+                    if (probe_idx == 3'd6) begin  /* TEMPORARY DIAG Phase 12: was 3'd5 */
                         /* Phase 10: chain to ring dump after probe completes */
                         ring_dump_idx <= 8'd0;
                         state         <= ST_DUMP_RING;

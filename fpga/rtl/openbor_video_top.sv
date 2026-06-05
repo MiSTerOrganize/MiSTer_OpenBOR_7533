@@ -141,9 +141,13 @@ wire        reader_src_fifo_empty;
  * (instantiated below) can consume it; downscale (instantiated AFTER
  * reader) drives it. Verilog allows this. */
 wire [54:0] dbg_slot_src_line_packed;
-/* TEMPORARY DIAG v2: V-pass snapshot at dest_line 100 (69 bits;
- * v3 src_target snap reverted to reclaim slack) */
-wire [68:0] dbg_vpass_snap_dest100;
+/* TEMPORARY DIAG v2: V-pass snapshot at dest_line 100. Phase 12 extended
+ * width from 69 to 108 bits (adds h_pass_active, src_line_in,
+ * reader_src_line, frame counters). REVERT AFTER MEASURED. */
+wire [107:0] dbg_vpass_snap_dest100;
+/* TEMPORARY DIAG Phase 12 (2026-06-05): reader's src_line piped to
+ * downscale for CDC + snap. REVERT AFTER MEASURED. */
+wire [10:0] reader_src_line_w;
 /* Phase 5 fix (2026-06-04): V-pass dest_line gray-coded for CDC into reader */
 wire [10:0] downscale_dest_line_gray;
 
@@ -202,8 +206,10 @@ openbor_video_reader reader (
 
     /* TEMPORARY DIAG: slot_src_line probe from downscale */
     .dbg_slot_src_line_packed_i (dbg_slot_src_line_packed),
-    /* TEMPORARY DIAG v2: V-pass mid-frame snapshot (69 bits) */
+    /* TEMPORARY DIAG v2 / Phase 12: V-pass mid-frame snapshot (108 bits) */
     .dbg_vpass_snap_dest100_i   (dbg_vpass_snap_dest100),
+    /* TEMPORARY DIAG Phase 12: export src_line for downscale CDC + snap */
+    .src_line_o                 (reader_src_line_w),
     /* Phase 5 fix: V-pass dest_line gray-coded for CDC */
     .dest_line_gray_i           (downscale_dest_line_gray)
 );
@@ -243,6 +249,8 @@ openbor_video_downscale downscale (
 
     .dbg_slot_src_line_packed (dbg_slot_src_line_packed),
     .dbg_vpass_snap_dest100   (dbg_vpass_snap_dest100),
+    /* TEMPORARY DIAG Phase 12: reader's src_line for CDC snap */
+    .reader_src_line_i        (reader_src_line_w),
     /* Phase 5 fix: expose dest_line gray-coded for reader CDC */
     .dest_line_gray_o         (downscale_dest_line_gray)
 );

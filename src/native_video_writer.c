@@ -504,6 +504,7 @@ void NativeVideoWriter_KeepaliveTick(void) {
         uint64_t qw3 = probe[3];
         uint64_t qw4 = probe[4];  /* TEMPORARY DIAG v2 */
         uint64_t qw5 = probe[5];  /* TEMPORARY DIAG v2 */
+        uint64_t qw6 = probe[6];  /* TEMPORARY DIAG Phase 12 (2026-06-05) */
         uint32_t magic    = (uint32_t)qw0;
         /* Phase 10: qw0 [63:62]=pad, [61:40]=prev_frame_counter[29:8],
          *           [39:32]=ring_wr_ptr_snap, [31:0]=magic */
@@ -541,18 +542,35 @@ void NativeVideoWriter_KeepaliveTick(void) {
             uint8_t  snap_slot_picked = (uint8_t) ((qw5 >> 11) & 0x7);
             uint16_t snap_dest_bin    = (uint16_t)((qw5 >> 14) & 0x7FF);
             uint16_t snap_tgt_computed= (uint16_t)((qw5 >> 25) & 0x7FF);
+            /* TEMPORARY DIAG Phase 12 (2026-06-05): certainty probe fields
+             * unpacked from qw6 (FPGA-side packs per reader.sv ST_WRITE_PROBE):
+             * bit  [0]     = snap_h_pass_active
+             * bits [11:1]  = snap_src_line_in (H-pass source-line counter)
+             * bits [22:12] = snap_reader_src_line (reader's src_line, CDC'd)
+             * bits [30:23] = snap_src_frame_start_count
+             * bits [38:31] = snap_vpass_new_frame_count
+             */
+            uint8_t  snap_h_active   = (uint8_t)( qw6        & 0x1);
+            uint16_t snap_h_src_line = (uint16_t)((qw6 >>  1) & 0x7FF);
+            uint16_t snap_rd_src_line= (uint16_t)((qw6 >> 12) & 0x7FF);
+            uint8_t  snap_sfs_count  = (uint8_t) ((qw6 >> 23) & 0xFF);
+            uint8_t  snap_vnf_count  = (uint8_t) ((qw6 >> 31) & 0xFF);
             fprintf(stderr,
                 "[PROBE] fpga_frame=%u eof_src_target=%u eof_src_line=%u "
                 "src_dim=%ux%u eofslot=%u,%u,%u,%u,%u "
                 "VPASS@d100: needs_line=%u picked_slot=%u "
                 "snap_slot_src=%u,%u,%u,%u,%u "
-                "READER@d99: dest_bin=%u tgt_computed=%u\n",
+                "READER@d99: dest_bin=%u tgt_computed=%u "
+                "P12: h_active=%u h_src_line=%u rd_src_line=%u "
+                "sfs_count=%u vnf_count=%u\n",
                 fcnt_fpga, src_target, src_line,
                 src_width_fpga, src_height_fpga,
                 s0, s1, s2, s3, s4,
                 snap_line_needed, snap_slot_picked,
                 snap_s0, snap_s1, snap_s2, snap_s3, snap_s4,
-                snap_dest_bin, snap_tgt_computed);
+                snap_dest_bin, snap_tgt_computed,
+                snap_h_active, snap_h_src_line, snap_rd_src_line,
+                snap_sfs_count, snap_vnf_count);
             /* Phase 10: dump ring buffer (256 qwords starting at probe+8) */
             volatile uint64_t* ring = (volatile uint64_t*)(ddr_base + NV_PROBE_OFFSET + 8 * 8);
             uint8_t n_valid = (ring_n < 256) ? ring_n : 0;

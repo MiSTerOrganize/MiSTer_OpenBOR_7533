@@ -61,7 +61,7 @@ set_global_assignment -name FITTER_AGGRESSIVE_ROUTABILITY_OPTIMIZATION ALWAYS
 # thorough placement search. Combined with SEED 10 baseline at -0.127 ns
 # (Option B registered intermediate), target: positive slack.
 set_global_assignment -name PLACEMENT_EFFORT_MULTIPLIER 2.0
-set_global_assignment -name SEED 10
+set_global_assignment -name SEED 20
 
 # LOGIC_LOCK tried but reverted 2026-06-02 in favor of canonical MiSTer
 # pattern (MegaCD / Saturn / PSX / N64 all use set_multicycle_path on
