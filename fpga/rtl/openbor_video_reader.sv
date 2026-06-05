@@ -92,40 +92,39 @@ module openbor_video_reader (
 // DDR3 byte enable (always all bytes)
 assign ddr_be  = 8'hFF;
 
-// -- DDR3 Address Constants --------------------------------------------
+// -- DDR3 Address Constants -- Option Y Phase 3 (2026-06-05) ---------
 // 29-bit qword addresses = physical >> 3
 //
-// Buffer layout: 320*240*2 = 153,600 bytes per buffer.
-// Round up to 256KB per buffer for clean addressing and headroom.
-// 256KB = 0x40000 bytes = 0x8000 qwords.
+// Per docs/dev/option_y_phase1_architecture.md §5: max source 1920×1080
+// at 16 bpp = ~4 MB per buffer, with each buffer at a 4MB boundary.
 //
 //   Physical          Qword (>>3)        Purpose
-//   0x3A000000        29'h07400000       Control word
-//   0x3A000008        29'h07400001       Joystick P1 data
+//   0x3A000000        29'h07400000       CTRL+DIM (atomic 64-bit pair)
+//   0x3A000008        29'h07400001       Joystick P1
 //   0x3A000010        29'h07400002       Cart control
-//   0x3A000018        29'h07400003       Joystick P2 data
-//   0x3A000020        29'h07400004       Joystick P3 data
-//   0x3A000028        29'h07400005       Joystick P4 data
-//   0x3A000040        29'h07400008       Buffer 0 base
-//   0x3A040040        29'h07408008       Buffer 1 base
-//   0x3A080000        29'h07410000       Cart data buffer (past video buffers)
+//   0x3A000018        29'h07400003       Joystick P2
+//   0x3A000020        29'h07400004       Joystick P3
+//   0x3A000028        29'h07400005       Joystick P4
+//   0x3A000030        29'h07400006       Audio ring wr ptr
+//   0x3A000038        29'h07400007       Audio ring rd ptr
+//   0x3A000040        29'h07400008       Buffer 0 base (up to 4 MB)
+//   0x3A400000        29'h07480000       Buffer 1 base (4MB aligned)
+//   0x3A800000        29'h07500000       Cart data
+//   0x3A880000        29'h07510000       Audio ring (64 KiB)
 //
-// Each buffer holds 240 lines × 320 pixels × 2 bytes = 153,600 bytes
-// = 19,200 qwords. The next buffer starts 256KB later (0x40000 bytes
-// = 0x8000 qwords) leaving plenty of headroom. Cart data lives well
-// past the end of BUF1 to allow hot-swap during gameplay without overlap.
-localparam [28:0] CTRL_ADDR      = 29'h07400000;  // 0x3A000000 >> 3
+// 4 MB = 0x400000 bytes = 0x80000 qwords. BUF1 = BUF0 + 0x80000.
+localparam [28:0] CTRL_ADDR      = 29'h07400000;  // CTRL + DIM (single qword)
 localparam [28:0] JOY0_ADDR      = 29'h07400001;  // 0x3A000008 >> 3
 localparam [28:0] CART_CTRL_ADDR = 29'h07400002;  // 0x3A000010 >> 3
 localparam [28:0] JOY1_ADDR      = 29'h07400003;  // 0x3A000018 >> 3
 localparam [28:0] JOY2_ADDR      = 29'h07400004;  // 0x3A000020 >> 3
 localparam [28:0] JOY3_ADDR      = 29'h07400005;  // 0x3A000028 >> 3
-localparam [28:0] AUDIO_WR_ADDR   = 29'h07400006;  // 0x3A000030 >> 3
-localparam [28:0] AUDIO_RD_ADDR   = 29'h07400007;  // 0x3A000038 >> 3
+localparam [28:0] AUDIO_WR_ADDR   = 29'h07400006; // 0x3A000030 >> 3
+localparam [28:0] AUDIO_RD_ADDR   = 29'h07400007; // 0x3A000038 >> 3
 localparam [28:0] BUF0_ADDR      = 29'h07400008;  // 0x3A000040 >> 3
-localparam [28:0] BUF1_ADDR      = 29'h07408008;  // 0x3A040040 >> 3
-localparam [28:0] CART_DATA_ADDR = 29'h07410000;  // 0x3A080000 >> 3
-localparam [28:0] AUDIO_RING_ADDR = 29'h0741A000; // 0x3A0D0000 >> 3
+localparam [28:0] BUF1_ADDR      = 29'h07480000;  // 0x3A400000 >> 3 (4 MB aligned)
+localparam [28:0] CART_DATA_ADDR = 29'h07500000;  // 0x3A800000 >> 3
+localparam [28:0] AUDIO_RING_ADDR = 29'h07510000; // 0x3A880000 >> 3
 localparam [31:0] AUDIO_RING_BYTES = 32'h00010000; // 64 KiB
 localparam [31:0] AUDIO_RING_MASK  = 32'h0000FFFF;
 
@@ -133,12 +132,13 @@ localparam [31:0] AUDIO_RING_MASK  = 32'h0000FFFF;
 // FIFO is 512 entries deep; 384 leaves 128 qwords (~5.3 ms) headroom.
 localparam [9:0]  AUDIO_REFILL_THRESHOLD = 10'd384;
 
-// 320 pixels × 2 bytes / 8 bytes per qword = 80 beats per scanline
-localparam [7:0]  LINE_BURST   = 8'd80;
-// Each scanline takes 80 qword addresses
-localparam [28:0] LINE_STRIDE  = 29'd80;
-// Display lines (no doubling — source = display, Sega CD V28 NTSC)
-localparam [8:0]  V_ACTIVE     = 9'd224;
+// Option Y: variable-res constants. Source dims latched at frame start
+// from the DIM word. qwords_per_line = ceil(src_width / 4). Max 256
+// qwords/burst (8-bit burstcnt) covers source widths up to 1024 px in
+// ONE burst. Wider sources (1920) require multi-burst — deferred to
+// Phase 4 if any HD PAK actually needs it.
+localparam [10:0] MAX_SRC_WIDTH  = 11'd1920;
+localparam [10:0] MAX_SRC_HEIGHT = 11'd1080;
 
 localparam [19:0] TIMEOUT_MAX = 20'hF_FFFF;
 
@@ -230,11 +230,20 @@ localparam [4:0] ST_WRITE_AUDIO_RD  = 5'd19;
 
 reg  [4:0]  state;
 reg  [31:0] ctrl_word;
+reg  [31:0] dim_word;          // Option Y: source W/H latched atomically with CTRL
 reg  [29:0] prev_frame_counter;
 reg         active_buffer;
 reg  [28:0] buf_base_addr;
-reg  [8:0]  display_line;     // 0..239 (output display line, also = source line)
-reg  [6:0]  beat_count;
+
+// Option Y: variable-res state. src_line is the SOURCE line being read
+// (0..src_height-1, can be up to 1079). src_width and src_height come from
+// the DIM word; qwords_per_line = ceil(src_width / 4).
+reg  [10:0] src_line;          // 0..src_height-1 (Option Y was display_line/9b)
+reg  [10:0] src_width;          // 1..1920
+reg  [10:0] src_height;         // 1..1080
+reg  [9:0]  qwords_per_line;    // ceil(src_width / 4)  (1..480 for max 1920)
+reg  [28:0] line_base_addr;     // buf_base_addr + (src_line * qwords_per_line)
+reg  [8:0]  beat_count;
 reg         first_frame_loaded;
 reg  [4:0]  stale_vblank_count;
 reg         preloading;
@@ -298,11 +307,16 @@ always @(posedge ddr_clk) begin
         ddr_burstcnt       <= 8'd1;
         ddr_addr           <= 29'd0;
         ctrl_word          <= 32'd0;
+        dim_word           <= 32'd0;
         prev_frame_counter <= 30'd0;
         active_buffer      <= 1'b0;
         buf_base_addr      <= 29'd0;
-        display_line       <= 9'd0;
-        beat_count         <= 7'd0;
+        src_line           <= 11'd0;
+        src_width          <= 11'd320;   /* default until DIM read */
+        src_height         <= 11'd224;
+        qwords_per_line    <= 10'd80;    /* ceil(320/4) */
+        line_base_addr     <= 29'd0;
+        beat_count         <= 9'd0;
         first_frame_loaded <= 1'b0;
         frame_ready_reg    <= 1'b0;
         stale_vblank_count <= 5'd0;
@@ -345,7 +359,7 @@ always @(posedge ddr_clk) begin
         if (state == ST_WAIT_LINE && ddr_dout_ready) begin
             fifo_wr      <= 1'b1;
             fifo_wr_data <= ddr_dout;
-            beat_count   <= beat_count + 7'd1;
+            beat_count   <= beat_count + 9'd1;
             timeout_cnt  <= 20'd0;
         end
 
@@ -504,7 +518,13 @@ always @(posedge ddr_clk) begin
 
             ST_WAIT_CTRL: begin
                 if (ddr_dout_ready) begin
+                    /* Option Y Phase 3 (2026-06-05): atomic CTRL+DIM read.
+                     * Single 64-bit DDR3 fetch returns CTRL in low 32 bits
+                     * and DIM in high 32 bits — guaranteed coherent because
+                     * ARM wrote them atomically as a 64-bit qword (see
+                     * docs/dev/option_y_phase1_architecture.md §5-6). */
                     ctrl_word   <= ddr_dout[31:0];
+                    dim_word    <= ddr_dout[63:32];
                     timeout_cnt <= 20'd0;
                     state       <= ST_CHECK_CTRL;
                 end
@@ -524,12 +544,21 @@ always @(posedge ddr_clk) begin
                     state <= ST_IDLE;
                 end
                 else if (ctrl_word[31:2] != prev_frame_counter) begin
-                    // New frame available
+                    // New frame available -- latch CTRL + DIM together.
                     prev_frame_counter <= ctrl_word[31:2];
                     active_buffer      <= ctrl_word[0];
                     stale_vblank_count <= 5'd0;
                     buf_base_addr      <= ctrl_word[0] ? BUF1_ADDR : BUF0_ADDR;
-                    display_line       <= 9'd0;
+                    /* Option Y Phase 3: latch source dims from DIM word.
+                     * DIM[10:0] = width (1..1920), DIM[21:11] = height (1..1080).
+                     * qwords_per_line = ceil(width / 4) — width is multiple of 4
+                     * for every real PAK (16-byte alignment from SDL surface
+                     * malloc), so just width[10:2]. For non-mod-4 widths the
+                     * +3 rounds up. */
+                    src_width          <= dim_word[10:0];
+                    src_height         <= dim_word[21:11];
+                    qwords_per_line    <= (dim_word[10:0] + 11'd3) >> 2;
+                    src_line           <= 11'd0;
                     preloading         <= 1'b1;
                     fifo_aclr_cnt      <= 4'd8;
                     state              <= ST_READ_LINE;
@@ -540,7 +569,7 @@ always @(posedge ddr_clk) begin
                         stale_vblank_count <= stale_vblank_count + 5'd1;
                     if (stale_vblank_count >= 5'd29)
                         frame_ready_reg <= 1'b0;
-                    display_line  <= 9'd0;
+                    src_line      <= 11'd0;
                     preloading    <= 1'b1;
                     fifo_aclr_cnt <= 4'd8;
                     state         <= ST_READ_LINE;
@@ -551,20 +580,24 @@ always @(posedge ddr_clk) begin
 
             ST_READ_LINE: begin
                 if (!ddr_busy && !fifo_aclr_ddr_active) begin
-                    // No vertical doubling -- source line == display line.
-                    // Each scanline is 80 qwords (LINE_STRIDE) starting from
-                    // buf_base_addr.
-                    ddr_addr     <= buf_base_addr + ({20'd0, display_line} * LINE_STRIDE);
-                    ddr_burstcnt <= LINE_BURST;
+                    /* Option Y Phase 3: variable-res line read. Each source
+                     * line is `qwords_per_line` qwords starting at
+                     * buf_base_addr + (src_line * qwords_per_line).
+                     * burstcnt is the low 8 bits of qwords_per_line — for
+                     * widths up to 1024 this fits in one burst (Phase 4
+                     * may add multi-burst for HD PAKs > 1024 px wide). */
+                    ddr_addr     <= buf_base_addr +
+                                    ({19'd0, src_line} * {19'd0, qwords_per_line});
+                    ddr_burstcnt <= qwords_per_line[7:0];
                     ddr_rd       <= 1'b1;
-                    beat_count   <= 7'd0;
+                    beat_count   <= 9'd0;
                     timeout_cnt  <= 20'd0;
                     state        <= ST_WAIT_LINE;
                 end
             end
 
             ST_WAIT_LINE: begin
-                if (beat_count == LINE_BURST[6:0])
+                if (beat_count == qwords_per_line[8:0])
                     state <= ST_LINE_DONE;
                 else if (timeout_cnt == TIMEOUT_MAX)
                     state <= ST_IDLE;
@@ -573,15 +606,15 @@ always @(posedge ddr_clk) begin
             end
 
             ST_LINE_DONE: begin
-                display_line <= display_line + 9'd1;
+                src_line <= src_line + 11'd1;
 
-                if (display_line == V_ACTIVE - 9'd1) begin
+                if (src_line == src_height - 11'd1) begin
                     first_frame_loaded <= 1'b1;
                     frame_ready_reg    <= 1'b1;
                     preloading         <= 1'b0;
                     state              <= ST_IDLE;
                 end
-                else if (preloading && display_line < 9'd1)
+                else if (preloading && src_line < 11'd1)
                     state <= ST_READ_LINE;
                 else begin
                     preloading <= 1'b0;
@@ -590,7 +623,16 @@ always @(posedge ddr_clk) begin
             end
 
             ST_WAIT_DISPLAY: begin
-                if (display_line < V_ACTIVE && new_line_ddr && !vblank_ddr)
+                /* Option Y: pacing now uses src_height (variable) instead
+                 * of fixed V_ACTIVE. Reader advances one source line per
+                 * new_line_ddr pulse outside vblank. The downscale module
+                 * (Phase 4) handles src_height → dest_height mapping at
+                 * its end via Bresenham; reader just feeds source lines
+                 * paced 1:1 with display scanlines. For src_height >
+                 * dest_height (He-Man 480→224), this means reader keeps
+                 * line_fifo well-supplied because dest scanouts are slower
+                 * than source-line production. */
+                if (src_line < src_height && new_line_ddr && !vblank_ddr)
                     state <= ST_READ_LINE;
             end
 
