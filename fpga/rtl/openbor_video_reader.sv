@@ -272,6 +272,20 @@ reg  [8:0]  beat_count;
 // Phase 5 task #19: multi-burst per source line.
 reg  [9:0]  qwords_remaining;   // qwords left in current source line
 localparam [9:0] MAX_BURST_QW = 10'd128;  // Max qwords per Avalon-MM burst
+/* Phase 5 task #19: actual next-burst size = min(remaining, MAX_BURST_QW).
+ * Combinational wire so both the FIFO availability gate AND the burstcnt
+ * assignment see the same value. Lets the gate use EXACT-size waits for
+ * tail bursts (e.g., Lust Rush's 16-qword tail waits for only 16 free,
+ * not the conservative 128 the wider bursts wait for). */
+wire [9:0] next_burst_size = (qwords_remaining > MAX_BURST_QW) ?
+                              MAX_BURST_QW : qwords_remaining;
+
+/* Size of the FIRST burst of a new source line. Used by ST_WAIT_DISPLAY
+ * gate (which fires BEFORE ST_LINE_BEGIN, so qwords_remaining isn't set
+ * yet). For ATOV (qpl=80): wait for 80 free. Lust Rush (qpl=400): 128.
+ * He-Man (qpl=240): 128. ATOV no longer conservatively waits 128. */
+wire [9:0] first_burst_size = (qwords_per_line > MAX_BURST_QW) ?
+                               MAX_BURST_QW : qwords_per_line;
 reg         first_frame_loaded;
 reg  [4:0]  stale_vblank_count;
 reg         preloading;
@@ -626,14 +640,13 @@ always @(posedge ddr_clk) begin
             end
 
             ST_READ_LINE: begin
-                /* Issue one burst (size = min(remaining, MAX_BURST_QW)).
-                 * Gated on FIFO having room for one max burst (128 qw).
-                 * If qwords_remaining > 128, burst at full MAX; else
-                 * burst exactly qwords_remaining for the tail. */
+                /* Issue one burst of `next_burst_size` qwords. FIFO gate
+                 * checks EXACT burst size needed (tight bound), not the
+                 * worst-case MAX_BURST_QW. Lust Rush's 16-qword tail
+                 * waits for only 16 free FIFO slots, not 128. */
                 if (!ddr_busy && !fifo_aclr_ddr_active &&
-                    (({2'd0, fifo_wrusedw} + {2'd0, MAX_BURST_QW[7:0]}) <= 10'd256)) begin
-                    ddr_burstcnt <= (qwords_remaining > MAX_BURST_QW) ?
-                                        MAX_BURST_QW[7:0] : qwords_remaining[7:0];
+                    (({2'd0, fifo_wrusedw} + next_burst_size) <= 10'd256)) begin
+                    ddr_burstcnt <= next_burst_size[7:0];
                     ddr_rd       <= 1'b1;
                     beat_count   <= 9'd0;
                     timeout_cnt  <= 20'd0;
@@ -687,12 +700,13 @@ always @(posedge ddr_clk) begin
             end
 
             ST_WAIT_DISPLAY: begin
-                /* Phase 5 task #19: pace by FIFO room for one max-size
-                 * burst (128 qw). Multi-burst lines reissue ST_READ_LINE
-                 * which has its own per-burst FIFO check, so this state
-                 * just gates the START of a new source line. */
+                /* Phase 5 task #19: pace by FIFO room for the FIRST burst
+                 * of the next line (= min(qpl, MAX_BURST_QW)). For ATOV
+                 * (qpl=80): 80 free. He-Man/Lust Rush: 128 free. Multi-
+                 * burst lines reissue ST_READ_LINE which has its own
+                 * per-burst FIFO check based on next_burst_size. */
                 if (src_line < src_height &&
-                    (({2'd0, fifo_wrusedw} + {2'd0, MAX_BURST_QW[7:0]}) <= 10'd256))
+                    (({2'd0, fifo_wrusedw} + first_burst_size) <= 10'd256))
                     state <= ST_LINE_BEGIN;       /* Phase 5 task #19 */
             end
 
