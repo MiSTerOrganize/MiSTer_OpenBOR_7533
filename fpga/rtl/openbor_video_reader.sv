@@ -292,6 +292,7 @@ assign ioctl_wait = cart_write_pending & ioctl_download;
 reg         fifo_wr;
 reg  [63:0] fifo_wr_data;
 wire        fifo_full;
+wire [7:0]  fifo_wrusedw;       /* Option Y Phase 4 hotfix: 256-deep FIFO → 8-bit used count */
 
 // -- Audio FIFO write signals -----------------------------------------
 reg         audio_fifo_wr;
@@ -645,16 +646,22 @@ always @(posedge ddr_clk) begin
             end
 
             ST_WAIT_DISPLAY: begin
-                /* Option Y: pacing now uses src_height (variable) instead
-                 * of fixed V_ACTIVE. Reader advances one source line per
-                 * new_line_ddr pulse outside vblank. The downscale module
-                 * (Phase 4) handles src_height → dest_height mapping at
-                 * its end via Bresenham; reader just feeds source lines
-                 * paced 1:1 with display scanlines. For src_height >
-                 * dest_height (He-Man 480→224), this means reader keeps
-                 * line_fifo well-supplied because dest scanouts are slower
-                 * than source-line production. */
-                if (src_line < src_height && new_line_ddr && !vblank_ddr)
+                /* Option Y Phase 4 hotfix (2026-06-05): pacing changed from
+                 * new_line-gated to FIFO-availability-gated. Phase 3's
+                 * new_line gate broke for any src_height > dest_height
+                 * (ATOV 240, PDC2 272, He-Man 480 all need MORE reads per
+                 * dest scanline than 1:1). Reader paced 1 line per scanline
+                 * couldn't keep up — V-pass would constantly stall waiting
+                 * for source lines that hadn't been read yet.
+                 *
+                 * New pacing: reader free-runs gated only on line_fifo
+                 * having room for the next burst (qwords_per_line entries).
+                 * H-pass drains line_fifo at clk_vid speed; V-pass paces
+                 * H-pass via slot-ring backpressure (Phase 4c handshake).
+                 * Backpressure naturally rate-limits reader through the
+                 * pipeline. */
+                if (src_line < src_height &&
+                    (({2'd0, fifo_wrusedw} + {2'd0, qwords_per_line[7:0]}) <= 10'd256))
                     state <= ST_READ_LINE;
             end
 
@@ -784,7 +791,7 @@ dcfifo #(
     .rdfull   (),
     .rdusedw  (),
     .wrempty  (),
-    .wrusedw  ()
+    .wrusedw  (fifo_wrusedw)        /* Option Y Phase 4 hotfix: expose for pacing */
 );
 
 // -- Pixel Output (1:1, no doubling) ----------------------------------
