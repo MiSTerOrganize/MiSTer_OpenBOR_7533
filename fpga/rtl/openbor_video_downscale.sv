@@ -206,27 +206,221 @@ function automatic edge_sharp_4;
 endfunction
 
 // ===================================================================
-// H-pass and V-pass datapaths — Phase 4b/4c
+// Slot ring (Phase 4b/4c)
 // ===================================================================
-// Phase 4a scaffolding: drive output to BLACK for now so the module
-// compiles end-to-end and we can verify scaffolding via Quartus syntax
-// + timing. H-pass + slot ring + V-pass datapaths land in 4b/4c on top
-// of this skeleton.
+// Two slots × 320 entries × 16-bit = 640 entries total ≈ 5 M10K blocks
+// (vs polyphase's 5 slots × 320 = 12 M10K). Each slot holds one
+// X-downscaled source line (already reduced to 320 pixels via H-pass).
+// V-pass (Phase 4c) reads 2 slots per dest line for 2-tap Y blend.
+//
+// Producer-consumer handshake (Phase 4c adds the consumer side):
+//   - slot_valid[N] = 1 means slot N has current-frame data
+//   - slot_src_line[N] = which source line that slot holds
+//   - At frame_start_pulse: both slots invalidated (slot_valid <= 2'b00)
+//   - H-pass writes line K to slot S → slot_src_line[S]=K, slot_valid[S]=1
+//   - H-pass STALLS before overwriting a slot V-pass still needs
+//     (Phase 4c uses v_pass_src_line_top / _bot to gate this)
+
+reg [15:0] line_buf [0:639];                 // 2 × 320 = 640 entries
+reg [10:0] slot_src_line [0:1];              // src line each slot holds (0x7FF = invalid)
+reg [1:0]  slot_valid;                       // bit N: slot N has current-frame data
+
+function automatic [9:0] slot_base(input s);
+    slot_base = s ? 10'd320 : 10'd0;
+endfunction
+
+// ===================================================================
+// H-pass datapath — Phase 4b (clk_vid domain)
+// ===================================================================
+// Reads source pixels from line_fifo, downscales X with edge-aware
+// NN/bilinear hybrid, writes 320-pixel rows into line_buf.
+//
+// Per clk_vid cycle when h_pass_active:
+//   1. If we have no current FIFO word and one is available, latch it
+//      and assert src_fifo_rd (consume).
+//   2. Extract source pixel from word at src_pixel_sub index.
+//   3. Shift register: sh_p0 <= sh_p1; sh_p1 <= current.
+//   4. Advance phase_h += h_step_fp. If phase_h crosses FP_ONE:
+//      - frac = phase_h_next[15:0]
+//      - if edge_sharp(sh_p0, sh_p1) → emit sh_p1 (nearest)
+//      - else → emit bilinear(sh_p0, sh_p1, frac)
+//      - line_buf[slot_base(write_slot) + dest_col_out] <= emit
+//      - dest_col_out <= dest_col_out + 1
+//   5. Advance src_col, src_pixel_sub.
+//   6. End of source line (src_col == src_width-1):
+//      - slot_src_line[write_slot] <= src_line_in
+//      - slot_valid[write_slot] <= 1
+//      - write_slot <= ~write_slot
+//      - src_line_in <= src_line_in + 1
+//      - reset src_col, phase_h, dest_col_out, shift register
+//      - if src_line_in == src_height - 1: h_pass_active <= 0 (frame done)
+
+reg [63:0] src_pixel_word;
+reg [1:0]  src_pixel_sub;
+reg        src_word_valid;
+reg [10:0] src_col;
+reg [10:0] src_line_in;
+reg [15:0] sh_p0, sh_p1;
+reg [31:0] phase_h;
+reg [10:0] dest_col_out;
+reg        h_pass_active;
+reg        write_slot;
+
+// Current source pixel: 16-bit slice from src_pixel_word at sub*16.
+wire [15:0] src_pix_cur = src_pixel_word[{src_pixel_sub, 4'b0000} +: 16];
+
+// Bresenham emit check (combinational).
+wire [32:0] phase_h_next = {1'b0, phase_h} + {1'b0, h_step_fp};
+wire        emit_pix     = phase_h_next >= {1'b0, FP_ONE};
+wire [31:0] phase_h_post = emit_pix ? phase_h_next[31:0] - FP_ONE : phase_h_next[31:0];
+
+// Edge-aware decision on the 2-pixel X neighborhood.
+wire [7:0]  hl_p0 = luma_of_pix(sh_p0);
+wire [7:0]  hl_p1 = luma_of_pix(sh_p1);
+wire        h_edge_sharp = edge_sharp_2(hl_p0, hl_p1, edge_threshold);
+
+// Bilinear blend between sh_p0 and sh_p1 with weight = phase_h_next[15:0].
+// frac=0 → sh_p0; frac=FFFF → sh_p1. RGB565 fields blended independently.
+//
+// Extract per-channel as 8-bit (replicate top bits to fill low bits — standard
+// RGB565→RGB888 conversion). Multiply by 16-bit weight, sum, shift back.
+wire [15:0] frac_h     = phase_h_next[15:0];
+wire [15:0] inv_frac_h = 16'hFFFF - frac_h;
+wire [7:0]  p0_r = {sh_p0[15:11], sh_p0[15:13]};
+wire [7:0]  p0_g = {sh_p0[10:5],  sh_p0[10:9]};
+wire [7:0]  p0_b = {sh_p0[ 4:0],  sh_p0[ 4:2]};
+wire [7:0]  p1_r = {sh_p1[15:11], sh_p1[15:13]};
+wire [7:0]  p1_g = {sh_p1[10:5],  sh_p1[10:9]};
+wire [7:0]  p1_b = {sh_p1[ 4:0],  sh_p1[ 4:2]};
+
+// Blend each channel: (a*inv + b*frac) >> 16. The 8x16 multiplies map to
+// DSP slices (Cyclone V 18x19 multipliers — 8x16 fits trivially).
+wire [23:0] blend_r24 = p0_r * inv_frac_h + p1_r * frac_h;
+wire [23:0] blend_g24 = p0_g * inv_frac_h + p1_g * frac_h;
+wire [23:0] blend_b24 = p0_b * inv_frac_h + p1_b * frac_h;
+wire [7:0]  blend_r   = blend_r24[23:16];
+wire [7:0]  blend_g   = blend_g24[23:16];
+wire [7:0]  blend_b   = blend_b24[23:16];
+
+// Final H-pass pixel: NN (sh_p1) on edge, bilinear-repacked on smooth.
+wire [15:0] h_emit_nn    = sh_p1;
+wire [15:0] h_emit_blend = {blend_r[7:3], blend_g[7:2], blend_b[7:3]};
+wire [15:0] h_emit_pix   = h_edge_sharp ? h_emit_nn : h_emit_blend;
+
+// ===================================================================
+// H-pass sequential logic
+// ===================================================================
+always @(posedge clk_vid) begin
+    if (reset) begin
+        src_fifo_rd       <= 1'b0;
+        src_pixel_word    <= 64'd0;
+        src_pixel_sub     <= 2'd0;
+        src_word_valid    <= 1'b0;
+        src_col           <= 11'd0;
+        src_line_in       <= 11'd0;
+        sh_p0             <= 16'd0;
+        sh_p1             <= 16'd0;
+        phase_h           <= 32'd0;
+        dest_col_out      <= 11'd0;
+        h_pass_active     <= 1'b0;
+        write_slot        <= 1'b0;
+        slot_src_line[0]  <= 11'h7FF;
+        slot_src_line[1]  <= 11'h7FF;
+        slot_valid        <= 2'b00;
+    end
+    else begin
+        src_fifo_rd <= 1'b0;
+
+        // Start H-pass on the frame_start_pulse fanout (CDC race fix —
+        // SAME pulse drives V-pass start in Phase 4c).
+        if (frame_start_pulse) begin
+            src_pixel_sub  <= 2'd0;
+            src_word_valid <= 1'b0;
+            src_col        <= 11'd0;
+            src_line_in    <= 11'd0;
+            sh_p0          <= 16'd0;
+            sh_p1          <= 16'd0;
+            phase_h        <= 32'd0;
+            dest_col_out   <= 11'd0;
+            h_pass_active  <= 1'b1;
+            write_slot     <= 1'b0;
+            slot_src_line[0] <= 11'h7FF;
+            slot_src_line[1] <= 11'h7FF;
+            slot_valid     <= 2'b00;
+        end
+
+        if (h_pass_active) begin
+            // Fetch new FIFO qword when current is exhausted.
+            if (!src_word_valid && !src_fifo_empty && !src_fifo_rd) begin
+                src_pixel_word <= src_fifo_rd_data;
+                src_pixel_sub  <= 2'd0;
+                src_word_valid <= 1'b1;
+                src_fifo_rd    <= 1'b1;
+            end
+
+            // Process one source pixel per cycle when valid.
+            if (src_word_valid) begin
+                // Shift register update.
+                sh_p0 <= sh_p1;
+                sh_p1 <= src_pix_cur;
+
+                // Bresenham phase advance.
+                phase_h <= phase_h_post;
+
+                // Emit dest pixel into line_buf.
+                if (emit_pix) begin
+                    line_buf[{1'b0, slot_base(write_slot)} +
+                             {1'b0, dest_col_out[8:0]}] <= h_emit_pix;
+                    dest_col_out <= dest_col_out + 11'd1;
+                end
+
+                // Advance source pixel position.
+                if (src_pixel_sub == 2'd3) begin
+                    src_word_valid <= 1'b0;       // need next qword
+                end
+                else begin
+                    src_pixel_sub <= src_pixel_sub + 2'd1;
+                end
+
+                src_col <= src_col + 11'd1;
+
+                // End of source line: rotate slot, latch slot metadata.
+                if (src_col == src_w_latched - 11'd1) begin
+                    src_col      <= 11'd0;
+                    phase_h      <= 32'd0;
+                    dest_col_out <= 11'd0;
+                    sh_p0        <= 16'd0;
+                    sh_p1        <= 16'd0;
+                    slot_src_line[write_slot] <= src_line_in;
+                    slot_valid[write_slot]     <= 1'b1;
+                    write_slot   <= ~write_slot;
+                    src_line_in  <= src_line_in + 11'd1;
+
+                    // End of frame.
+                    if (src_line_in == src_h_latched - 11'd1)
+                        h_pass_active <= 1'b0;
+                end
+            end
+        end
+    end
+end
+
+// ===================================================================
+// V-pass datapath — Phase 4c (placeholder)
+// ===================================================================
+// Phase 4b output: still BLACK. Phase 4c implements V-pass that reads
+// from line_buf via slot ring + 2-tap edge-aware blend + emit to r/g/b.
 
 always @(posedge clk_vid) begin
     if (reset) begin
         r_out <= 8'd0;
         g_out <= 8'd0;
         b_out <= 8'd0;
-        src_fifo_rd <= 1'b0;
     end
     else if (ce_pix) begin
-        // Phase 4a: black output everywhere. Phase 4b replaces this with
-        // the H-pass edge-aware pipeline. Phase 4c adds V-pass + slot ring.
         r_out <= 8'd0;
         g_out <= 8'd0;
         b_out <= 8'd0;
-        src_fifo_rd <= 1'b0;
     end
 end
 
