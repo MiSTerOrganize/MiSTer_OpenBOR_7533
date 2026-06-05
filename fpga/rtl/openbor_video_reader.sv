@@ -287,7 +287,13 @@ localparam [4:0] ST_WRITE_AUDIO_RD  = 5'd19;
  * REVERT AFTER MEASURED. */
 localparam [4:0] ST_WRITE_PROBE      = 5'd20;
 localparam [4:0] ST_WAIT_PROBE       = 5'd21;
+/* Phase 10 ring-buffer probe states (signal-tap-equivalent via DDR3). */
+localparam [4:0] ST_DUMP_RING        = 5'd22;
+localparam [4:0] ST_WAIT_RING        = 5'd23;
 localparam [28:0] PROBE_BASE_ADDR    = 29'h07580000;  /* byte 0x3AC00000 */
+/* Ring buffer DDR3 region: 256 qwords (2KB) directly after probe (6 qwords).
+ * Byte address: 0x3AC00040. Reader's qword address: PROBE+8. */
+localparam [28:0] RING_BASE_ADDR     = 29'h07580008;
 localparam [31:0] PROBE_MAGIC        = 32'hDEADBEEF;
 
 reg  [4:0]  state;
@@ -451,6 +457,22 @@ always @(posedge ddr_clk or posedge reset) begin
         src_target_force_cnt <= src_target_force_cnt - 4'd1;
 end
 
+/* Phase 10 DIAG (2026-06-04): TEMPORARY DIAG ring-buffer probe.
+ * SignalTap-equivalent via DDR3. Captures src_line, src_target,
+ * reader_pulse_count, state on a periodic sample (every 4096 clk_sys
+ * ≈ 41us). 256 samples × 8 bytes = 2KB buffer covers ~10.5ms of an
+ * FPGA frame. Reset write ptr + frame timestamp on new_frame_ddr.
+ * Dumps to DDR3 RING_BASE_ADDR via ST_DUMP_RING after probe writes.
+ * REVERT AFTER MEASURED. */
+reg [7:0]  ring_wr_ptr;
+reg [11:0] ring_sample_div;
+reg [19:0] ring_frame_ts;
+reg [63:0] ring_buf [0:255];
+/* Snapshot of ring_wr_ptr at frame end — tells ARM how many samples are valid */
+reg [7:0]  ring_wr_ptr_snap;
+/* Index for sequential ring dump to DDR3 */
+reg [7:0]  ring_dump_idx;
+
 /* Plan B DIAG (2026-06-04): snapshot reader-side dest_line_bin_r and
  * src_target_computed at V-pass dest=99 moment. We count active
  * new_line_ddr pulses since the last new_frame_ddr — by the 99th pulse,
@@ -474,6 +496,52 @@ always @(posedge ddr_clk or posedge reset) begin
             if (reader_pulse_count == 11'd98) begin
                 snap_dest_line_bin_r     <= dest_line_bin_r;
                 snap_src_target_computed <= src_target_computed;
+            end
+        end
+    end
+end
+
+/* Phase 10 ring-buffer capture (2026-06-04): periodic sampling of
+ * key reader signals to DDR3. Resets per FPGA frame; dumps to DDR3
+ * via state machine after probe writes. */
+always @(posedge ddr_clk or posedge reset) begin
+    if (reset) begin
+        ring_wr_ptr     <= 8'd0;
+        ring_sample_div <= 12'd0;
+        ring_frame_ts   <= 20'd0;
+        ring_wr_ptr_snap<= 8'd0;
+    end else begin
+        if (new_frame_ddr) begin
+            /* Snapshot current write pointer so ARM knows how many valid */
+            ring_wr_ptr_snap <= ring_wr_ptr;
+            /* Reset for new frame */
+            ring_wr_ptr      <= 8'd0;
+            ring_sample_div  <= 12'd0;
+            ring_frame_ts    <= 20'd0;
+        end else begin
+            ring_frame_ts <= ring_frame_ts + 20'd1;
+            if (ring_sample_div == 12'd4095) begin
+                ring_sample_div <= 12'd0;
+                if (ring_wr_ptr != 8'd255) begin
+                    /* Pack sample: [63:60]=pad(4) [59:55]=state(5)
+                     * [54:44]=pulse(11) [43:33]=tgt(11) [32:22]=line(11)
+                     * [21:11]=tgt_computed(11) [10:0]=tgt_alt — actually
+                     * just keep simple: [63:51]=ts(13) [50:46]=state(5)
+                     * [45:35]=pulse(11) [34:24]=tgt(11) [23:13]=line(11)
+                     * [12:2]=tgt_computed(11) [1:0]=pad(2) */
+                    ring_buf[ring_wr_ptr] <= {
+                        ring_frame_ts[12:0],    /* [63:51] 13b timestamp */
+                        state,                   /* [50:46] 5b */
+                        reader_pulse_count,      /* [45:35] 11b */
+                        src_target,              /* [34:24] 11b */
+                        src_line,                /* [23:13] 11b */
+                        src_target_computed,     /* [12:2]  11b */
+                        2'd0                     /* [1:0]   2b pad */
+                    };
+                    ring_wr_ptr <= ring_wr_ptr + 8'd1;
+                end
+            end else begin
+                ring_sample_div <= ring_sample_div + 12'd1;
             end
         end
     end
@@ -596,6 +664,11 @@ always @(posedge ddr_clk) begin
         if (!ddr_busy) ddr_we <= 1'b0;
 
         if (new_frame_ddr) new_frame_pending <= 1'b1;
+        /* Phase 9 v2 fix (2026-06-04): src_line/line reset MOVED from
+         * new_frame_ddr handler (race risk: could reset mid-burst) to
+         * ST_IDLE's new_frame_pending handler below. Same V-pass alignment
+         * (triggered by new_frame_ddr), but ONLY fires when reader is in
+         * ST_IDLE = guaranteed safe state (no in-flight DDR3 burst). */
 
         // Phase 5 fix (2026-06-04): drive src_target from V-pass's
         // dest_line CDC + multiplier instead of pulse-counted accumulator.
@@ -689,6 +762,17 @@ always @(posedge ddr_clk) begin
             ST_IDLE: begin
                 if (enable_ddr && new_frame_pending) begin
                     new_frame_pending <= 1'b0;
+                    /* Phase 9 v2 (2026-06-04): reset src_line + line state
+                     * here (ST_IDLE entry path for new FPGA frame). Triggered
+                     * by new_frame_pending = new_frame_ddr edge. Safe because
+                     * we're in ST_IDLE = no in-flight DDR3 burst. Replaces
+                     * the broken ARM-bump-triggered reset that caused 30-40%
+                     * stale frames (slots showing 235-239). */
+                    src_line              <= 11'd0;
+                    line_qwords_remaining <= 10'd0;
+                    line_qword_offset     <= 29'd0;
+                    preloading            <= 1'b1;
+                    fifo_aclr_cnt         <= 4'd8;
                     state <= ST_WRITE_JOY0;
                 end
                 else if (cart_write_pending)
@@ -815,42 +899,38 @@ always @(posedge ddr_clk) begin
                     state <= ST_IDLE;
                 end
                 else if (ctrl_word[31:2] != prev_frame_counter) begin
-                    // New frame. Compute per-frame source-loop parameters.
+                    // ARM bump — switch buffer, update per-PAK params.
+                    // Phase 9 (2026-06-04): src_line/line state NO LONGER reset here.
+                    // Reset moved to new_frame_ddr handler so it's V-pass-aligned
+                    // instead of ARM-aligned. Eliminates mid-FPGA-frame bursts.
                     prev_frame_counter <= ctrl_word[31:2];
                     active_buffer      <= ctrl_word[0];
                     stale_vblank_count <= 5'd0;
                     buf_base_addr      <= ctrl_word[0] ? BUF1_ADDR : BUF0_ADDR;
-                    src_line           <= 11'd0;
                     // qwords_per_line = (src_width + 3) >> 2  (ceil)
+                    // Recomputed when src_width changes (variable resolution).
                     qwords_per_line    <= (src_width + 11'd3) >> 2;
-                    line_qword_offset  <= 29'd0;
-                    preloading         <= 1'b1;
-                    fifo_aclr_cnt      <= 4'd8;
                     // Snapshot source dims onto export ports so the
                     // downscale module sees a stable value for the frame.
                     src_width_o        <= src_width;
                     src_height_o       <= src_height;
                     src_frame_start_o  <= 1'b1;    // pulses for 1 ddr_clk
-                    // Step 60 v2 fix: reset pacing for new frame. src_target
-                    // = LOOKAHEAD preloads first 3 lines for V-pass startup.
-                    dest_phase_v       <= 32'd0;
-                    src_target         <= LOOKAHEAD;
                     /* TEMPORARY DIAG: arm probe write on every frame start */
                     probe_pending      <= 1'b1;
                     probe_idx          <= 3'd0;
                     state              <= ST_READ_LINE;
                 end
                 else if (first_frame_loaded) begin
-                    // Stale frame — re-read previous buffer.
+                    // Stale frame — re-read previous buffer (ARM didn't bump).
+                    // Phase 9 (2026-06-04): src_line/line state NO LONGER reset
+                    // here. Reset moved to new_frame_ddr handler. This branch
+                    // just bumps the stale-vblank counter, refreshes dim ports,
+                    // and re-enters the read loop.
                     if (stale_vblank_count < 5'd30)
                         stale_vblank_count <= stale_vblank_count + 5'd1;
                     if (stale_vblank_count >= 5'd29)
                         frame_ready_reg <= 1'b0;
-                    src_line          <= 11'd0;
                     qwords_per_line   <= (src_width + 11'd3) >> 2;
-                    line_qword_offset <= 29'd0;
-                    preloading        <= 1'b1;
-                    fifo_aclr_cnt     <= 4'd8;
                     src_width_o       <= src_width;
                     src_height_o      <= src_height;
                     src_frame_start_o <= 1'b1;
@@ -1047,7 +1127,9 @@ always @(posedge ddr_clk) begin
                     ddr_burstcnt <= 8'd1;
                     ddr_we       <= 1'b1;
                     case (probe_idx)
-                        3'd0: ddr_din <= {2'd0, prev_frame_counter, PROBE_MAGIC};
+                        /* qw0: Phase 10 - bits [63:62]=pad, [61:40]=prev_frame_counter[29:8],
+                         * [39:32]=ring_wr_ptr_snap, [31:0]=PROBE_MAGIC. */
+                        3'd0: ddr_din <= {2'd0, prev_frame_counter[29:8], ring_wr_ptr_snap, PROBE_MAGIC};
                         /* qw1 (v4 REVERTED): counters dropped, back to
                          * 11-bit src_target + src_line with padding */
                         3'd1: ddr_din <= {21'd0, src_target, 21'd0, src_line};
@@ -1082,11 +1164,36 @@ always @(posedge ddr_clk) begin
             ST_WAIT_PROBE: begin
                 if (!ddr_busy && !ddr_we) begin
                     if (probe_idx == 3'd5) begin
-                        probe_pending <= 1'b0;
-                        state         <= ST_IDLE;
+                        /* Phase 10: chain to ring dump after probe completes */
+                        ring_dump_idx <= 8'd0;
+                        state         <= ST_DUMP_RING;
                     end else begin
                         probe_idx <= probe_idx + 3'd1;
                         state     <= ST_WRITE_PROBE;
+                    end
+                end
+            end
+
+            /* Phase 10 ring buffer dump: writes 256 qwords from ring_buf to
+             * DDR3 at RING_BASE_ADDR. Triggered after probe completes. */
+            ST_DUMP_RING: begin
+                if (!ddr_busy) begin
+                    ddr_addr     <= RING_BASE_ADDR + {21'd0, ring_dump_idx};
+                    ddr_din      <= ring_buf[ring_dump_idx];
+                    ddr_burstcnt <= 8'd1;
+                    ddr_we       <= 1'b1;
+                    state        <= ST_WAIT_RING;
+                end
+            end
+
+            ST_WAIT_RING: begin
+                if (!ddr_busy && !ddr_we) begin
+                    if (ring_dump_idx == 8'd255) begin
+                        probe_pending <= 1'b0;
+                        state         <= ST_IDLE;
+                    end else begin
+                        ring_dump_idx <= ring_dump_idx + 8'd1;
+                        state         <= ST_DUMP_RING;
                     end
                 end
             end

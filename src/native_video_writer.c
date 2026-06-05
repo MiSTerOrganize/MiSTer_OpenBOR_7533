@@ -505,7 +505,10 @@ void NativeVideoWriter_KeepaliveTick(void) {
         uint64_t qw4 = probe[4];  /* TEMPORARY DIAG v2 */
         uint64_t qw5 = probe[5];  /* TEMPORARY DIAG v2 */
         uint32_t magic    = (uint32_t)qw0;
-        uint32_t fcnt_fpga= (uint32_t)(qw0 >> 32);
+        /* Phase 10: qw0 [63:62]=pad, [61:40]=prev_frame_counter[29:8],
+         *           [39:32]=ring_wr_ptr_snap, [31:0]=magic */
+        uint8_t  ring_n   = (uint8_t)((qw0 >> 32) & 0xFF);
+        uint32_t fcnt_fpga= (uint32_t)((qw0 >> 40) & 0x3FFFFF);  /* 22-bit frame counter (shifted) */
         /* qw1 (v4 REVERTED): back to 11-bit src_target + src_line with pad. */
         uint16_t src_line   = (uint16_t)( qw1        & 0x7FF);
         uint16_t src_target = (uint16_t)((qw1 >> 32) & 0x7FF);
@@ -550,6 +553,27 @@ void NativeVideoWriter_KeepaliveTick(void) {
                 snap_line_needed, snap_slot_picked,
                 snap_s0, snap_s1, snap_s2, snap_s3, snap_s4,
                 snap_dest_bin, snap_tgt_computed);
+            /* Phase 10: dump ring buffer (256 qwords starting at probe+8) */
+            volatile uint64_t* ring = (volatile uint64_t*)(ddr_base + NV_PROBE_OFFSET + 8 * 8);
+            uint8_t n_valid = (ring_n < 256) ? ring_n : 0;
+            if (n_valid > 0) {
+                fprintf(stderr, "[RING] fpga_frame=%u n_valid=%u samples (ts/state/pulse/tgt/line/computed):\n",
+                        fcnt_fpga, n_valid);
+                for (uint8_t i = 0; i < n_valid; i++) {
+                    uint64_t s = ring[i];
+                    /* Sample layout: [63:51]=ts(13) [50:46]=state(5)
+                     * [45:35]=pulse(11) [34:24]=tgt(11) [23:13]=line(11)
+                     * [12:2]=computed(11) [1:0]=pad(2) */
+                    uint32_t ts       = (uint32_t)((s >> 51) & 0x1FFF);
+                    uint8_t  st       = (uint8_t) ((s >> 46) & 0x1F);
+                    uint16_t pulse    = (uint16_t)((s >> 35) & 0x7FF);
+                    uint16_t tgt      = (uint16_t)((s >> 24) & 0x7FF);
+                    uint16_t line     = (uint16_t)((s >> 13) & 0x7FF);
+                    uint16_t computed = (uint16_t)((s >>  2) & 0x7FF);
+                    fprintf(stderr, "  [%3u] ts=%5u st=%2u pulse=%4u tgt=%4u line=%4u computed=%4u\n",
+                            i, ts, st, pulse, tgt, line, computed);
+                }
+            }
         } else {
             fprintf(stderr, "[PROBE] no magic yet (got 0x%08X)\n", magic);
         }
