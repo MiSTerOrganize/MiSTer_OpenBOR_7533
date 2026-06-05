@@ -74,7 +74,8 @@ module openbor_video_reader (
     input  wire [31:0] joystick_3,
     input  wire [15:0] joystick_l_analog_0,
 
-    // Pixel output
+    // Pixel output (LEGACY — Phase 4d wires downscale's r/g/b to vga
+    // instead; this output stays until Phase 4d swap is complete).
     output reg   [7:0] r_out,
     output reg   [7:0] g_out,
     output reg   [7:0] b_out,
@@ -83,6 +84,16 @@ module openbor_video_reader (
     input  wire        clk_audio,       // 24.576 MHz
     output reg  [15:0] audio_l,
     output reg  [15:0] audio_r,
+
+    // Option Y Phase 3/4 source-pixel interface for downscale module.
+    // Reader writes source pixels into line_fifo at clk_sys; downscale
+    // consumes at clk_vid (line_fifo handles CDC).
+    input  wire        src_fifo_rd_i,         // downscale's fifo_rd
+    output wire [63:0] src_fifo_rd_data_o,    // line_fifo's q (showahead)
+    output wire        src_fifo_empty_o,      // line_fifo's rdempty
+    output wire [10:0] src_width_o,           // src_width (CDC handled at downscale)
+    output wire [10:0] src_height_o,          // src_height
+    output wire        src_frame_start_o,     // pulses 1 ddr_clk per frame start
 
     // Control
     input  wire        enable,
@@ -343,10 +354,12 @@ always @(posedge ddr_clk) begin
         audio_backoff      <= 20'd0;
         audio_fifo_wr      <= 1'b0;
         audio_fifo_wr_data <= 64'd0;
+        src_frame_start_r  <= 1'b0;
     end
     else begin
-        fifo_wr       <= 1'b0;
-        audio_fifo_wr <= 1'b0;
+        fifo_wr           <= 1'b0;
+        audio_fifo_wr     <= 1'b0;
+        src_frame_start_r <= 1'b0;   /* default: clear pulse each cycle */
         if (audio_backoff != 20'd0) audio_backoff <= audio_backoff - 20'd1;
         if (fifo_aclr_cnt != 4'd0) fifo_aclr_cnt <= fifo_aclr_cnt - 4'd1;
         if (!ddr_busy) ddr_rd <= 1'b0;
@@ -561,6 +574,7 @@ always @(posedge ddr_clk) begin
                     src_line           <= 11'd0;
                     preloading         <= 1'b1;
                     fifo_aclr_cnt      <= 4'd8;
+                    src_frame_start_r  <= 1'b1;  /* Option Y Phase 4: pulse to downscale */
                     state              <= ST_READ_LINE;
                 end
                 else if (first_frame_loaded) begin
@@ -715,9 +729,26 @@ end
 // -- Dual-Clock FIFO --------------------------------------------------
 // 64-bit wide, stores raw DDR3 beats (4 RGB565 pixels per entry).
 // Depth 256 to hold 2 preloaded scanlines (80 beats each = 160 total).
+//
+// Option Y Phase 4: line_fifo now has TWO potential consumers — the
+// legacy pixel-output block (`fifo_rd`) AND the downscale module
+// (`src_fifo_rd_i`). Reader OR's both signals on rdreq. Top.sv ensures
+// only one consumer is active at a time (Phase 4d swap removes the
+// legacy block's `fifo_rd` consumption).
 wire [63:0] fifo_rd_data;
 wire        fifo_empty;
 reg         fifo_rd;
+
+// Option Y Phase 4: expose line_fifo signals + source dims as outputs
+// for the downscale module (instantiated in top.sv).
+assign src_fifo_rd_data_o = fifo_rd_data;
+assign src_fifo_empty_o   = fifo_empty;
+assign src_width_o        = src_width;
+assign src_height_o       = src_height;
+// src_frame_start_o pulses 1 ddr_clk when ST_CHECK_CTRL transitions to
+// ST_READ_LINE on a new-frame detection (src_line set to 0).
+reg src_frame_start_r;
+assign src_frame_start_o  = src_frame_start_r;
 
 dcfifo #(
     .intended_device_family ("Cyclone V"),
@@ -735,7 +766,7 @@ dcfifo #(
     .aclr     (fifo_aclr),
     .data     (fifo_wr_data),
     .rdclk    (clk_vid),
-    .rdreq    (fifo_rd),
+    .rdreq    (fifo_rd | src_fifo_rd_i),
     .wrclk    (ddr_clk),
     .wrreq    (fifo_wr),
     .q        (fifo_rd_data),

@@ -117,6 +117,13 @@ openbor_video_timing timing (
 // -- DDR3 Pixel Reader -------------------------------------------------
 wire [7:0]  reader_r, reader_g, reader_b;
 wire        reader_frame_ready;
+// Option Y Phase 4: line_fifo + dims plumbed from reader → downscale.
+wire [63:0] reader_src_fifo_rd_data;
+wire        reader_src_fifo_empty;
+wire [10:0] reader_src_width;
+wire [10:0] reader_src_height;
+wire        reader_src_frame_start;
+wire        downscale_src_fifo_rd;
 
 openbor_video_reader reader (
     .ddr_clk        (clk_sys),
@@ -162,10 +169,54 @@ openbor_video_reader reader (
 
     .clk_audio      (clk_audio),
     .audio_l        (audio_l),
-    .audio_r        (audio_r)
+    .audio_r        (audio_r),
+
+    // Option Y Phase 4: downscale-side interface
+    .src_fifo_rd_i        (downscale_src_fifo_rd),
+    .src_fifo_rd_data_o   (reader_src_fifo_rd_data),
+    .src_fifo_empty_o     (reader_src_fifo_empty),
+    .src_width_o          (reader_src_width),
+    .src_height_o         (reader_src_height),
+    .src_frame_start_o    (reader_src_frame_start)
+);
+
+// -- Edge-aware Downscale (Phase 4a skeleton) --------------------------
+// Consumes source pixels from reader's line_fifo at clk_vid.
+// Produces 320×224 dest pixels with edge-aware NN/bilinear hybrid.
+// Phase 4a: black output. Phase 4b adds H-pass. Phase 4c adds V-pass.
+wire [7:0]  downscale_r, downscale_g, downscale_b;
+
+openbor_video_downscale downscale (
+    .clk_vid          (clk_vid),
+    .clk_sys          (clk_sys),
+    .ce_pix           (ce_pix),
+    .reset            (reset),
+
+    .de               (tim_de),
+    .hblank           (tim_hblank),
+    .vblank           (tim_vblank),
+    .new_frame        (tim_new_frame),
+    .new_line         (tim_new_line),
+
+    .src_fifo_rd      (downscale_src_fifo_rd),
+    .src_fifo_rd_data (reader_src_fifo_rd_data),
+    .src_fifo_empty   (reader_src_fifo_empty),
+
+    .src_width        (reader_src_width),
+    .src_height       (reader_src_height),
+    .src_frame_start  (reader_src_frame_start),
+    .frame_ready      (reader_frame_ready),
+
+    .r_out            (downscale_r),
+    .g_out            (downscale_g),
+    .b_out            (downscale_b),
+
+    .edge_threshold   (8'd24)               // default threshold; tunable later
 );
 
 // -- Output assignments ------------------------------------------------
+// Phase 4a: keep legacy reader r/g/b on vga. Phase 4d swaps to downscale.
+//   assign vga_r = downscale_r;  // Phase 4d
 assign vga_r     = reader_r;
 assign vga_g     = reader_g;
 assign vga_b     = reader_b;
