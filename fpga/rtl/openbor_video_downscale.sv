@@ -61,7 +61,7 @@ module openbor_video_downscale (
     // Source dimensions (latched at frame start)
     input  wire [10:0] src_width,           // 1..1920 from DIM
     input  wire [10:0] src_height,          // 1..1080 from DIM
-    input  wire        src_frame_start,     // single-cycle pulse @ ddr_clk side
+    input  wire        src_frame_start,     // 5-ddr_clk pulse @ ddr_clk side (Phase 7f)
     input  wire        frame_ready,         // CDC sys→vid handshake from reader
 
     // Dest pixel output (clk_vid)

@@ -101,7 +101,7 @@ module openbor_video_reader (
     output wire        src_fifo_empty_o,      // line_fifo's rdempty
     output wire [10:0] src_width_o,           // src_width (CDC handled at downscale)
     output wire [10:0] src_height_o,          // src_height
-    output wire        src_frame_start_o,     // pulses 1 ddr_clk per frame start
+    output wire        src_frame_start_o,     // pulses 5 ddr_clk per frame start (Phase 7f CDC widen)
 
     // Control
     input  wire        enable,
@@ -388,11 +388,26 @@ always @(posedge ddr_clk) begin
         audio_fifo_wr      <= 1'b0;
         audio_fifo_wr_data <= 64'd0;
         src_frame_start_r  <= 1'b0;
+        src_fs_hold_cnt    <= 3'd0;     /* Phase 7f: CDC pulse-hold counter */
     end
     else begin
         fifo_wr           <= 1'b0;
         audio_fifo_wr     <= 1'b0;
-        src_frame_start_r <= 1'b0;   /* default: clear pulse each cycle */
+        /* Phase 7f (2026-06-05): src_frame_start_r CDC pulse-width fix.
+         * src_frame_start_r crosses from ddr_clk (98 MHz, 10.2 ns) into
+         * clk_vid (53.693 MHz, 18.6 ns) via downscale's 2-FF sync.
+         * Original 1-ddr_clk pulse (10.2 ns) < clk_vid period (18.6 ns)
+         * could be MISSED by destination sampling. Hold for 5 ddr_clk
+         * cycles (~51 ns ≈ 2.74 clk_vid periods) — guarantees the
+         * 2-FF synchronizer captures it through both metastability
+         * resolution stages. */
+        if (src_fs_hold_cnt != 3'd0) begin
+            src_fs_hold_cnt   <= src_fs_hold_cnt - 3'd1;
+            src_frame_start_r <= 1'b1;   /* hold */
+        end
+        else begin
+            src_frame_start_r <= 1'b0;   /* released */
+        end
         if (audio_backoff != 20'd0) audio_backoff <= audio_backoff - 20'd1;
         if (fifo_aclr_cnt != 4'd0) fifo_aclr_cnt <= fifo_aclr_cnt - 4'd1;
         if (!ddr_busy) ddr_rd <= 1'b0;
@@ -608,6 +623,7 @@ always @(posedge ddr_clk) begin
                     preloading         <= 1'b1;
                     fifo_aclr_cnt      <= 4'd8;
                     src_frame_start_r  <= 1'b1;  /* Option Y Phase 4: pulse to downscale */
+                    src_fs_hold_cnt    <= 3'd4;  /* Phase 7f: hold 5 ddr_clk total (this + 4 more) */
                     state              <= ST_LINE_BEGIN;   /* Phase 5 task #19 */
                 end
                 else if (first_frame_loaded) begin
@@ -805,10 +821,13 @@ assign src_fifo_rd_data_o = fifo_rd_data;
 assign src_fifo_empty_o   = fifo_empty;
 assign src_width_o        = src_width;
 assign src_height_o       = src_height;
-// src_frame_start_o pulses 1 ddr_clk when ST_CHECK_CTRL transitions to
-// ST_LINE_BEGIN on a new-frame detection (src_line set to 0). Phase 5
-// task #21 downscale aligns this to vblank in clk_vid domain.
+// src_frame_start_o pulses 5 ddr_clk cycles (Phase 7f CDC widen) when
+// ST_CHECK_CTRL transitions to ST_LINE_BEGIN on a new-frame detection
+// (src_line set to 0). Held wide enough to guarantee 2-FF synchronizer
+// capture in clk_vid domain (5 ddr_clk = 51 ns ≈ 2.74 × clk_vid period).
+// Phase 5 task #21 downscale also aligns the pulse to vblank in clk_vid.
 reg src_frame_start_r;
+reg [2:0] src_fs_hold_cnt;   /* Phase 7f: hold src_frame_start_r for 5 ddr_clk to span 2.74 clk_vid periods */
 assign src_frame_start_o  = src_frame_start_r;
 
 dcfifo #(

@@ -33,7 +33,7 @@ INJECT_INCLUDES = """
  * keepalive thread forwards to NativeVideoWriter_KeepaliveTick (shared
  * state). The only constants this file still needs:
  *  - MISTER_DDR_PHYS_BASE: keepalive-thread mmap setup (legacy 1MB region
- *    sufficient — keepalive only touches CTRL+DIM at offset 0x000-0x007).
+ *    sufficient -- keepalive only touches CTRL+DIM at offset 0x000-0x007).
  *  - MISTER_DDR_REGION_SIZE: same.
  *  - MISTER_CTRL_OFFSET: still 0; used to fetch mister_ctrl pointer.
  */
@@ -48,13 +48,13 @@ static int                 mister_logged    = 0;
 static pthread_t           mister_keepalive_tid;
 static volatile int        mister_keepalive_run = 0;
 
-/* Keepalive thread — pings the FPGA frame counter every ~150ms even
+/* Keepalive thread -- pings the FPGA frame counter every ~150ms even
  * when ARM isn't producing frames. The FPGA video reader has a
  * staleness timeout: if frame_cnt doesn't change for ~30 vblanks
  * (~500ms) it sets frame_ready_reg=0 and BLANKS the screen. During
  * heavy model loading on big PAKs (He-Man, Avengers, late-build
  * sets) individual model parses take >500ms while the engine
- * throttles update_loading calls — so the FPGA blanks then unblanks,
+ * throttles update_loading calls -- so the FPGA blanks then unblanks,
  * producing the visible black/content flicker on the loading screen.
  *
  * Bumping the counter without rewriting the buffer keeps the same
@@ -63,7 +63,7 @@ static volatile int        mister_keepalive_run = 0;
  *
  * IMPORTANT (2026-05-22 fix): keepalive must SHARE STATE with
  * NativeVideoWriter_WriteFrame. Previously this thread maintained its
- * own `mister_frame_cnt` and used `mister_active_buf` — but after the
+ * own `mister_frame_cnt` and used `mister_active_buf` -- but after the
  * SDL renderer bypass landed (commit f1773f7), gameplay frames go
  * through NativeVideoWriter_WriteFrame which has its OWN frame_counter
  * and active_buf state. Two separate counters fighting over the same
@@ -102,7 +102,7 @@ static void mister_ddr_init(void) {
     /* Option Y Phase 4: do NOT write *mister_ctrl = 0 here. CTRL+DIM
      * initialization is owned by NativeVideoWriter_Init (atomic 64-bit
      * write at offset 0). If this init runs AFTER NativeVideoWriter_Init
-     * (typical case — engine starts before any SDL surface present),
+     * (typical case -- engine starts before any SDL surface present),
      * clobbering CTRL=0 would wipe the frame counter NativeVideoWriter
      * has already started incrementing, causing the FPGA reader to
      * think we're at frame 0 again and possibly mis-sync the buffer
@@ -114,7 +114,7 @@ static void mister_ddr_init(void) {
 }
 
 /* Option Y Phase 4 (2026-06-05): mister_present is now a thin wrapper
- * that forwards to NativeVideoWriter_WriteFrame — single source of
+ * that forwards to NativeVideoWriter_WriteFrame -- single source of
  * truth for the DDR3 write path. Eliminates the duplicate squish /
  * memory-map / CTRL-bump that conflicted with Phase 2-4's variable-res
  * architecture (legacy MISTER_BUF1_OFFSET=0x40040 was INSIDE Phase 4's
@@ -124,7 +124,7 @@ static void mister_ddr_init(void) {
  * DDR3, atomic CTRL+DIM 64-bit qword, double-buffered frame counter,
  * 16/8/32 bpp paths with NEON acceleration.
  *
- * The legacy mister_ddr_init() + keepalive thread still run — they're
+ * The legacy mister_ddr_init() + keepalive thread still run -- they're
  * needed for the no-engine-frames-yet case (FPGA staleness blank
  * prevention during PAK menu/load). Keepalive shares state with
  * NativeVideoWriter via NativeVideoWriter_KeepaliveTick(). */
@@ -160,7 +160,7 @@ static void mister_present(SDL_Surface *screen) {
         mister_logged = 1;
     }
 
-    /* 16bpp or 32bpp: pass NULL palette — those WriteFrame branches
+    /* 16bpp or 32bpp: pass NULL palette -- those WriteFrame branches
      * don't read it (palette is only consulted in the 8bpp branch,
      * which we already early-returned above). */
     NativeVideoWriter_WriteFrame(screen->pixels, w, h, pitch, bpp, NULL);
@@ -173,7 +173,7 @@ static void mister_present(SDL_Surface *screen) {
 # In SDL2's dummy framebuffer driver, the window surface is owned by
 # SDL itself (SDL_GetWindowSurface returns it). The driver's
 # UpdateWindowFramebuffer hook is called after the user calls
-# SDL_UpdateWindowSurface — that's our cue to read the surface and
+# SDL_UpdateWindowSurface -- that's our cue to read the surface and
 # write to DDR3.
 UPDATE_NEW_BODY = (
     "int SDL_DUMMY_UpdateWindowFramebuffer(_THIS, SDL_Window * window, const SDL_Rect * rects, int numrects)\n"
@@ -211,7 +211,7 @@ def main():
     src = src.replace(inject_anchor, inject_anchor + INJECT_INCLUDES, 1)
 
     # 2) DDR3 init now happens lazily in UpdateWindowFramebuffer body
-    #    (see UPDATE_NEW_BODY). Don't touch CreateWindowFramebuffer —
+    #    (see UPDATE_NEW_BODY). Don't touch CreateWindowFramebuffer --
     #    SDL 2.0.8 strict C90 mode rejects mid-function decl injection.
 
     # 3) Replace UpdateWindowFramebuffer body to push the surface to DDR3.
