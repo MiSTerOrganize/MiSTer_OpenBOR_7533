@@ -103,10 +103,65 @@ static void mister_ddr_init(void) {
     pthread_create(&mister_keepalive_tid, NULL, mister_keepalive_fn, NULL);
 }
 
-/* C90-compliant: all decls at function top, all loop indices declared
- * up front. SDL 2.0.8 builds with -Werror=declaration-after-statement
- * so we cannot mix decls with statements anywhere in this file. */
+/* Option Y Phase 4 (2026-06-05): mister_present is now a thin wrapper
+ * that forwards to NativeVideoWriter_WriteFrame — single source of
+ * truth for the DDR3 write path. Eliminates the duplicate squish /
+ * memory-map / CTRL-bump that conflicted with Phase 2-4's variable-res
+ * architecture (legacy MISTER_BUF1_OFFSET=0x40040 was INSIDE Phase 4's
+ * 4MB BUF0 region, causing every active_buf=1 frame to render black).
+ *
+ * NativeVideoWriter_WriteFrame handles: source-native-res write to
+ * DDR3, atomic CTRL+DIM 64-bit qword, double-buffered frame counter,
+ * 16/8/32 bpp paths with NEON acceleration.
+ *
+ * The legacy mister_ddr_init() + keepalive thread still run — they're
+ * needed for the no-engine-frames-yet case (FPGA staleness blank
+ * prevention during PAK menu/load). Keepalive shares state with
+ * NativeVideoWriter via NativeVideoWriter_KeepaliveTick(). */
+extern void NativeVideoWriter_WriteFrame(const void *pixels, int width,
+    int height, int pitch, int bpp, const void *palette);
+extern int NativeVideoWriter_IsActive(void);
+
 static void mister_present(SDL_Surface *screen) {
+    SDL_Palette *pal;
+    const void *pal_data;
+    int w, h, bpp, pitch;
+
+    if (!screen || !screen->pixels) return;
+    if (!NativeVideoWriter_IsActive()) return;
+
+    pal = screen->format->palette;
+    /* SDL_Color: R/G/B/A bytes per entry — 4 bytes/entry. Phase 2's
+     * WriteFrame 8bpp path uses 3 bytes/entry (R,G,B) without alpha.
+     * For SDL 2.0.8 pal->colors[N] = {r, g, b, a}, the 8bpp WriteFrame
+     * walks `pal[idx * 3]` so we'd need a different pack. For now
+     * pass NULL when 8bpp to fall through; engine's video_copy_screen
+     * path (apply_patches.py) handles palette via different mechanism. */
+    pal_data = NULL;
+    /* Note: 8bpp through this path won't display correctly without
+     * palette conversion. OpenBOR's render typically goes through
+     * video_copy_screen (apply_patches.py patched) which calls
+     * WriteFrame directly with the engine's palette. This SDL path
+     * is the fallback for menu/wait-for-cart screens. */
+    (void)pal;
+
+    w     = screen->w;
+    h     = screen->h;
+    bpp   = screen->format->BitsPerPixel;
+    pitch = screen->pitch;
+
+    if (!mister_logged) {
+        fprintf(stderr, "MiSTer SDL2 (Option Y): forwarding %dx%d bpp=%d pitch=%d to NativeVideoWriter\\n",
+                w, h, bpp, pitch);
+        mister_logged = 1;
+    }
+
+    NativeVideoWriter_WriteFrame(screen->pixels, w, h, pitch, bpp, pal_data);
+}
+
+#if 0  /* Option Y Phase 4: legacy squish path replaced by NativeVideoWriter
+        * forwarding above. Old code kept for reference; compile-disabled. */
+static void mister_present_legacy(SDL_Surface *screen) {
     int w, h, bpp, pitch;
     int Rshift, Gshift, Bshift, Rloss, Gloss, Bloss;
     SDL_Palette *pal;
@@ -132,12 +187,6 @@ static void mister_present(SDL_Surface *screen) {
     Bloss  = screen->format->Bloss;
     pal    = screen->format->palette;
 
-    /* Anisotropic squish: fill entire 320x224 dest, X and Y scaled
-     * independently. PAK content authored at non-224 native heights
-     * (320x240 ~7% Y compress, 480x272 X+Y compress, 960x480 huge
-     * downscale) maps to fill the Sega CD V28 NTSC active area
-     * exactly. Aspect distortion is intentional — matches Sega CD
-     * displayed area edge-to-edge, no letterbox. */
     sx256 = (w * 256) / MISTER_FRAME_W;
     sy256 = (h * 256) / MISTER_FRAME_H;
     out_w = MISTER_FRAME_W;
@@ -155,7 +204,6 @@ static void mister_present(SDL_Surface *screen) {
     dst  = (volatile uint16_t *)(mister_ddr + buf_off);
     rows = (const uint8_t *)screen->pixels;
 
-    /* Clear BOTH buffers once on first frame for letterboxing. */
     if (!cleared) {
         volatile uint16_t *buf0 = (volatile uint16_t *)(mister_ddr + MISTER_BUF0_OFFSET);
         volatile uint16_t *buf1 = (volatile uint16_t *)(mister_ddr + MISTER_BUF1_OFFSET);
@@ -244,6 +292,7 @@ static void mister_present(SDL_Surface *screen) {
     *mister_ctrl = (mister_frame_cnt << 2) | (mister_active_buf & 1);
     mister_active_buf ^= 1;
 }
+#endif  /* Option Y Phase 4: end of compile-disabled legacy squish path */
 /* end MiSTer DDR3 bridge */
 """
 
