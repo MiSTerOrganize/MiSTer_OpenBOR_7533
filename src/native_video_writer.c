@@ -251,23 +251,90 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
         }
     }
     else if (bpp == 32) {
-        /* 32bpp RGBA — byte-0=R, byte-1=G, byte-2=B, byte-3=A. */
+        /* 32bpp RGBA -- byte-0=R, byte-1=G, byte-2=B, byte-3=A.
+         *
+         * MiSTer 2026-06-06 (v3.2 quality): AREA-AVERAGE (box filter) downscale,
+         * replacing the nearest-neighbor src_x_table path for the 32bpp case.
+         * The v3.9/v3.10 palette pipeline forces hi-res PAKs (He-Man 960x480,
+         * Avengers/PDC2 480x272) through PIXEL_32, so this is the path where
+         * downscale quality matters most on a CRT. NN kept only 1 of every 3
+         * He-Man columns (aliased/janky text); box average folds every source
+         * pixel in each output pixel's footprint into the result.
+         *
+         * Separable two-stage box: a horizontal average per source row, then a
+         * vertical average across the row band. Each stage divides via a
+         * precomputed reciprocal-multiply ((sum * recip) >> 16) instead of a
+         * per-pixel integer divide. The filter self-degenerates to a 1:1 copy
+         * on any axis that isn't downscaled (ATOV is 320 wide -> hcnt==1), so
+         * near-native PAKs pay almost nothing and look identical.
+         *
+         * 8bpp/16bpp paths still use NN (src_x_table) -- extended in a later
+         * step. See CLAUDE.md video-pipeline section (this reverses the prior
+         * "NN not bilinear" squish decision for sub-native downscale). */
         const uint8_t* src = (const uint8_t*)pixels;
+
+        /* Per-frame horizontal block table: for each of the 320 output
+         * columns, the source column span [hx0, hx0+hcnt) and the reciprocal
+         * of its width. */
+        uint16_t hx0[NV_FRAME_WIDTH];
+        uint16_t hcnt[NV_FRAME_WIDTH];
+        uint32_t hrecip[NV_FRAME_WIDTH];
+        for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+            int x0 = (int)(((long)x * width) / NV_FRAME_WIDTH);
+            int x1 = (int)(((long)(x + 1) * width) / NV_FRAME_WIDTH);
+            if (x1 <= x0) x1 = x0 + 1;
+            if (x1 > width)  x1 = width;
+            if (x0 >= width) x0 = width - 1;
+            hx0[x]    = (uint16_t)x0;
+            hcnt[x]   = (uint16_t)(x1 - x0);
+            hrecip[x] = (uint32_t)((1u << 16) / (uint32_t)(x1 - x0));
+        }
+
+        /* Vertical accumulators (sum of per-row horizontal averages). uint32
+         * is ample: max per-row term 255, few rows per band (~5 at 1080p). */
+        uint32_t vr[NV_FRAME_WIDTH], vg[NV_FRAME_WIDTH], vb[NV_FRAME_WIDTH];
+
         for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
-            int src_y = (y * sy256) / 256;
-            if (src_y >= height) src_y = height - 1;
-            const uint8_t* row = src + src_y * pitch;
+            int y0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
+            int y1 = (int)(((long)(y + 1) * height) / NV_FRAME_HEIGHT);
+            if (y1 <= y0) y1 = y0 + 1;
+            if (y1 > height)  y1 = height;
+            if (y0 >= height) y0 = height - 1;
+            uint32_t vcnt   = (uint32_t)(y1 - y0);
+            uint32_t vrecip = (1u << 16) / vcnt;
+
+            memset(vr, 0, sizeof(vr));
+            memset(vg, 0, sizeof(vg));
+            memset(vb, 0, sizeof(vb));
+
+            /* Horizontal-average each source row in the band, accumulate down. */
+            for (int sy = y0; sy < y1; sy++) {
+                const uint8_t* row = src + (size_t)sy * pitch;
+                for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                    const uint8_t* p = row + (size_t)hx0[x] * 4;
+                    uint32_t rs = 0, gs = 0, bs = 0;
+                    int n = hcnt[x];
+                    for (int k = 0; k < n; k++) {
+                        rs += p[0]; gs += p[1]; bs += p[2];
+                        p += 4;
+                    }
+                    vr[x] += (rs * hrecip[x]) >> 16;
+                    vg[x] += (gs * hrecip[x]) >> 16;
+                    vb[x] += (bs * hrecip[x]) >> 16;
+                }
+            }
+
+            /* Vertical average + pack RGB565, uint64-packed 4-wide stores. */
             volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
-            /* Step 20: uint64_t-packed writes (4 px per store). Per-pixel
-             * RGBA-to-RGB565 conversion stays scalar; the win is in the
-             * DDR3 write width. */
             for (int x = 0; x < NV_FRAME_WIDTH; x += 4) {
                 uint16_t out[4];
                 for (int k = 0; k < 4; k++) {
-                    int i = src_x_table[x + k] * 4;
-                    uint8_t r = row[i + 0];
-                    uint8_t g = row[i + 1];
-                    uint8_t b = row[i + 2];
+                    uint32_t r = (vr[x + k] * vrecip) >> 16;
+                    uint32_t g = (vg[x + k] * vrecip) >> 16;
+                    uint32_t b = (vb[x + k] * vrecip) >> 16;
+                    if (r > 255) r = 255;  /* defensive: truncation never exceeds true avg */
+                    if (g > 255) g = 255;
+                    if (b > 255) b = 255;
                     out[k] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
                 }
                 uint64_t packed = ((uint64_t)out[0]) | ((uint64_t)out[1] << 16)
