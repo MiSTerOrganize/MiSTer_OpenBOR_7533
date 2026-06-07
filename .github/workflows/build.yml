@@ -1,7 +1,13 @@
 name: Build MiSTer ARM
+run-name: ${{ inputs.reason || github.event.head_commit.message || github.ref_name }}
 
 on:
   workflow_dispatch:        # manual "Run workflow" button (build any branch on demand)
+    inputs:
+      reason:
+        description: 'Build label (shown as the run title in the Actions tab)'
+        required: false
+        type: string
   push:
     branches: [main]
     tags: ['v*']
