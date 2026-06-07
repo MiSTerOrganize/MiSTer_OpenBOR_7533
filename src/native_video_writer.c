@@ -337,17 +337,65 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             memset(vb, 0, sizeof(vb));
 
             /* Accumulate raw block sums across the source-row band (no divide). */
-            for (int sy = y0; sy < y1; sy++) {
-                const uint8_t* row = src + (size_t)sy * pitch;
-                for (int x = 0; x < NV_FRAME_WIDTH; x++) {
-                    const uint8_t* p = row + (size_t)s_hx0[x] * 4;
-                    uint32_t rs = 0, gs = 0, bs = 0;
-                    int n = s_hcnt[x];
-                    for (int k = 0; k < n; k++) {
-                        rs += p[0]; gs += p[1]; bs += p[2];
-                        p += 4;
+#ifdef __ARM_NEON
+            if (width == NV_FRAME_WIDTH * 3) {
+                /* MiSTer 2026-06-07: exact 3x horizontal box via NEON (He-Man
+                 * 960->320). Deinterleave RGBA -> R/G/B planes (vld4q), then
+                 * vld3 deinterleave-by-3 yields group-of-3 sums directly --
+                 * byte-identical to the scalar box for hcnt==3 (buffer-verified).
+                 * Only the exact 3x case qualifies (320*3==960, 48-aligned, no
+                 * boundary spill); every other ratio uses the scalar path. */
+                static uint8_t planeR[NV_FRAME_WIDTH * 3];
+                static uint8_t planeG[NV_FRAME_WIDTH * 3];
+                static uint8_t planeB[NV_FRAME_WIDTH * 3];
+                for (int sy = y0; sy < y1; sy++) {
+                    const uint8_t* row = src + (size_t)sy * pitch;
+                    for (int sx = 0; sx < NV_FRAME_WIDTH * 3; sx += 16) {
+                        uint8x16x4_t px = vld4q_u8(row + (size_t)sx * 4);
+                        vst1q_u8(planeR + sx, px.val[0]);
+                        vst1q_u8(planeG + sx, px.val[1]);
+                        vst1q_u8(planeB + sx, px.val[2]);
                     }
-                    vr[x] += rs; vg[x] += gs; vb[x] += bs;
+                    for (int x = 0; x < NV_FRAME_WIDTH; x += 16) {
+                        int sx = x * 3;
+                        uint8x16x3_t gr = vld3q_u8(planeR + sx);
+                        uint8x16x3_t gg = vld3q_u8(planeG + sx);
+                        uint8x16x3_t gb = vld3q_u8(planeB + sx);
+                        uint16x8_t rlo = vaddw_u8(vaddl_u8(vget_low_u8(gr.val[0]),  vget_low_u8(gr.val[1])),  vget_low_u8(gr.val[2]));
+                        uint16x8_t rhi = vaddw_u8(vaddl_u8(vget_high_u8(gr.val[0]), vget_high_u8(gr.val[1])), vget_high_u8(gr.val[2]));
+                        uint16x8_t glo = vaddw_u8(vaddl_u8(vget_low_u8(gg.val[0]),  vget_low_u8(gg.val[1])),  vget_low_u8(gg.val[2]));
+                        uint16x8_t ghi = vaddw_u8(vaddl_u8(vget_high_u8(gg.val[0]), vget_high_u8(gg.val[1])), vget_high_u8(gg.val[2]));
+                        uint16x8_t blo = vaddw_u8(vaddl_u8(vget_low_u8(gb.val[0]),  vget_low_u8(gb.val[1])),  vget_low_u8(gb.val[2]));
+                        uint16x8_t bhi = vaddw_u8(vaddl_u8(vget_high_u8(gb.val[0]), vget_high_u8(gb.val[1])), vget_high_u8(gb.val[2]));
+                        vst1q_u32(&vr[x],      vaddq_u32(vld1q_u32(&vr[x]),      vmovl_u16(vget_low_u16(rlo))));
+                        vst1q_u32(&vr[x + 4],  vaddq_u32(vld1q_u32(&vr[x + 4]),  vmovl_u16(vget_high_u16(rlo))));
+                        vst1q_u32(&vr[x + 8],  vaddq_u32(vld1q_u32(&vr[x + 8]),  vmovl_u16(vget_low_u16(rhi))));
+                        vst1q_u32(&vr[x + 12], vaddq_u32(vld1q_u32(&vr[x + 12]), vmovl_u16(vget_high_u16(rhi))));
+                        vst1q_u32(&vg[x],      vaddq_u32(vld1q_u32(&vg[x]),      vmovl_u16(vget_low_u16(glo))));
+                        vst1q_u32(&vg[x + 4],  vaddq_u32(vld1q_u32(&vg[x + 4]),  vmovl_u16(vget_high_u16(glo))));
+                        vst1q_u32(&vg[x + 8],  vaddq_u32(vld1q_u32(&vg[x + 8]),  vmovl_u16(vget_low_u16(ghi))));
+                        vst1q_u32(&vg[x + 12], vaddq_u32(vld1q_u32(&vg[x + 12]), vmovl_u16(vget_high_u16(ghi))));
+                        vst1q_u32(&vb[x],      vaddq_u32(vld1q_u32(&vb[x]),      vmovl_u16(vget_low_u16(blo))));
+                        vst1q_u32(&vb[x + 4],  vaddq_u32(vld1q_u32(&vb[x + 4]),  vmovl_u16(vget_high_u16(blo))));
+                        vst1q_u32(&vb[x + 8],  vaddq_u32(vld1q_u32(&vb[x + 8]),  vmovl_u16(vget_low_u16(bhi))));
+                        vst1q_u32(&vb[x + 12], vaddq_u32(vld1q_u32(&vb[x + 12]), vmovl_u16(vget_high_u16(bhi))));
+                    }
+                }
+            } else
+#endif
+            {
+                for (int sy = y0; sy < y1; sy++) {
+                    const uint8_t* row = src + (size_t)sy * pitch;
+                    for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                        const uint8_t* p = row + (size_t)s_hx0[x] * 4;
+                        uint32_t rs = 0, gs = 0, bs = 0;
+                        int n = s_hcnt[x];
+                        for (int k = 0; k < n; k++) {
+                            rs += p[0]; gs += p[1]; bs += p[2];
+                            p += 4;
+                        }
+                        vr[x] += rs; vg[x] += gs; vb[x] += bs;
+                    }
                 }
             }
 
