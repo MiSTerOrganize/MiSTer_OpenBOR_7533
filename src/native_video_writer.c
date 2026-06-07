@@ -26,6 +26,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <time.h>   /* TEMPORARY DIAG (REVERT AFTER MEASURED): vcopy timing */
 /* Step 20 (2026-05-27): NEON intrinsics for 128-bit DDR3 stores in the
  * no-squish fast path of WriteFrame. Cortex-A9 + -mfpu=neon -mfloat-abi=hard
  * build flags (see CLAUDE.md OpenBOR build config) guarantee NEON support. */
@@ -314,6 +315,12 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * DDR3. static (render-thread only). ~215 KB. */
         static uint8_t s_avg[NV_FRAME_HEIGHT * NV_FRAME_WIDTH * 3];
 
+        /* TEMPORARY DIAG (REVERT AFTER MEASURED): vcopy box-vs-sharpen split. */
+        static unsigned long long _vc_box_ns = 0, _vc_shp_ns = 0;
+        static int _vc_frames = 0, _vc_logged = 0;
+        struct timespec _vt0, _vt1, _vt2;
+        clock_gettime(CLOCK_MONOTONIC, &_vt0);
+
         /* PASS 1: box area-average -> 8-bit s_avg (no DDR3 write yet). */
         for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
             int y0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
@@ -452,6 +459,8 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             }
         }
 
+        clock_gettime(CLOCK_MONOTONIC, &_vt1);   /* TEMPORARY DIAG: end box, start sharpen */
+
         /* PASS 2: light unsharp on the averaged image, then pack RGB565.
          * sharp = center + laplacian * NV_SHARPEN_NUM / NV_SHARPEN_DEN, where
          * laplacian = 4*center - up - down - left - right (cross kernel).
@@ -487,6 +496,18 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                 | ((uint64_t)out[2] << 32) | ((uint64_t)out[3] << 48);
                 *(volatile uint64_t*)(dst_row + x) = packed;
             }
+        }
+
+        /* TEMPORARY DIAG (REVERT AFTER MEASURED): report box vs sharpen split once. */
+        clock_gettime(CLOCK_MONOTONIC, &_vt2);
+        _vc_box_ns += (unsigned long long)(_vt1.tv_sec - _vt0.tv_sec) * 1000000000ULL + (_vt1.tv_nsec - _vt0.tv_nsec);
+        _vc_shp_ns += (unsigned long long)(_vt2.tv_sec - _vt1.tv_sec) * 1000000000ULL + (_vt2.tv_nsec - _vt1.tv_nsec);
+        if (++_vc_frames >= 200 && !_vc_logged) {
+            fprintf(stderr, "[VCOPY] w=%d h=%d neon3x=%d box=%lluus sharpen=%lluus (avg/%d)\n",
+                    width, height, (int)(width == NV_FRAME_WIDTH * 3),
+                    _vc_box_ns / (unsigned)_vc_frames / 1000ULL,
+                    _vc_shp_ns / (unsigned)_vc_frames / 1000ULL, _vc_frames);
+            _vc_logged = 1;
         }
     }
     else {
