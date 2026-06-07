@@ -47,6 +47,12 @@
 #define NV_FRAME_HEIGHT     224   /* Sega CD V28 NTSC */
 #define NV_FRAME_BYTES      (NV_FRAME_WIDTH * NV_FRAME_HEIGHT * 2)  /* 143,360 */
 
+/* Light unsharp applied to the 32bpp area-average output -- re-crisps edges
+ * softened by the box downscale. sharp = center + laplacian*NUM/DEN. Lower
+ * ratio = gentler; 1/4 is light, drop to 1/8 if it looks harsh/haloed. */
+#define NV_SHARPEN_NUM      1
+#define NV_SHARPEN_DEN      4
+
 static const uint32_t joy_offsets[4] = {
     NV_JOY0_OFFSET, NV_JOY1_OFFSET, NV_JOY2_OFFSET, NV_JOY3_OFFSET
 };
@@ -303,6 +309,12 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * is ample: block_sum <= block_area * 255 (~7650 at 1080p source). */
         uint32_t vr[NV_FRAME_WIDTH], vg[NV_FRAME_WIDTH], vb[NV_FRAME_WIDTH];
 
+        /* Averaged 8-bit RGB intermediate. Pass 1 fills it from the box
+         * average; pass 2 reads 3x3 neighborhoods for the unsharp + packs to
+         * DDR3. static (render-thread only). ~215 KB. */
+        static uint8_t s_avg[NV_FRAME_HEIGHT * NV_FRAME_WIDTH * 3];
+
+        /* PASS 1: box area-average -> 8-bit s_avg (no DDR3 write yet). */
         for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
             int y0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
             int y1 = (int)(((long)(y + 1) * height) / NV_FRAME_HEIGHT);
@@ -339,18 +351,51 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                 }
             }
 
-            /* One rounded divide per output pixel, pack RGB565, uint64 stores. */
+            /* One rounded divide per output pixel -> store 8-bit RGB. */
+            uint8_t* arow = s_avg + (size_t)y * NV_FRAME_WIDTH * 3;
+            for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                uint32_t rc = recip[s_hcnt[x]];
+                uint32_t r = (vr[x] * rc + (1u << 19)) >> 20;
+                uint32_t g = (vg[x] * rc + (1u << 19)) >> 20;
+                uint32_t b = (vb[x] * rc + (1u << 19)) >> 20;
+                if (r > 255) r = 255;
+                if (g > 255) g = 255;
+                if (b > 255) b = 255;
+                arow[x * 3 + 0] = (uint8_t)r;
+                arow[x * 3 + 1] = (uint8_t)g;
+                arow[x * 3 + 2] = (uint8_t)b;
+            }
+        }
+
+        /* PASS 2: light unsharp on the averaged image, then pack RGB565.
+         * sharp = center + laplacian * NV_SHARPEN_NUM / NV_SHARPEN_DEN, where
+         * laplacian = 4*center - up - down - left - right (cross kernel).
+         * Re-crisps edges/text softened by the box average. Borders replicate
+         * the edge pixel so the laplacian is 0 there (no border artifacts). */
+        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+            int yu = (y > 0) ? (y - 1) : 0;
+            int yd = (y < NV_FRAME_HEIGHT - 1) ? (y + 1) : (NV_FRAME_HEIGHT - 1);
+            const uint8_t* rowc = s_avg + (size_t)y  * NV_FRAME_WIDTH * 3;
+            const uint8_t* rowu = s_avg + (size_t)yu * NV_FRAME_WIDTH * 3;
+            const uint8_t* rowd = s_avg + (size_t)yd * NV_FRAME_WIDTH * 3;
             volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
             for (int x = 0; x < NV_FRAME_WIDTH; x += 4) {
                 uint16_t out[4];
                 for (int k = 0; k < 4; k++) {
-                    uint32_t rc = recip[s_hcnt[x + k]];
-                    uint32_t r = (vr[x + k] * rc + (1u << 19)) >> 20;
-                    uint32_t g = (vg[x + k] * rc + (1u << 19)) >> 20;
-                    uint32_t b = (vb[x + k] * rc + (1u << 19)) >> 20;
-                    if (r > 255) r = 255;  /* defensive: truncation never exceeds true avg */
-                    if (g > 255) g = 255;
-                    if (b > 255) b = 255;
+                    int xx = x + k;
+                    int xl = (xx > 0) ? (xx - 1) : 0;
+                    int xr = (xx < NV_FRAME_WIDTH - 1) ? (xx + 1) : (NV_FRAME_WIDTH - 1);
+                    int ci = xx * 3, li = xl * 3, ri = xr * 3;
+                    int cr = rowc[ci + 0], cg = rowc[ci + 1], cb = rowc[ci + 2];
+                    int lr = 4 * cr - rowu[ci + 0] - rowd[ci + 0] - rowc[li + 0] - rowc[ri + 0];
+                    int lg = 4 * cg - rowu[ci + 1] - rowd[ci + 1] - rowc[li + 1] - rowc[ri + 1];
+                    int lb = 4 * cb - rowu[ci + 2] - rowd[ci + 2] - rowc[li + 2] - rowc[ri + 2];
+                    int r = cr + lr * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
+                    int g = cg + lg * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
+                    int b = cb + lb * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
+                    if (r < 0) r = 0; else if (r > 255) r = 255;
+                    if (g < 0) g = 0; else if (g > 255) g = 255;
+                    if (b < 0) b = 0; else if (b > 255) b = 255;
                     out[k] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
                 }
                 uint64_t packed = ((uint64_t)out[0]) | ((uint64_t)out[1] << 16)
