@@ -261,37 +261,46 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * He-Man columns (aliased/janky text); box average folds every source
          * pixel in each output pixel's footprint into the result.
          *
-         * Separable two-stage box: a horizontal average per source row, then a
-         * vertical average across the row band. Each stage divides via a
-         * precomputed reciprocal-multiply ((sum * recip) >> 16) instead of a
-         * per-pixel integer divide. The filter self-degenerates to a 1:1 copy
-         * on any axis that isn't downscaled (ATOV is 320 wide -> hcnt==1), so
-         * near-native PAKs pay almost nothing and look identical.
+         * Separable box, single divide: accumulate the raw 2D block sum, then
+         * divide ONCE per output pixel via a reciprocal-multiply keyed on the
+         * block area (h*vcnt). Fewer multiplies than per-row averaging and one
+         * rounding step instead of two. The horizontal block table is cached
+         * across frames (recomputed only on a resolution change). The filter
+         * self-degenerates to a 1:1 copy on any axis that isn't downscaled
+         * (ATOV is 320 wide -> hcnt==1), so near-native PAKs look identical.
          *
          * 8bpp/16bpp paths still use NN (src_x_table) -- extended in a later
          * step. See CLAUDE.md video-pipeline section (this reverses the prior
          * "NN not bilinear" squish decision for sub-native downscale). */
         const uint8_t* src = (const uint8_t*)pixels;
 
-        /* Per-frame horizontal block table: for each of the 320 output
-         * columns, the source column span [hx0, hx0+hcnt) and the reciprocal
-         * of its width. */
-        uint16_t hx0[NV_FRAME_WIDTH];
-        uint16_t hcnt[NV_FRAME_WIDTH];
-        uint32_t hrecip[NV_FRAME_WIDTH];
-        for (int x = 0; x < NV_FRAME_WIDTH; x++) {
-            int x0 = (int)(((long)x * width) / NV_FRAME_WIDTH);
-            int x1 = (int)(((long)(x + 1) * width) / NV_FRAME_WIDTH);
-            if (x1 <= x0) x1 = x0 + 1;
-            if (x1 > width)  x1 = width;
-            if (x0 >= width) x0 = width - 1;
-            hx0[x]    = (uint16_t)x0;
-            hcnt[x]   = (uint16_t)(x1 - x0);
-            hrecip[x] = (uint32_t)((1u << 16) / (uint32_t)(x1 - x0));
+        /* Cached horizontal block table: source column span [hx0, hx0+hcnt)
+         * per output column. Only recomputed when the PAK width changes, not
+         * per frame. static is safe -- WriteFrame runs only on the render
+         * thread; the keepalive thread uses KeepaliveTick and never enters. */
+        static uint16_t s_hx0[NV_FRAME_WIDTH];
+        static uint16_t s_hcnt[NV_FRAME_WIDTH];
+        static int s_htab_width   = -1;
+        static int s_htab_maxhcnt = 1;
+        if (width != s_htab_width) {
+            int maxh = 1;
+            for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                int x0 = (int)(((long)x * width) / NV_FRAME_WIDTH);
+                int x1 = (int)(((long)(x + 1) * width) / NV_FRAME_WIDTH);
+                if (x1 <= x0) x1 = x0 + 1;
+                if (x1 > width)  x1 = width;
+                if (x0 >= width) x0 = width - 1;
+                s_hx0[x]  = (uint16_t)x0;
+                s_hcnt[x] = (uint16_t)(x1 - x0);
+                if ((x1 - x0) > maxh) maxh = x1 - x0;
+            }
+            if (maxh > 63) maxh = 63;   /* recip[] table bound (defensive) */
+            s_htab_width   = width;
+            s_htab_maxhcnt = maxh;
         }
 
-        /* Vertical accumulators (sum of per-row horizontal averages). uint32
-         * is ample: max per-row term 255, few rows per band (~5 at 1080p). */
+        /* Raw 2D block-sum accumulators; one divide per output pixel. uint32
+         * is ample: block_sum <= block_area * 255 (~7650 at 1080p source). */
         uint32_t vr[NV_FRAME_WIDTH], vg[NV_FRAME_WIDTH], vb[NV_FRAME_WIDTH];
 
         for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
@@ -300,38 +309,45 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             if (y1 <= y0) y1 = y0 + 1;
             if (y1 > height)  y1 = height;
             if (y0 >= height) y0 = height - 1;
-            uint32_t vcnt   = (uint32_t)(y1 - y0);
-            uint32_t vrecip = (1u << 16) / vcnt;
+            int vcnt = y1 - y0;
+
+            /* Combined reciprocal per distinct horizontal block width:
+             * recip[h] = (1<<20) / (h * vcnt). out = (block_sum*recip + half)
+             * >> 20 = block_sum / (h*vcnt). Only a few distinct h values, so
+             * this replaces a per-pixel integer divide. */
+            uint32_t recip[64];
+            for (int h = 1; h <= s_htab_maxhcnt; h++) {
+                recip[h] = (uint32_t)((1u << 20) / ((uint32_t)h * (uint32_t)vcnt));
+            }
 
             memset(vr, 0, sizeof(vr));
             memset(vg, 0, sizeof(vg));
             memset(vb, 0, sizeof(vb));
 
-            /* Horizontal-average each source row in the band, accumulate down. */
+            /* Accumulate raw block sums across the source-row band (no divide). */
             for (int sy = y0; sy < y1; sy++) {
                 const uint8_t* row = src + (size_t)sy * pitch;
                 for (int x = 0; x < NV_FRAME_WIDTH; x++) {
-                    const uint8_t* p = row + (size_t)hx0[x] * 4;
+                    const uint8_t* p = row + (size_t)s_hx0[x] * 4;
                     uint32_t rs = 0, gs = 0, bs = 0;
-                    int n = hcnt[x];
+                    int n = s_hcnt[x];
                     for (int k = 0; k < n; k++) {
                         rs += p[0]; gs += p[1]; bs += p[2];
                         p += 4;
                     }
-                    vr[x] += (rs * hrecip[x]) >> 16;
-                    vg[x] += (gs * hrecip[x]) >> 16;
-                    vb[x] += (bs * hrecip[x]) >> 16;
+                    vr[x] += rs; vg[x] += gs; vb[x] += bs;
                 }
             }
 
-            /* Vertical average + pack RGB565, uint64-packed 4-wide stores. */
+            /* One rounded divide per output pixel, pack RGB565, uint64 stores. */
             volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
             for (int x = 0; x < NV_FRAME_WIDTH; x += 4) {
                 uint16_t out[4];
                 for (int k = 0; k < 4; k++) {
-                    uint32_t r = (vr[x + k] * vrecip) >> 16;
-                    uint32_t g = (vg[x + k] * vrecip) >> 16;
-                    uint32_t b = (vb[x + k] * vrecip) >> 16;
+                    uint32_t rc = recip[s_hcnt[x + k]];
+                    uint32_t r = (vr[x + k] * rc + (1u << 19)) >> 20;
+                    uint32_t g = (vg[x + k] * rc + (1u << 19)) >> 20;
+                    uint32_t b = (vb[x + k] * rc + (1u << 19)) >> 20;
                     if (r > 255) r = 255;  /* defensive: truncation never exceeds true avg */
                     if (g > 255) g = 255;
                     if (b > 255) b = 255;
