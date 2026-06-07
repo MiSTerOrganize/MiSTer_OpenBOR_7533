@@ -323,6 +323,43 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             if (y0 >= height) y0 = height - 1;
             int vcnt = y1 - y0;
 
+            /* >4x downscale (e.g. Lust Rush 1920x1080): cap the box to a 4x4
+             * evenly-spaced sample grid per output pixel so read cost stays
+             * bounded regardless of ratio. Exact for blocks <=4x4; a clean
+             * subsample above that. Only fires when source >1280 wide or >896
+             * tall -- every PAK <=960x480 keeps the exact box/NEON path below. */
+            if (width > NV_FRAME_WIDTH * 4 || height > NV_FRAME_HEIGHT * 4) {
+                uint8_t* arow = s_avg + (size_t)y * NV_FRAME_WIDTH * 3;
+                int bh = y1 - y0;
+                for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                    int x0 = (int)(((long)x * width) / NV_FRAME_WIDTH);
+                    int x1 = (int)(((long)(x + 1) * width) / NV_FRAME_WIDTH);
+                    if (x1 <= x0) x1 = x0 + 1;
+                    if (x1 > width)  x1 = width;
+                    if (x0 >= width) x0 = width - 1;
+                    int bw = x1 - x0;
+                    uint32_t rs = 0, gs = 0, bs = 0;
+                    for (int j = 0; j < 4; j++) {
+                        int sy = y0 + (j * bh) / 4;
+                        if (sy >= height) sy = height - 1;
+                        const uint8_t* row = src + (size_t)sy * pitch;
+                        for (int k = 0; k < 4; k++) {
+                            int sx = x0 + (k * bw) / 4;
+                            if (sx >= width) sx = width - 1;
+                            const uint8_t* p = row + (size_t)sx * 4;
+                            rs += p[0]; gs += p[1]; bs += p[2];
+                        }
+                    }
+                    rs = (rs + 8) >> 4;   /* divide by 16 (4x4 samples), rounded */
+                    gs = (gs + 8) >> 4;
+                    bs = (bs + 8) >> 4;
+                    arow[x * 3 + 0] = (uint8_t)rs;
+                    arow[x * 3 + 1] = (uint8_t)gs;
+                    arow[x * 3 + 2] = (uint8_t)bs;
+                }
+                continue;   /* stride-cap wrote s_avg directly; skip the box path */
+            }
+
             /* Combined reciprocal per distinct horizontal block width:
              * recip[h] = (1<<20) / (h * vcnt). out = (block_sum*recip + half)
              * >> 20 = block_sum / (h*vcnt). Only a few distinct h values, so
