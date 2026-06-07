@@ -1,6 +1,7 @@
 name: Build MiSTer ARM
 
 on:
+  workflow_dispatch:        # manual "Run workflow" button (build any branch on demand)
   push:
     branches: [main]
     tags: ['v*']
