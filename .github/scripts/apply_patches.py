@@ -1499,6 +1499,31 @@ endif
     write(ob_path_g, ob_s68c)
     print("  Step 68c: SUBJECT_TO_OBSTACLE + SUBJECT_TO_PLATFORM now gated on directive_seen flags")
 
+    print("Patching openbor.c (TEMPORARY DIAG: blendtables[] status log)...")
+    bldtbl_old = (
+        "    if(pixelformat == PIXEL_x8)\n"
+        "    {\n"
+        "        create_blend_tables_x8(blendtables);\n"
+        "    }\n"
+    )
+    bldtbl_new = (
+        "    if(pixelformat == PIXEL_x8)\n"
+        "    {\n"
+        "        create_blend_tables_x8(blendtables);\n"
+        "    }\n"
+        "    /* TEMPORARY DIAG (REVERT AFTER MEASURED): confirm blend fast-path tables. */\n"
+        "    fprintf(stderr, \"[BLDTBL] pixelformat=%d PIXEL_x8=%d hardlight=%p screen=%p multiply=%p overlay=%p dodge=%p half=%p\\n\",\n"
+        "            pixelformat, (int)PIXEL_x8,\n"
+        "            (void*)blendtables[BLEND_HARDLIGHT], (void*)blendtables[BLEND_SCREEN],\n"
+        "            (void*)blendtables[BLEND_MULTIPLY], (void*)blendtables[BLEND_OVERLAY],\n"
+        "            (void*)blendtables[BLEND_DODGE], (void*)blendtables[BLEND_HALF]);\n"
+    )
+    ob_bldtbl = read(ob_path_g)
+    ob_bldtbl = strict_replace(ob_bldtbl, bldtbl_old, bldtbl_new,
+                              'DIAG: log blendtables[] non-NULL status after create_blend_tables_x8')
+    write(ob_path_g, ob_bldtbl)
+    print("  DIAG: [BLDTBL] blendtables status log added")
+
     # ── Step 44 TEMPORARY DIAG (2026-05-29): SUBTYPE_ARROW base-lock investigation ───
     # User reports TMNT-RP construction-level rolling barrels FLOAT at spawn Y=130
     # (in air, above player) instead of falling+bouncing+rolling like PC version.

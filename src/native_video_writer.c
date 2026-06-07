@@ -115,6 +115,85 @@ void NativeVideoWriter_Shutdown(void) {
     }
 }
 
+/* Pass-2 sharpen, one output row. Scalar reference (byte-identical to the
+ * historical inline Pass-2 math): cross-Laplacian unsharp at NV_SHARPEN_NUM/DEN,
+ * edge-replicated borders, RGB565 pack. */
+static void nv_sharpen_row_scalar(const uint8_t* rowc, const uint8_t* rowu,
+                                  const uint8_t* rowd, uint16_t* out) {
+    for (int xx = 0; xx < NV_FRAME_WIDTH; xx++) {
+        int xl = (xx > 0) ? (xx - 1) : 0;
+        int xr = (xx < NV_FRAME_WIDTH - 1) ? (xx + 1) : (NV_FRAME_WIDTH - 1);
+        int ci = xx * 3, li = xl * 3, ri = xr * 3;
+        int cr = rowc[ci + 0], cg = rowc[ci + 1], cb = rowc[ci + 2];
+        int lr = 4 * cr - rowu[ci + 0] - rowd[ci + 0] - rowc[li + 0] - rowc[ri + 0];
+        int lg = 4 * cg - rowu[ci + 1] - rowd[ci + 1] - rowc[li + 1] - rowc[ri + 1];
+        int lb = 4 * cb - rowu[ci + 2] - rowd[ci + 2] - rowc[li + 2] - rowc[ri + 2];
+        int r = cr + lr * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
+        int g = cg + lg * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
+        int b = cb + lb * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
+        if (r < 0) r = 0; else if (r > 255) r = 255;
+        if (g < 0) g = 0; else if (g > 255) g = 255;
+        if (b < 0) b = 0; else if (b > 255) b = 255;
+        out[xx] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+    }
+}
+
+#ifdef __ARM_NEON
+/* NEON Pass-2 sharpen, one output row. Byte-identical to nv_sharpen_row_scalar
+ * for NV_SHARPEN_NUM==1, NV_SHARPEN_DEN==4:
+ *   lap/4 toward zero == (lap + (lap<0 ? 3 : 0)) >> 2  (arithmetic shift),
+ *   [0,255] clamp == vqmovun_s16, and the RGB565 pack matches bit-for-bit.
+ * Deinterleave the 3 source rows to planar R/G/B (vld3q), pad the center-row
+ * planes by 1 each side for edge-replicated left/right, then a planar stencil. */
+static void nv_sharpen_row_neon(const uint8_t* rowc, const uint8_t* rowu,
+                                const uint8_t* rowd, uint16_t* out) {
+    static uint8_t plC[3][NV_FRAME_WIDTH + 2];
+    static uint8_t plU[3][NV_FRAME_WIDTH];
+    static uint8_t plD[3][NV_FRAME_WIDTH];
+    for (int x = 0; x < NV_FRAME_WIDTH; x += 16) {
+        uint8x16x3_t c = vld3q_u8(rowc + (size_t)x * 3);
+        vst1q_u8(plC[0] + 1 + x, c.val[0]);
+        vst1q_u8(plC[1] + 1 + x, c.val[1]);
+        vst1q_u8(plC[2] + 1 + x, c.val[2]);
+        uint8x16x3_t u = vld3q_u8(rowu + (size_t)x * 3);
+        vst1q_u8(plU[0] + x, u.val[0]);
+        vst1q_u8(plU[1] + x, u.val[1]);
+        vst1q_u8(plU[2] + x, u.val[2]);
+        uint8x16x3_t d = vld3q_u8(rowd + (size_t)x * 3);
+        vst1q_u8(plD[0] + x, d.val[0]);
+        vst1q_u8(plD[1] + x, d.val[1]);
+        vst1q_u8(plD[2] + x, d.val[2]);
+    }
+    for (int ch = 0; ch < 3; ch++) {
+        plC[ch][0] = plC[ch][1];
+        plC[ch][NV_FRAME_WIDTH + 1] = plC[ch][NV_FRAME_WIDTH];
+    }
+    const int16x8_t three = vdupq_n_s16(3);
+    for (int x = 0; x < NV_FRAME_WIDTH; x += 8) {
+        uint16x8_t o16[3];
+        for (int ch = 0; ch < 3; ch++) {
+            const uint8_t* base = plC[ch] + 1;
+            int16x8_t C = vreinterpretq_s16_u16(vmovl_u8(vld1_u8(base + x)));
+            int16x8_t L = vreinterpretq_s16_u16(vmovl_u8(vld1_u8(base + x - 1)));
+            int16x8_t R = vreinterpretq_s16_u16(vmovl_u8(vld1_u8(base + x + 1)));
+            int16x8_t U = vreinterpretq_s16_u16(vmovl_u8(vld1_u8(plU[ch] + x)));
+            int16x8_t D = vreinterpretq_s16_u16(vmovl_u8(vld1_u8(plD[ch] + x)));
+            int16x8_t lap = vsubq_s16(vsubq_s16(vsubq_s16(vsubq_s16(
+                                vshlq_n_s16(C, 2), U), D), L), R);
+            int16x8_t mask = vshrq_n_s16(lap, 15);          /* -1 if lap<0 */
+            int16x8_t adj = vandq_s16(mask, three);
+            int16x8_t q = vshrq_n_s16(vaddq_s16(lap, adj), 2);  /* lap/4 toward 0 */
+            int16x8_t o = vaddq_s16(C, q);
+            o16[ch] = vmovl_u8(vqmovun_s16(o));             /* clamp [0,255] */
+        }
+        uint16x8_t r5 = vandq_u16(vshlq_n_u16(o16[0], 8), vdupq_n_u16(0xF800));
+        uint16x8_t g6 = vandq_u16(vshlq_n_u16(o16[1], 3), vdupq_n_u16(0x07E0));
+        uint16x8_t b5 = vshrq_n_u16(o16[2], 3);
+        vst1q_u16(out + x, vorrq_u16(vorrq_u16(r5, g6), b5));
+    }
+}
+#endif
+
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                   int pitch, int bpp, const void* palette) {
     if (!ddr_base || !pixels) return;
@@ -466,36 +545,50 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * laplacian = 4*center - up - down - left - right (cross kernel).
          * Re-crisps edges/text softened by the box average. Borders replicate
          * the edge pixel so the laplacian is 0 there (no border artifacts). */
-        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
-            int yu = (y > 0) ? (y - 1) : 0;
-            int yd = (y < NV_FRAME_HEIGHT - 1) ? (y + 1) : (NV_FRAME_HEIGHT - 1);
-            const uint8_t* rowc = s_avg + (size_t)y  * NV_FRAME_WIDTH * 3;
-            const uint8_t* rowu = s_avg + (size_t)yu * NV_FRAME_WIDTH * 3;
-            const uint8_t* rowd = s_avg + (size_t)yd * NV_FRAME_WIDTH * 3;
-            volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
-            for (int x = 0; x < NV_FRAME_WIDTH; x += 4) {
-                uint16_t out[4];
-                for (int k = 0; k < 4; k++) {
-                    int xx = x + k;
-                    int xl = (xx > 0) ? (xx - 1) : 0;
-                    int xr = (xx < NV_FRAME_WIDTH - 1) ? (xx + 1) : (NV_FRAME_WIDTH - 1);
-                    int ci = xx * 3, li = xl * 3, ri = xr * 3;
-                    int cr = rowc[ci + 0], cg = rowc[ci + 1], cb = rowc[ci + 2];
-                    int lr = 4 * cr - rowu[ci + 0] - rowd[ci + 0] - rowc[li + 0] - rowc[ri + 0];
-                    int lg = 4 * cg - rowu[ci + 1] - rowd[ci + 1] - rowc[li + 1] - rowc[ri + 1];
-                    int lb = 4 * cb - rowu[ci + 2] - rowd[ci + 2] - rowc[li + 2] - rowc[ri + 2];
-                    int r = cr + lr * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
-                    int g = cg + lg * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
-                    int b = cb + lb * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
-                    if (r < 0) r = 0; else if (r > 255) r = 255;
-                    if (g < 0) g = 0; else if (g > 255) g = 255;
-                    if (b < 0) b = 0; else if (b > 255) b = 255;
-                    out[k] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+        {
+            static int _sharp_verified = 0;
+#ifdef __ARM_NEON
+            if (!_sharp_verified) {
+                /* TEMPORARY DIAG (REVERT AFTER MEASURED): one-frame byte-verify
+                 * scalar vs NEON before trusting NEON for this all-PAK stage. */
+                static uint16_t _sc[NV_FRAME_WIDTH];
+                static uint16_t _nv[NV_FRAME_WIDTH];
+                int _mis = 0;
+                for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+                    int yu = (y > 0) ? (y - 1) : 0;
+                    int yd = (y < NV_FRAME_HEIGHT - 1) ? (y + 1) : (NV_FRAME_HEIGHT - 1);
+                    const uint8_t* rowc = s_avg + (size_t)y  * NV_FRAME_WIDTH * 3;
+                    const uint8_t* rowu = s_avg + (size_t)yu * NV_FRAME_WIDTH * 3;
+                    const uint8_t* rowd = s_avg + (size_t)yd * NV_FRAME_WIDTH * 3;
+                    nv_sharpen_row_scalar(rowc, rowu, rowd, _sc);
+                    nv_sharpen_row_neon(rowc, rowu, rowd, _nv);
+                    for (int x = 0; x < NV_FRAME_WIDTH; x++) if (_sc[x] != _nv[x]) _mis++;
+                    volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
+                    for (int x = 0; x < NV_FRAME_WIDTH; x++) dst_row[x] = _nv[x];
                 }
-                uint64_t packed = ((uint64_t)out[0]) | ((uint64_t)out[1] << 16)
-                                | ((uint64_t)out[2] << 32) | ((uint64_t)out[3] << 48);
-                *(volatile uint64_t*)(dst_row + x) = packed;
+                fprintf(stderr, "[SHARPVERIFY] mismatches=%d (scalar vs NEON, full frame)\n", _mis);
+                _sharp_verified = 1;
+            } else {
+                for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+                    int yu = (y > 0) ? (y - 1) : 0;
+                    int yd = (y < NV_FRAME_HEIGHT - 1) ? (y + 1) : (NV_FRAME_HEIGHT - 1);
+                    const uint8_t* rowc = s_avg + (size_t)y  * NV_FRAME_WIDTH * 3;
+                    const uint8_t* rowu = s_avg + (size_t)yu * NV_FRAME_WIDTH * 3;
+                    const uint8_t* rowd = s_avg + (size_t)yd * NV_FRAME_WIDTH * 3;
+                    nv_sharpen_row_neon(rowc, rowu, rowd, (uint16_t*)(dst + y * NV_FRAME_WIDTH));
+                }
             }
+#else
+            (void)_sharp_verified;
+            for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+                int yu = (y > 0) ? (y - 1) : 0;
+                int yd = (y < NV_FRAME_HEIGHT - 1) ? (y + 1) : (NV_FRAME_HEIGHT - 1);
+                const uint8_t* rowc = s_avg + (size_t)y  * NV_FRAME_WIDTH * 3;
+                const uint8_t* rowu = s_avg + (size_t)yu * NV_FRAME_WIDTH * 3;
+                const uint8_t* rowd = s_avg + (size_t)yd * NV_FRAME_WIDTH * 3;
+                nv_sharpen_row_scalar(rowc, rowu, rowd, (uint16_t*)(dst + y * NV_FRAME_WIDTH));
+            }
+#endif
         }
 
         /* TEMPORARY DIAG (REVERT AFTER MEASURED): report box vs sharpen split once. */
