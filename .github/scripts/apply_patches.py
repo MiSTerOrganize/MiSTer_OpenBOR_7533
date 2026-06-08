@@ -937,90 +937,6 @@ endif
     print("  Step 36: kill_entity entry validates victim (catches recursive stale-pointer entry)")
     print("  Step 38: kill_entity entry also defends victim->parent + victim->subentity (TMNT-RP save-restore crash)")
 
-    # ── Step 39 TEMPORARY DIAG (2026-05-29): bounded checkpoint logging in
-    # kill_entity body. Steps 36+37+38 did NOT fix TMNT-RP save-game-continue
-    # SIGSEGV (still crashing at kill_entity+0x363 = same source-level site as
-    # before Step 38, just shifted by Step 38's added bytes). Hypothesis about
-    # victim->parent + victim->subentity was WRONG. Need ground-truth data.
-    #
-    # Approach: bounded (_diag_call < 10) fprintf+fflush at checkpoints A
-    # through K through the function body. Each prints CP label + key pointer
-    # values. After crash, LAST logged CP tells which code block faulted.
-    # REVERT AFTER MEASURED.
-    print("Patching openbor.c (Step 39 TEMPORARY DIAG: kill_entity checkpoint logging)...")
-    diag_block_old = (
-        "    execute_onkill_script(victim, trigger);\n"
-        "\n"
-        "    ent_unlink(victim);\n"
-        "    victim->weapent = NULL;\n"
-        "    victim->energy_state.health_current = 0;\n"
-        "    victim->exists = 0;\n"
-        "    ent_count--;\n"
-        "\n"
-        "    //UT: caution, script function killentity calls this\n"
-        "    clear_all_scripts(victim->scripts, 1);\n"
-        "\n"
-        "    if(victim->parent && victim->parent->subentity == victim)\n"
-        "    {\n"
-        "        victim->parent->subentity = NULL;\n"
-        "    }\n"
-        "    victim->parent = NULL;\n"
-        "    if(victim->modeldata.summonkill)\n"
-        "    {\n"
-        "        attack = emptyattack;\n"
-        "        attack.attack_type = ATK_SUB_ENTITY_PARENT_KILL;\n"
-        "        attack.dropv = default_model_dropv;\n"
-        "    }\n"
-        "\n"
-        "    defense_object = defense_find_current_object(self, NULL, attack.attack_type);"
-    )
-    diag_block_new = (
-        "    /* MiSTer Step 39 TEMPORARY DIAG (REVERT AFTER MEASURED) ─────────────── */\n"
-        "    /* Bounded checkpoint logging to pin save-game SIGSEGV site in kill_entity */\n"
-        "    /* body. Last logged CP before crash tells us which block faulted.        */\n"
-        "    { static int _diag_call = 0; if (_diag_call < 10) { _diag_call++; \\\n"
-        "      fprintf(stderr, \"[KE %d] CP=A entry-done victim=%p parent=%p sub=%p scripts=%p modeldata.summonkill=%d exists=%d\\n\", \\\n"
-        "        _diag_call, (void*)victim, (void*)victim->parent, (void*)victim->subentity, (void*)victim->scripts, victim->modeldata.summonkill, victim->exists); \\\n"
-        "      fflush(stderr); } }\n"
-        "\n"
-        "    execute_onkill_script(victim, trigger);\n"
-        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=B post-execute_onkill_script\\n\"); fflush(stderr); } }\n"
-        "\n"
-        "    ent_unlink(victim);\n"
-        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=C post-ent_unlink\\n\"); fflush(stderr); } }\n"
-        "    victim->weapent = NULL;\n"
-        "    victim->energy_state.health_current = 0;\n"
-        "    victim->exists = 0;\n"
-        "    ent_count--;\n"
-        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=D post-direct-writes scripts=%p\\n\", (void*)victim->scripts); fflush(stderr); } }\n"
-        "\n"
-        "    //UT: caution, script function killentity calls this\n"
-        "    clear_all_scripts(victim->scripts, 1);\n"
-        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=E post-clear_all_scripts parent=%p\\n\", (void*)victim->parent); fflush(stderr); } }\n"
-        "\n"
-        "    if(victim->parent && victim->parent->subentity == victim)\n"
-        "    {\n"
-        "        { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=E2 in-parent-check parent=%p\\n\", (void*)victim->parent); fflush(stderr); } }\n"
-        "        victim->parent->subentity = NULL;\n"
-        "    }\n"
-        "    victim->parent = NULL;\n"
-        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=F post-parent-clear summonkill=%d\\n\", victim->modeldata.summonkill); fflush(stderr); } }\n"
-        "    if(victim->modeldata.summonkill)\n"
-        "    {\n"
-        "        attack = emptyattack;\n"
-        "        attack.attack_type = ATK_SUB_ENTITY_PARENT_KILL;\n"
-        "        attack.dropv = default_model_dropv;\n"
-        "    }\n"
-        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=G pre-defense_find self=%p\\n\", (void*)self); fflush(stderr); } }\n"
-        "\n"
-        "    defense_object = defense_find_current_object(self, NULL, attack.attack_type);\n"
-        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=H post-defense_find defense_object=%p subentity=%p\\n\", (void*)defense_object, (void*)victim->subentity); fflush(stderr); } }"
-    )
-    ob_k39 = read(ob_path_g)
-    ob_k39 = strict_replace(ob_k39, diag_block_old, diag_block_new,
-                             'Step 39 TEMPORARY DIAG: bounded kill_entity checkpoint logging')
-    write(ob_path_g, ob_k39)
-    print("  Step 39 TEMPORARY DIAG: bounded checkpoints A-H injected in kill_entity body (REVERT AFTER MEASURED)")
 
     # ── Step 40 (2026-05-29): fix NULL self deref in kill_entity's
     # defense_find_current_object call. Step 39 DIAG pinned the TMNT-RP
@@ -1047,12 +963,22 @@ endif
     # Steps 36+37+38 failed to fix.
     print("Patching openbor.c (Step 40: fix kill_entity defense_find NULL self deref)...")
     s40_diag_old = (
-        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=G pre-defense_find self=%p\\n\", (void*)self); fflush(stderr); } }\n"
+        "    if(victim->modeldata.summonkill)\n"
+        "    {\n"
+        "        attack = emptyattack;\n"
+        "        attack.attack_type = ATK_SUB_ENTITY_PARENT_KILL;\n"
+        "        attack.dropv = default_model_dropv;\n"
+        "    }\n"
         "\n"
         "    defense_object = defense_find_current_object(self, NULL, attack.attack_type);"
     )
     s40_diag_new = (
-        "    { static int _d=0; if (_d < 10) { _d++; fprintf(stderr, \"[KE] CP=G pre-defense_find self=%p victim=%p\\n\", (void*)self, (void*)victim); fflush(stderr); } }\n"
+        "    if(victim->modeldata.summonkill)\n"
+        "    {\n"
+        "        attack = emptyattack;\n"
+        "        attack.attack_type = ATK_SUB_ENTITY_PARENT_KILL;\n"
+        "        attack.dropv = default_model_dropv;\n"
+        "    }\n"
         "\n"
         "    /* MiSTer Step 40 (2026-05-29): pass VICTIM not global self.       */\n"
         "    /* When kill_entity is called from script bridge, global self can  */\n"
@@ -1499,225 +1425,8 @@ endif
     write(ob_path_g, ob_s68c)
     print("  Step 68c: SUBJECT_TO_OBSTACLE + SUBJECT_TO_PLATFORM now gated on directive_seen flags")
 
-    print("Patching openbor.c (TEMPORARY DIAG: blendtables[] status log)...")
-    bldtbl_old = (
-        "    if(pixelformat == PIXEL_x8)\n"
-        "    {\n"
-        "        create_blend_tables_x8(blendtables);\n"
-        "    }\n"
-    )
-    bldtbl_new = (
-        "    if(pixelformat == PIXEL_x8)\n"
-        "    {\n"
-        "        create_blend_tables_x8(blendtables);\n"
-        "    }\n"
-        "    /* TEMPORARY DIAG (REVERT AFTER MEASURED): confirm blend fast-path tables. */\n"
-        "    fprintf(stderr, \"[BLDTBL] pixelformat=%d PIXEL_x8=%d hardlight=%p screen=%p multiply=%p overlay=%p dodge=%p half=%p\\n\",\n"
-        "            pixelformat, (int)PIXEL_x8,\n"
-        "            (void*)blendtables[BLEND_HARDLIGHT], (void*)blendtables[BLEND_SCREEN],\n"
-        "            (void*)blendtables[BLEND_MULTIPLY], (void*)blendtables[BLEND_OVERLAY],\n"
-        "            (void*)blendtables[BLEND_DODGE], (void*)blendtables[BLEND_HALF]);\n"
-    )
-    ob_bldtbl = read(ob_path_g)
-    ob_bldtbl = strict_replace(ob_bldtbl, bldtbl_old, bldtbl_new,
-                              'DIAG: log blendtables[] non-NULL status after create_blend_tables_x8')
-    write(ob_path_g, ob_bldtbl)
-    print("  DIAG: [BLDTBL] blendtables status log added")
 
-    # ── Step 44 TEMPORARY DIAG (2026-05-29): SUBTYPE_ARROW base-lock investigation ───
-    # User reports TMNT-RP construction-level rolling barrels FLOAT at spawn Y=130
-    # (in air, above player) instead of falling+bouncing+rolling like PC version.
-    # Cart's rolling_barrel.txt: subtype arrow + aironly 1 + subject_to_hole 1
-    #                            + no_adjust_base 0 + subject_to_wall 1
-    # Level spawns at: coords X Z 130 (Y=130 above ground)
-    # Engine SUBTYPE_ARROW handler in ent_default_init (openbor.c:23194-23201) sets
-    # `e->base = e->position.y` for non-PROJECTILE_PRIME_BASE_FLOOR arrows --> locks
-    # at spawn altitude. IDENTICAL logic in Build 4086 (line 14515) and Build 6390
-    # (line 17335). PC TMNT-RP EXE behaves differently (barrels fall + bounce).
-    #
-    # This DIAG logs:
-    #   (A) Entry state at ent_default_init SUBTYPE_ARROW case END (after base set)
-    #       Bounded to 8 entries -- covers ~8 barrel spawns
-    #   (B) Per-tick gravity state for subtype-arrow entities
-    #       Bounded to 60 entries -- covers ~1 second @ 60fps
-    #
-    # CI auto-skip via TEMPORARY DIAG marker per [[no-diagnostic-binaries-in-db]].
-    # Binary deploys via WinSCP manual only; never enters db.json.
-    print("Patching openbor.c (Step 44 TEMPORARY DIAG: SUBTYPE_ARROW base-lock + per-tick gravity)...")
 
-    # --- 44a: entry-state DIAG at end of SUBTYPE_ARROW case in ent_default_init ---
-    s44a_old = (
-        "            e->nograb = 1;\n"
-        "            e->nograb_default = e->nograb;\n"
-        "            e->attacking = ATTACKING_ACTIVE;\n"
-        "            e->takedamage = arrow_takedamage;\n"
-        "            e->speedmul = 2;\n"
-        "            break;\n"
-    )
-    s44a_new = (
-        "            e->nograb = 1;\n"
-        "            e->nograb_default = e->nograb;\n"
-        "            e->attacking = ATTACKING_ACTIVE;\n"
-        "            e->takedamage = arrow_takedamage;\n"
-        "            e->speedmul = 2;\n"
-        "            /* MiSTer Step 44 TEMPORARY DIAG (REVERT AFTER MEASURED) ----- */\n"
-        "            /* Log SUBTYPE_ARROW entity entry state to investigate why    */\n"
-        "            /* TMNT-RP construction-level rolling barrels float at Y=130  */\n"
-        "            /* instead of falling+bouncing+rolling like PC version.       */\n"
-        "            { static int _d_bi=0; if (_d_bi < 30) { _d_bi++;\n"
-        "                fprintf(stderr, \"[BAR-INIT %d] name=%s pos=(%.1f,%.1f,%.1f) base=%.1f \"\n"
-        "                                \"projprime=0x%x model_grav=%d anim_grav=%d animnum=%d \"\n"
-        "                                \"speed.x=%.2f velocity.y=%.2f antigrav=%.3f \"\n"
-        "                                \"aironly_dir_seen=%d owner=%p parent=%p direction=%d\\n\",\n"
-        "                    _d_bi,\n"
-        "                    (e->model && e->model->name) ? e->model->name : \"(noname)\",\n"
-        "                    (double)e->position.x, (double)e->position.y, (double)e->position.z,\n"
-        "                    (double)e->base,\n"
-        "                    (unsigned)e->projectile_prime,\n"
-        "                    (e->modeldata.move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY) ? 1 : 0,\n"
-        "                    (e->animation && (e->animation->move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY)) ? 1 : 0,\n"
-        "                    e->animnum,\n"
-        "                    (double)e->modeldata.speed.x,\n"
-        "                    (double)e->velocity.y,\n"
-        "                    (double)e->modeldata.antigravity,\n"
-        "                    (int)e->modeldata.aironly_directive_seen,\n"
-        "                    (void*)e->owner, (void*)e->parent,\n"
-        "                    (int)e->direction);\n"
-        "                fflush(stderr);\n"
-        "            } }\n"
-        "            /* ── end Step 44 DIAG (a) ─────────────────────────────────── */\n"
-        "            break;\n"
-    )
-    ob_s44 = read(ob_path_g)
-    ob_s44 = strict_replace(ob_s44, s44a_old, s44a_new,
-                             'Step 44 TEMPORARY DIAG (a): SUBTYPE_ARROW entry state log')
-
-    # --- 44b: per-tick DIAG before gravity application ---
-    # Filtered to subtype arrow entities only, bounded to 60 entries.
-    s44b_old = (
-        "            if(self->modeldata.move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY)\n"
-        "            {\n"
-        "                self->velocity.y += gravity * 100.0 / GAME_SPEED;\n"
-        "            }\n"
-    )
-    s44b_new = (
-        "            /* MiSTer Step 44+52+53 TEMPORARY DIAG (REVERT AFTER MEASURED)-*/\n"
-        "            /* Per-tick log of subtype-arrow entity state                  */\n"
-        "            /* Step 53: filter to fire only NEAR/AT base (post-landing).   */\n"
-        "            /* Skips long fall phase. Captures bounce + roll efficiently. */\n"
-        "            { static int _d_bg=0;\n"
-        "              if ((self->modeldata.subtype & SUBTYPE_ARROW)\n"
-        "                  && self->modeldata.aironly_directive_seen\n"
-        "                  && self->position.y <= self->base + 5.0f\n"
-        "                  && _d_bg < 200) {\n"
-        "                _d_bg++;\n"
-        "                fprintf(stderr, \"[BAR-G %d] %s pos=(%.2f,%.2f) vel=(%.3f,%.3f) base=%.1f \"\n"
-        "                                \"animnum=%d aironly_seen=%d owner=%p\\n\",\n"
-        "                    _d_bg,\n"
-        "                    (self->model && self->model->name) ? self->model->name : \"(noname)\",\n"
-        "                    (double)self->position.x, (double)self->position.y,\n"
-        "                    (double)self->velocity.x, (double)self->velocity.y,\n"
-        "                    (double)self->base,\n"
-        "                    self->animnum,\n"
-        "                    (int)self->modeldata.aironly_directive_seen,\n"
-        "                    (void*)self->owner);\n"
-        "                fflush(stderr);\n"
-        "              }\n"
-        "            }\n"
-        "            /* ── end Step 44+52+53 DIAG (b) ────────────────────────── */\n"
-        "            if(self->modeldata.move_config_flags & MOVE_CONFIG_SUBJECT_TO_GRAVITY)\n"
-        "            {\n"
-        "                self->velocity.y += gravity * 100.0 / GAME_SPEED;\n"
-        "            }\n"
-    )
-    ob_s44 = strict_replace(ob_s44, s44b_old, s44b_new,
-                             'Step 44 TEMPORARY DIAG (b): per-tick subtype-arrow gravity log')
-
-    write(ob_path_g, ob_s44)
-    print("  Step 44 TEMPORARY DIAG: SUBTYPE_ARROW entry + per-tick gravity log (REVERT AFTER MEASURED)")
-
-    # ── Step 54 TEMPORARY DIAG (2026-05-31): Bearz weapon-swap + projectile spawn ──
-    # Bearz rocket bug: on first weapon pickup, rocket fires backwards (LEFT)
-    # regardless of player facing, and player direction locks to RIGHT until
-    # death+respawn. Confirmed pre-existing (exists on v3.1 ship binary).
-    # Bearz uses unusual cart pattern:
-    #   - HUB (player) has `weapons hubertb none none hubert`
-    #   - HUBB.TXT (hubertb = "with bazooka") declares `type none` (TYPE_NONE!)
-    #   - Engine swaps via set_model_ex, which inherits TYPE_NONE flags
-    #   - Step 42 v2 (force player flags) doesn't fire (only at ent_default_init
-    #     TYPE_PLAYER case, not at weapon swap)
-    #
-    # Step 54 logs:
-    #   (a) at set_weapon entry: ent->direction, wpnum, model name before swap
-    #   (b) at spawn() for "smoke" or "bazo" entities: dir + parent dir
-    #
-    # Bounded entries. Captures first-pickup vs post-respawn state to compare
-    # what differs.
-    print("Patching openbor.c (Step 54 TEMPORARY DIAG: Bearz weapon-swap + projectile spawn)...")
-
-    # --- 54a: DIAG at set_weapon entry ---
-    s54a_old = (
-        "void set_weapon(entity *ent, int wpnum, int anim_flag) // anim_flag added for scripted midair weapon changing\n"
-        "{\n"
-        "    if(!ent)\n"
-        "    {\n"
-        "        return;\n"
-        "    }\n"
-    )
-    s54a_new = (
-        "void set_weapon(entity *ent, int wpnum, int anim_flag) // anim_flag added for scripted midair weapon changing\n"
-        "{\n"
-        "    if(!ent)\n"
-        "    {\n"
-        "        return;\n"
-        "    }\n"
-        "    /* MiSTer Step 54 TEMPORARY DIAG (REVERT AFTER MEASURED): Bearz weapon-swap */\n"
-        "    { static int _d_sw=0; if (_d_sw < 15) { _d_sw++;\n"
-        "        fprintf(stderr, \"[SET-WEAP %d] ent=%p name=%s type=%d dir=%d wpnum=%d animflag=%d playeridx=%d animnum=%d pos=(%.1f,%.1f)\\n\",\n"
-        "            _d_sw,\n"
-        "            (void*)ent,\n"
-        "            (ent->model && ent->model->name) ? ent->model->name : \"(noname)\",\n"
-        "            (int)ent->modeldata.type,\n"
-        "            (int)ent->direction, wpnum, anim_flag,\n"
-        "            (int)ent->playerindex, ent->animnum,\n"
-        "            (double)ent->position.x, (double)ent->position.y);\n"
-        "        fflush(stderr);\n"
-        "    } }\n"
-    )
-    ob_s54 = read(ob_path_g)
-    ob_s54 = strict_replace(ob_s54, s54a_old, s54a_new,
-                             'Step 54a TEMPORARY DIAG: set_weapon entry log')
-
-    # --- 54b: DIAG at spawn() entry, filtered to bazo/smoke entities ---
-    # Anchor on the early portion of the spawn function where model_name and direction are available.
-    s54b_old = (
-        "entity *spawn(const float pos_x, const float pos_z, const float pos_y, const e_direction direction, char *model_name, const int model_index, s_model* model_pointer)\n"
-        "{\n"
-        "    entity *acting_entity = NULL;\n"
-        "    int i, id;\n"
-    )
-    s54b_new = (
-        "entity *spawn(const float pos_x, const float pos_z, const float pos_y, const e_direction direction, char *model_name, const int model_index, s_model* model_pointer)\n"
-        "{\n"
-        "    /* MiSTer Step 54 TEMPORARY DIAG (REVERT AFTER MEASURED): Bearz projectile spawn */\n"
-        "    { static int _d_sp=0;\n"
-        "      const char *_n = model_name;\n"
-        "      if (!_n && model_pointer && model_pointer->name) _n = model_pointer->name;\n"
-        "      if (_d_sp < 30 && _n && (strstr(_n,\"smoke\") || strstr(_n,\"bazo\") || strstr(_n,\"bam\") || strstr(_n,\"pop\"))) {\n"
-        "        _d_sp++;\n"
-        "        fprintf(stderr, \"[SPAWN-PROJ %d] name=%s dir=%d pos=(%.1f,%.1f,%.1f) model_idx=%d\\n\",\n"
-        "            _d_sp, _n, (int)direction, (double)pos_x, (double)pos_y, (double)pos_z, model_index);\n"
-        "        fflush(stderr);\n"
-        "      }\n"
-        "    }\n"
-        "    entity *acting_entity = NULL;\n"
-        "    int i, id;\n"
-    )
-    ob_s54 = strict_replace(ob_s54, s54b_old, s54b_new,
-                             'Step 54b TEMPORARY DIAG: spawn() entry for Bearz projectiles')
-
-    write(ob_path_g, ob_s54)
-    print("  Step 54 TEMPORARY DIAG: set_weapon + spawn(smoke/bazo) entry log (REVERT AFTER MEASURED)")
 
     # ── Step 61 (2026-05-31): fix Bearz rocket-fires-LEFT-on-first-pickup bug ─────
     # ROOT CAUSE (confirmed via Step 56 v4 DIAG hardware capture 2026-05-31):
@@ -1890,58 +1599,6 @@ endif
     write(ob_path_g, ob_s64)
     print("  Step 64: player_think MOVELEFT/MOVERIGHT handlers now normalize DIRECTION_NONE on input")
 
-    # ── Step 56 v3 TEMPORARY DIAG (2026-05-31): Bearz projectile direction root-cause ────
-    # SPAWN-PROJ entries from Step 54b confirmed all rockets fire dir=0 (LEFT).
-    # The openbor_projectile() script function resolves direction from
-    # self->direction when relative=1 (Bearz cart uses `@cmd projectile 1 "smoke" ...`).
-    # Hypothesis: hubertb (with-bazooka) is TYPE_NONE; model swap from hubert
-    # (TYPE_PLAYER) leaves self->direction stuck at whatever it was at swap time.
-    # Step 56 v3 logs self->direction + modeldata.type + modeldata.name + playerindex
-    # at the moment of openbor_projectile() entry — confirms or refutes hypothesis.
-    # CI auto-skip via TEMPORARY DIAG marker per [[no-diagnostic-binaries-in-db]].
-    print("Patching openborscript.c (Step 56 v3 TEMPORARY DIAG: openbor_projectile self state)...")
-    obs_path_s56 = os.path.join(obor, 'openborscript.c')
-    s56_old = (
-        "HRESULT openbor_projectile(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
-        "{\n"
-        "    //printf(\"\\n openbor_projectile()\");\n"
-    )
-    s56_new = (
-        "HRESULT openbor_projectile(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount)\n"
-        "{\n"
-        "    //printf(\"\\n openbor_projectile()\");\n"
-        "    /* MiSTer Step 56 v4 TEMPORARY DIAG (REVERT AFTER MEASURED): openbor_projectile self state */\n"
-        "    /* v4: tighten filter to ONLY hubertb (rocket-launcher model) — hubert's */\n"
-        "    /* regular smoke attacks ate the v3 quota before user reached pickup.    */\n"
-        "    /* v4 bound bumped 30 -> 200 to capture every rocket firing.            */\n"
-        "    { static int _d_sp3=0;\n"
-        "      if (_d_sp3 < 200 && self) {\n"
-        "        const char *_pname = (self->modeldata.name ? self->modeldata.name : \"(null)\");\n"
-        "        const char *_arg0 = \"-\";\n"
-        "        if (paramCount >= 1 && varlist[0]->vt == VT_STR) {\n"
-        "          _arg0 = StrCache_Get(varlist[0]->strVal);\n"
-        "        } else if (paramCount >= 2 && varlist[1]->vt == VT_STR) {\n"
-        "          _arg0 = StrCache_Get(varlist[1]->strVal);\n"
-        "        }\n"
-        "        /* hubertb is the with-bazooka model; hubert is base hubert (no weapon). */\n"
-        "        /* strstr(\"hubertb\") matches only the rocket-launcher model, not base.   */\n"
-        "        if (strstr(_pname,\"hubertb\")) {\n"
-        "          _d_sp3++;\n"
-        "          fprintf(stderr, \"[PROJ-SELF %d] self.name=%s type=%d dir=%d playeridx=%d pos=(%.1f,%.1f,%.1f) animnum=%d projarg=%s paramCount=%d\\n\",\n"
-        "              _d_sp3, _pname, (int)self->modeldata.type, (int)self->direction,\n"
-        "              (int)self->playerindex,\n"
-        "              (double)self->position.x, (double)self->position.y, (double)self->position.z,\n"
-        "              (int)self->animnum, _arg0, paramCount);\n"
-        "          fflush(stderr);\n"
-        "        }\n"
-        "      }\n"
-        "    }\n"
-    )
-    obs_s56 = read(obs_path_s56)
-    obs_s56 = strict_replace(obs_s56, s56_old, s56_new,
-                             'Step 56 v3 TEMPORARY DIAG: openbor_projectile self state log')
-    write(obs_path_s56, obs_s56)
-    print("  Step 56 v3 TEMPORARY DIAG: openbor_projectile self state log (REVERT AFTER MEASURED)")
     # ── Step 70 (2026-06-01): MERGED into Step 16c's find_ent_here patch ──
     # See Step 16c (later in this file) for the DEATH_STATE_CORPSE filter that
     # fixes the Bearz captive-box "invisible wall" bug. Patches that target the
@@ -2132,13 +1789,13 @@ endif
     # composes cleanly.
     print("Patching openbor.c (Step 45c: SUBTYPE_ARROW auto-transitions to ANI_FALL)...")
     s45c_old = (
-        "            } }\n"
-        "            /* ── end Step 44 DIAG (a) ─────────────────────────────────── */\n"
+        "            e->takedamage = arrow_takedamage;\n"
+        "            e->speedmul = 2;\n"
         "            break;\n"
     )
     s45c_new = (
-        "            } }\n"
-        "            /* ── end Step 44 DIAG (a) ─────────────────────────────────── */\n"
+        "            e->takedamage = arrow_takedamage;\n"
+        "            e->speedmul = 2;\n"
         "            /* MiSTer Step 45 (2026-05-30): auto-transition cart-spawned     */\n"
         "            /* in-air arrows to ANI_FALL. TMNT-RP construction-level rolling */\n"
         "            /* barrels declare `aironly 1` + `anim fall` and spawn at Y=130. */\n"
