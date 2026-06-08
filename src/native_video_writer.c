@@ -18,14 +18,19 @@
 //  Copyright (C) 2026 MiSTer Organize — GPL-3.0
 //
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE   /* 2026-06-07: sched_setaffinity / cpu_set_t for render-thread core pin */
+#endif
 #include "native_video_writer.h"
 
 #include <fcntl.h>
+#include <sched.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <time.h>   /* TEMPORARY DIAG (REVERT AFTER MEASURED): vcopy timing */
 /* Step 20 (2026-05-27): NEON intrinsics for 128-bit DDR3 stores in the
  * no-squish fast path of WriteFrame. Cortex-A9 + -mfpu=neon -mfloat-abi=hard
  * build flags (see CLAUDE.md OpenBOR build config) guarantee NEON support. */
@@ -63,6 +68,23 @@ static uint32_t frame_counter = 0;
 static int active_buf = 0;
 
 bool NativeVideoWriter_Init(void) {
+    /* 2026-06-07 affinity fix: pin this (engine/render/main) thread to core 1.
+     * The handler now launches with taskset 0x03 (both cores); previously 0x02
+     * (core 1 only) silently EINVAL'd the audio thread's core-0 pin. Pinning
+     * render to core 1 keeps it on its cache-warm core while audio moves to
+     * core 0 (sblaster_patch.c), so audio stops contending with the render loop.
+     * Init runs once at startup on the main thread, so this pins the render thread. */
+    {
+        cpu_set_t _cs;
+        CPU_ZERO(&_cs);
+        CPU_SET(1, &_cs);
+        if (sched_setaffinity(0, sizeof(_cs), &_cs) != 0) {
+            perror("NativeVideoWriter: sched_setaffinity core 1");
+        } else {
+            fprintf(stderr, "NativeVideoWriter: render thread pinned to core 1\n");
+        }
+    }
+
     mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
     if (mem_fd < 0) {
         perror("NativeVideoWriter: open /dev/mem");
@@ -113,6 +135,85 @@ void NativeVideoWriter_Shutdown(void) {
         mem_fd = -1;
     }
 }
+
+/* Pass-2 sharpen, one output row. Scalar reference (byte-identical to the
+ * historical inline Pass-2 math): cross-Laplacian unsharp at NV_SHARPEN_NUM/DEN,
+ * edge-replicated borders, RGB565 pack. */
+static void nv_sharpen_row_scalar(const uint8_t* rowc, const uint8_t* rowu,
+                                  const uint8_t* rowd, uint16_t* out) {
+    for (int xx = 0; xx < NV_FRAME_WIDTH; xx++) {
+        int xl = (xx > 0) ? (xx - 1) : 0;
+        int xr = (xx < NV_FRAME_WIDTH - 1) ? (xx + 1) : (NV_FRAME_WIDTH - 1);
+        int ci = xx * 3, li = xl * 3, ri = xr * 3;
+        int cr = rowc[ci + 0], cg = rowc[ci + 1], cb = rowc[ci + 2];
+        int lr = 4 * cr - rowu[ci + 0] - rowd[ci + 0] - rowc[li + 0] - rowc[ri + 0];
+        int lg = 4 * cg - rowu[ci + 1] - rowd[ci + 1] - rowc[li + 1] - rowc[ri + 1];
+        int lb = 4 * cb - rowu[ci + 2] - rowd[ci + 2] - rowc[li + 2] - rowc[ri + 2];
+        int r = cr + lr * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
+        int g = cg + lg * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
+        int b = cb + lb * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
+        if (r < 0) r = 0; else if (r > 255) r = 255;
+        if (g < 0) g = 0; else if (g > 255) g = 255;
+        if (b < 0) b = 0; else if (b > 255) b = 255;
+        out[xx] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+    }
+}
+
+#ifdef __ARM_NEON
+/* NEON Pass-2 sharpen, one output row. Byte-identical to nv_sharpen_row_scalar
+ * for NV_SHARPEN_NUM==1, NV_SHARPEN_DEN==4:
+ *   lap/4 toward zero == (lap + (lap<0 ? 3 : 0)) >> 2  (arithmetic shift),
+ *   [0,255] clamp == vqmovun_s16, and the RGB565 pack matches bit-for-bit.
+ * Deinterleave the 3 source rows to planar R/G/B (vld3q), pad the center-row
+ * planes by 1 each side for edge-replicated left/right, then a planar stencil. */
+static void nv_sharpen_row_neon(const uint8_t* rowc, const uint8_t* rowu,
+                                const uint8_t* rowd, uint16_t* out) {
+    static uint8_t plC[3][NV_FRAME_WIDTH + 2];
+    static uint8_t plU[3][NV_FRAME_WIDTH];
+    static uint8_t plD[3][NV_FRAME_WIDTH];
+    for (int x = 0; x < NV_FRAME_WIDTH; x += 16) {
+        uint8x16x3_t c = vld3q_u8(rowc + (size_t)x * 3);
+        vst1q_u8(plC[0] + 1 + x, c.val[0]);
+        vst1q_u8(plC[1] + 1 + x, c.val[1]);
+        vst1q_u8(plC[2] + 1 + x, c.val[2]);
+        uint8x16x3_t u = vld3q_u8(rowu + (size_t)x * 3);
+        vst1q_u8(plU[0] + x, u.val[0]);
+        vst1q_u8(plU[1] + x, u.val[1]);
+        vst1q_u8(plU[2] + x, u.val[2]);
+        uint8x16x3_t d = vld3q_u8(rowd + (size_t)x * 3);
+        vst1q_u8(plD[0] + x, d.val[0]);
+        vst1q_u8(plD[1] + x, d.val[1]);
+        vst1q_u8(plD[2] + x, d.val[2]);
+    }
+    for (int ch = 0; ch < 3; ch++) {
+        plC[ch][0] = plC[ch][1];
+        plC[ch][NV_FRAME_WIDTH + 1] = plC[ch][NV_FRAME_WIDTH];
+    }
+    const int16x8_t three = vdupq_n_s16(3);
+    for (int x = 0; x < NV_FRAME_WIDTH; x += 8) {
+        uint16x8_t o16[3];
+        for (int ch = 0; ch < 3; ch++) {
+            const uint8_t* base = plC[ch] + 1;
+            int16x8_t C = vreinterpretq_s16_u16(vmovl_u8(vld1_u8(base + x)));
+            int16x8_t L = vreinterpretq_s16_u16(vmovl_u8(vld1_u8(base + x - 1)));
+            int16x8_t R = vreinterpretq_s16_u16(vmovl_u8(vld1_u8(base + x + 1)));
+            int16x8_t U = vreinterpretq_s16_u16(vmovl_u8(vld1_u8(plU[ch] + x)));
+            int16x8_t D = vreinterpretq_s16_u16(vmovl_u8(vld1_u8(plD[ch] + x)));
+            int16x8_t lap = vsubq_s16(vsubq_s16(vsubq_s16(vsubq_s16(
+                                vshlq_n_s16(C, 2), U), D), L), R);
+            int16x8_t mask = vshrq_n_s16(lap, 15);          /* -1 if lap<0 */
+            int16x8_t adj = vandq_s16(mask, three);
+            int16x8_t q = vshrq_n_s16(vaddq_s16(lap, adj), 2);  /* lap/4 toward 0 */
+            int16x8_t o = vaddq_s16(C, q);
+            o16[ch] = vmovl_u8(vqmovun_s16(o));             /* clamp [0,255] */
+        }
+        uint16x8_t r5 = vandq_u16(vshlq_n_u16(o16[0], 8), vdupq_n_u16(0xF800));
+        uint16x8_t g6 = vandq_u16(vshlq_n_u16(o16[1], 3), vdupq_n_u16(0x07E0));
+        uint16x8_t b5 = vshrq_n_u16(o16[2], 3);
+        vst1q_u16(out + x, vorrq_u16(vorrq_u16(r5, g6), b5));
+    }
+}
+#endif
 
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                   int pitch, int bpp, const void* palette) {
@@ -314,6 +415,12 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * DDR3. static (render-thread only). ~215 KB. */
         static uint8_t s_avg[NV_FRAME_HEIGHT * NV_FRAME_WIDTH * 3];
 
+        /* TEMPORARY DIAG (REVERT AFTER MEASURED): vcopy box-vs-sharpen split. */
+        static unsigned long long _vc_box_ns = 0, _vc_shp_ns = 0;
+        static int _vc_frames = 0, _vc_logged = 0;
+        struct timespec _vt0, _vt1, _vt2;
+        clock_gettime(CLOCK_MONOTONIC, &_vt0);
+
         /* PASS 1: box area-average -> 8-bit s_avg (no DDR3 write yet). */
         for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
             int y0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
@@ -322,6 +429,43 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             if (y1 > height)  y1 = height;
             if (y0 >= height) y0 = height - 1;
             int vcnt = y1 - y0;
+
+            /* >4x downscale (e.g. Lust Rush 1920x1080): cap the box to a 4x4
+             * evenly-spaced sample grid per output pixel so read cost stays
+             * bounded regardless of ratio. Exact for blocks <=4x4; a clean
+             * subsample above that. Only fires when source >1280 wide or >896
+             * tall -- every PAK <=960x480 keeps the exact box/NEON path below. */
+            if (width > NV_FRAME_WIDTH * 4 || height > NV_FRAME_HEIGHT * 4) {
+                uint8_t* arow = s_avg + (size_t)y * NV_FRAME_WIDTH * 3;
+                int bh = y1 - y0;
+                for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                    int x0 = (int)(((long)x * width) / NV_FRAME_WIDTH);
+                    int x1 = (int)(((long)(x + 1) * width) / NV_FRAME_WIDTH);
+                    if (x1 <= x0) x1 = x0 + 1;
+                    if (x1 > width)  x1 = width;
+                    if (x0 >= width) x0 = width - 1;
+                    int bw = x1 - x0;
+                    uint32_t rs = 0, gs = 0, bs = 0;
+                    for (int j = 0; j < 4; j++) {
+                        int sy = y0 + (j * bh) / 4;
+                        if (sy >= height) sy = height - 1;
+                        const uint8_t* row = src + (size_t)sy * pitch;
+                        for (int k = 0; k < 4; k++) {
+                            int sx = x0 + (k * bw) / 4;
+                            if (sx >= width) sx = width - 1;
+                            const uint8_t* p = row + (size_t)sx * 4;
+                            rs += p[0]; gs += p[1]; bs += p[2];
+                        }
+                    }
+                    rs = (rs + 8) >> 4;   /* divide by 16 (4x4 samples), rounded */
+                    gs = (gs + 8) >> 4;
+                    bs = (bs + 8) >> 4;
+                    arow[x * 3 + 0] = (uint8_t)rs;
+                    arow[x * 3 + 1] = (uint8_t)gs;
+                    arow[x * 3 + 2] = (uint8_t)bs;
+                }
+                continue;   /* stride-cap wrote s_avg directly; skip the box path */
+            }
 
             /* Combined reciprocal per distinct horizontal block width:
              * recip[h] = (1<<20) / (h * vcnt). out = (block_sum*recip + half)
@@ -337,17 +481,65 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             memset(vb, 0, sizeof(vb));
 
             /* Accumulate raw block sums across the source-row band (no divide). */
-            for (int sy = y0; sy < y1; sy++) {
-                const uint8_t* row = src + (size_t)sy * pitch;
-                for (int x = 0; x < NV_FRAME_WIDTH; x++) {
-                    const uint8_t* p = row + (size_t)s_hx0[x] * 4;
-                    uint32_t rs = 0, gs = 0, bs = 0;
-                    int n = s_hcnt[x];
-                    for (int k = 0; k < n; k++) {
-                        rs += p[0]; gs += p[1]; bs += p[2];
-                        p += 4;
+#ifdef __ARM_NEON
+            if (width == NV_FRAME_WIDTH * 3) {
+                /* MiSTer 2026-06-07: exact 3x horizontal box via NEON (He-Man
+                 * 960->320). Deinterleave RGBA -> R/G/B planes (vld4q), then
+                 * vld3 deinterleave-by-3 yields group-of-3 sums directly --
+                 * byte-identical to the scalar box for hcnt==3 (buffer-verified).
+                 * Only the exact 3x case qualifies (320*3==960, 48-aligned, no
+                 * boundary spill); every other ratio uses the scalar path. */
+                static uint8_t planeR[NV_FRAME_WIDTH * 3];
+                static uint8_t planeG[NV_FRAME_WIDTH * 3];
+                static uint8_t planeB[NV_FRAME_WIDTH * 3];
+                for (int sy = y0; sy < y1; sy++) {
+                    const uint8_t* row = src + (size_t)sy * pitch;
+                    for (int sx = 0; sx < NV_FRAME_WIDTH * 3; sx += 16) {
+                        uint8x16x4_t px = vld4q_u8(row + (size_t)sx * 4);
+                        vst1q_u8(planeR + sx, px.val[0]);
+                        vst1q_u8(planeG + sx, px.val[1]);
+                        vst1q_u8(planeB + sx, px.val[2]);
                     }
-                    vr[x] += rs; vg[x] += gs; vb[x] += bs;
+                    for (int x = 0; x < NV_FRAME_WIDTH; x += 16) {
+                        int sx = x * 3;
+                        uint8x16x3_t gr = vld3q_u8(planeR + sx);
+                        uint8x16x3_t gg = vld3q_u8(planeG + sx);
+                        uint8x16x3_t gb = vld3q_u8(planeB + sx);
+                        uint16x8_t rlo = vaddw_u8(vaddl_u8(vget_low_u8(gr.val[0]),  vget_low_u8(gr.val[1])),  vget_low_u8(gr.val[2]));
+                        uint16x8_t rhi = vaddw_u8(vaddl_u8(vget_high_u8(gr.val[0]), vget_high_u8(gr.val[1])), vget_high_u8(gr.val[2]));
+                        uint16x8_t glo = vaddw_u8(vaddl_u8(vget_low_u8(gg.val[0]),  vget_low_u8(gg.val[1])),  vget_low_u8(gg.val[2]));
+                        uint16x8_t ghi = vaddw_u8(vaddl_u8(vget_high_u8(gg.val[0]), vget_high_u8(gg.val[1])), vget_high_u8(gg.val[2]));
+                        uint16x8_t blo = vaddw_u8(vaddl_u8(vget_low_u8(gb.val[0]),  vget_low_u8(gb.val[1])),  vget_low_u8(gb.val[2]));
+                        uint16x8_t bhi = vaddw_u8(vaddl_u8(vget_high_u8(gb.val[0]), vget_high_u8(gb.val[1])), vget_high_u8(gb.val[2]));
+                        vst1q_u32(&vr[x],      vaddq_u32(vld1q_u32(&vr[x]),      vmovl_u16(vget_low_u16(rlo))));
+                        vst1q_u32(&vr[x + 4],  vaddq_u32(vld1q_u32(&vr[x + 4]),  vmovl_u16(vget_high_u16(rlo))));
+                        vst1q_u32(&vr[x + 8],  vaddq_u32(vld1q_u32(&vr[x + 8]),  vmovl_u16(vget_low_u16(rhi))));
+                        vst1q_u32(&vr[x + 12], vaddq_u32(vld1q_u32(&vr[x + 12]), vmovl_u16(vget_high_u16(rhi))));
+                        vst1q_u32(&vg[x],      vaddq_u32(vld1q_u32(&vg[x]),      vmovl_u16(vget_low_u16(glo))));
+                        vst1q_u32(&vg[x + 4],  vaddq_u32(vld1q_u32(&vg[x + 4]),  vmovl_u16(vget_high_u16(glo))));
+                        vst1q_u32(&vg[x + 8],  vaddq_u32(vld1q_u32(&vg[x + 8]),  vmovl_u16(vget_low_u16(ghi))));
+                        vst1q_u32(&vg[x + 12], vaddq_u32(vld1q_u32(&vg[x + 12]), vmovl_u16(vget_high_u16(ghi))));
+                        vst1q_u32(&vb[x],      vaddq_u32(vld1q_u32(&vb[x]),      vmovl_u16(vget_low_u16(blo))));
+                        vst1q_u32(&vb[x + 4],  vaddq_u32(vld1q_u32(&vb[x + 4]),  vmovl_u16(vget_high_u16(blo))));
+                        vst1q_u32(&vb[x + 8],  vaddq_u32(vld1q_u32(&vb[x + 8]),  vmovl_u16(vget_low_u16(bhi))));
+                        vst1q_u32(&vb[x + 12], vaddq_u32(vld1q_u32(&vb[x + 12]), vmovl_u16(vget_high_u16(bhi))));
+                    }
+                }
+            } else
+#endif
+            {
+                for (int sy = y0; sy < y1; sy++) {
+                    const uint8_t* row = src + (size_t)sy * pitch;
+                    for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                        const uint8_t* p = row + (size_t)s_hx0[x] * 4;
+                        uint32_t rs = 0, gs = 0, bs = 0;
+                        int n = s_hcnt[x];
+                        for (int k = 0; k < n; k++) {
+                            rs += p[0]; gs += p[1]; bs += p[2];
+                            p += 4;
+                        }
+                        vr[x] += rs; vg[x] += gs; vb[x] += bs;
+                    }
                 }
             }
 
@@ -367,41 +559,69 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             }
         }
 
+        clock_gettime(CLOCK_MONOTONIC, &_vt1);   /* TEMPORARY DIAG: end box, start sharpen */
+
         /* PASS 2: light unsharp on the averaged image, then pack RGB565.
          * sharp = center + laplacian * NV_SHARPEN_NUM / NV_SHARPEN_DEN, where
          * laplacian = 4*center - up - down - left - right (cross kernel).
          * Re-crisps edges/text softened by the box average. Borders replicate
          * the edge pixel so the laplacian is 0 there (no border artifacts). */
-        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
-            int yu = (y > 0) ? (y - 1) : 0;
-            int yd = (y < NV_FRAME_HEIGHT - 1) ? (y + 1) : (NV_FRAME_HEIGHT - 1);
-            const uint8_t* rowc = s_avg + (size_t)y  * NV_FRAME_WIDTH * 3;
-            const uint8_t* rowu = s_avg + (size_t)yu * NV_FRAME_WIDTH * 3;
-            const uint8_t* rowd = s_avg + (size_t)yd * NV_FRAME_WIDTH * 3;
-            volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
-            for (int x = 0; x < NV_FRAME_WIDTH; x += 4) {
-                uint16_t out[4];
-                for (int k = 0; k < 4; k++) {
-                    int xx = x + k;
-                    int xl = (xx > 0) ? (xx - 1) : 0;
-                    int xr = (xx < NV_FRAME_WIDTH - 1) ? (xx + 1) : (NV_FRAME_WIDTH - 1);
-                    int ci = xx * 3, li = xl * 3, ri = xr * 3;
-                    int cr = rowc[ci + 0], cg = rowc[ci + 1], cb = rowc[ci + 2];
-                    int lr = 4 * cr - rowu[ci + 0] - rowd[ci + 0] - rowc[li + 0] - rowc[ri + 0];
-                    int lg = 4 * cg - rowu[ci + 1] - rowd[ci + 1] - rowc[li + 1] - rowc[ri + 1];
-                    int lb = 4 * cb - rowu[ci + 2] - rowd[ci + 2] - rowc[li + 2] - rowc[ri + 2];
-                    int r = cr + lr * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
-                    int g = cg + lg * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
-                    int b = cb + lb * NV_SHARPEN_NUM / NV_SHARPEN_DEN;
-                    if (r < 0) r = 0; else if (r > 255) r = 255;
-                    if (g < 0) g = 0; else if (g > 255) g = 255;
-                    if (b < 0) b = 0; else if (b > 255) b = 255;
-                    out[k] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+        {
+            static int _sharp_verified = 0;
+#ifdef __ARM_NEON
+            if (!_sharp_verified) {
+                /* TEMPORARY DIAG (REVERT AFTER MEASURED): one-frame byte-verify
+                 * scalar vs NEON before trusting NEON for this all-PAK stage. */
+                static uint16_t _sc[NV_FRAME_WIDTH];
+                static uint16_t _nv[NV_FRAME_WIDTH];
+                int _mis = 0;
+                for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+                    int yu = (y > 0) ? (y - 1) : 0;
+                    int yd = (y < NV_FRAME_HEIGHT - 1) ? (y + 1) : (NV_FRAME_HEIGHT - 1);
+                    const uint8_t* rowc = s_avg + (size_t)y  * NV_FRAME_WIDTH * 3;
+                    const uint8_t* rowu = s_avg + (size_t)yu * NV_FRAME_WIDTH * 3;
+                    const uint8_t* rowd = s_avg + (size_t)yd * NV_FRAME_WIDTH * 3;
+                    nv_sharpen_row_scalar(rowc, rowu, rowd, _sc);
+                    nv_sharpen_row_neon(rowc, rowu, rowd, _nv);
+                    for (int x = 0; x < NV_FRAME_WIDTH; x++) if (_sc[x] != _nv[x]) _mis++;
+                    volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
+                    for (int x = 0; x < NV_FRAME_WIDTH; x++) dst_row[x] = _nv[x];
                 }
-                uint64_t packed = ((uint64_t)out[0]) | ((uint64_t)out[1] << 16)
-                                | ((uint64_t)out[2] << 32) | ((uint64_t)out[3] << 48);
-                *(volatile uint64_t*)(dst_row + x) = packed;
+                fprintf(stderr, "[SHARPVERIFY] mismatches=%d (scalar vs NEON, full frame)\n", _mis);
+                _sharp_verified = 1;
+            } else {
+                for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+                    int yu = (y > 0) ? (y - 1) : 0;
+                    int yd = (y < NV_FRAME_HEIGHT - 1) ? (y + 1) : (NV_FRAME_HEIGHT - 1);
+                    const uint8_t* rowc = s_avg + (size_t)y  * NV_FRAME_WIDTH * 3;
+                    const uint8_t* rowu = s_avg + (size_t)yu * NV_FRAME_WIDTH * 3;
+                    const uint8_t* rowd = s_avg + (size_t)yd * NV_FRAME_WIDTH * 3;
+                    nv_sharpen_row_neon(rowc, rowu, rowd, (uint16_t*)(dst + y * NV_FRAME_WIDTH));
+                }
             }
+#else
+            (void)_sharp_verified;
+            for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+                int yu = (y > 0) ? (y - 1) : 0;
+                int yd = (y < NV_FRAME_HEIGHT - 1) ? (y + 1) : (NV_FRAME_HEIGHT - 1);
+                const uint8_t* rowc = s_avg + (size_t)y  * NV_FRAME_WIDTH * 3;
+                const uint8_t* rowu = s_avg + (size_t)yu * NV_FRAME_WIDTH * 3;
+                const uint8_t* rowd = s_avg + (size_t)yd * NV_FRAME_WIDTH * 3;
+                nv_sharpen_row_scalar(rowc, rowu, rowd, (uint16_t*)(dst + y * NV_FRAME_WIDTH));
+            }
+#endif
+        }
+
+        /* TEMPORARY DIAG (REVERT AFTER MEASURED): report box vs sharpen split once. */
+        clock_gettime(CLOCK_MONOTONIC, &_vt2);
+        _vc_box_ns += (unsigned long long)(_vt1.tv_sec - _vt0.tv_sec) * 1000000000ULL + (_vt1.tv_nsec - _vt0.tv_nsec);
+        _vc_shp_ns += (unsigned long long)(_vt2.tv_sec - _vt1.tv_sec) * 1000000000ULL + (_vt2.tv_nsec - _vt1.tv_nsec);
+        if (++_vc_frames >= 200 && !_vc_logged) {
+            fprintf(stderr, "[VCOPY] w=%d h=%d neon3x=%d box=%lluus sharpen=%lluus (avg/%d)\n",
+                    width, height, (int)(width == NV_FRAME_WIDTH * 3),
+                    _vc_box_ns / (unsigned)_vc_frames / 1000ULL,
+                    _vc_shp_ns / (unsigned)_vc_frames / 1000ULL, _vc_frames);
+            _vc_logged = 1;
         }
     }
     else {

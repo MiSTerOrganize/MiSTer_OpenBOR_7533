@@ -1499,6 +1499,31 @@ endif
     write(ob_path_g, ob_s68c)
     print("  Step 68c: SUBJECT_TO_OBSTACLE + SUBJECT_TO_PLATFORM now gated on directive_seen flags")
 
+    print("Patching openbor.c (TEMPORARY DIAG: blendtables[] status log)...")
+    bldtbl_old = (
+        "    if(pixelformat == PIXEL_x8)\n"
+        "    {\n"
+        "        create_blend_tables_x8(blendtables);\n"
+        "    }\n"
+    )
+    bldtbl_new = (
+        "    if(pixelformat == PIXEL_x8)\n"
+        "    {\n"
+        "        create_blend_tables_x8(blendtables);\n"
+        "    }\n"
+        "    /* TEMPORARY DIAG (REVERT AFTER MEASURED): confirm blend fast-path tables. */\n"
+        "    fprintf(stderr, \"[BLDTBL] pixelformat=%d PIXEL_x8=%d hardlight=%p screen=%p multiply=%p overlay=%p dodge=%p half=%p\\n\",\n"
+        "            pixelformat, (int)PIXEL_x8,\n"
+        "            (void*)blendtables[BLEND_HARDLIGHT], (void*)blendtables[BLEND_SCREEN],\n"
+        "            (void*)blendtables[BLEND_MULTIPLY], (void*)blendtables[BLEND_OVERLAY],\n"
+        "            (void*)blendtables[BLEND_DODGE], (void*)blendtables[BLEND_HALF]);\n"
+    )
+    ob_bldtbl = read(ob_path_g)
+    ob_bldtbl = strict_replace(ob_bldtbl, bldtbl_old, bldtbl_new,
+                              'DIAG: log blendtables[] non-NULL status after create_blend_tables_x8')
+    write(ob_path_g, ob_bldtbl)
+    print("  DIAG: [BLDTBL] blendtables status log added")
+
     # ── Step 44 TEMPORARY DIAG (2026-05-29): SUBTYPE_ARROW base-lock investigation ───
     # User reports TMNT-RP construction-level rolling barrels FLOAT at spawn Y=130
     # (in air, above player) instead of falling+bouncing+rolling like PC version.
@@ -3529,6 +3554,13 @@ endif
         "unsigned int _mister_o12_putline_ms = 0;\n"
         "unsigned int _mister_o12_putbox_ms = 0;\n"
         "unsigned int _mister_o12_putbox_count = 0;\n"
+        "/* MiSTer 2026-06-07 TEMPORARY BLEND-SPLIT (REVERT AFTER MEASURED): */\n"
+        "/* putsprite time/count split by drawmethod.alpha (blend vs opaque) to */\n"
+        "/* size the only remaining putsprite lever (blend func-ptr inlining). */\n"
+        "unsigned int _mister_bld_blend_ms = 0;\n"
+        "unsigned int _mister_bld_blend_count = 0;\n"
+        "unsigned int _mister_bld_opaque_ms = 0;\n"
+        "unsigned int _mister_bld_opaque_count = 0;\n"
         "\n"
         "void update(int ingame, int usevwait)\n"
         "{\n"
@@ -3657,6 +3689,12 @@ endif
         "                       _mister_o12_putline_ms,\n"
         "                       _mister_o12_putbox_ms,\n"
         "                       _mister_o12_putbox_count);\n"
+        "                /* TEMP BLEND-SPLIT (REVERT AFTER MEASURED) -- putsprite alpha split. */\n"
+        "                printf(\"[BLD] blend=%ums (%u sprites) opaque=%ums (%u sprites)\\n\",\n"
+        "                       _mister_bld_blend_ms,\n"
+        "                       _mister_bld_blend_count,\n"
+        "                       _mister_bld_opaque_ms,\n"
+        "                       _mister_bld_opaque_count);\n"
         "                _mister_fps_frames = 0;\n"
         "                _mister_fps_entity_ms = 0;\n"
         "                _mister_fps_render_ms = 0;\n"
@@ -3682,6 +3720,10 @@ endif
         "                _mister_o12_putline_ms = 0;\n"
         "                _mister_o12_putbox_ms = 0;\n"
         "                _mister_o12_putbox_count = 0;\n"
+        "                _mister_bld_blend_ms = 0;\n"
+        "                _mister_bld_blend_count = 0;\n"
+        "                _mister_bld_opaque_ms = 0;\n"
+        "                _mister_bld_opaque_count = 0;\n"
         "                _mister_fps_t_last_print = _now_ms;\n"
         "            }\n"
         "        }\n"
@@ -3955,6 +3997,11 @@ endif
         "extern unsigned int _mister_o12_putline_ms;\n"
         "extern unsigned int _mister_o12_putbox_ms;\n"
         "extern unsigned int _mister_o12_putbox_count;\n"
+        "/* TEMP BLEND-SPLIT externs (REVERT AFTER MEASURED). */\n"
+        "extern unsigned int _mister_bld_blend_ms;\n"
+        "extern unsigned int _mister_bld_blend_count;\n"
+        "extern unsigned int _mister_bld_opaque_ms;\n"
+        "extern unsigned int _mister_bld_opaque_count;\n"
     )
     spq = strict_replace(spq, spq_includes_old, spq_includes_new,
                         'v11.1: spriteq.c add timer.h + extern v11 globals')
@@ -4039,8 +4086,11 @@ endif
         "            }\n"
         "            _o11_t0 = timer_gettick();\n"
         "            putsprite(x, y, order[i]->frame, screen, &(order[i]->drawmethod));\n"
-        "            _mister_o11_putsprite_ms += timer_gettick() - _o11_t0;\n"
-        "            _mister_o11_putsprite_count++;\n"
+        "            { unsigned int _dt = timer_gettick() - _o11_t0;\n"
+        "              _mister_o11_putsprite_ms += _dt;\n"
+        "              _mister_o11_putsprite_count++;\n"
+        "              if(order[i]->drawmethod.alpha) { _mister_bld_blend_ms += _dt; _mister_bld_blend_count++; }\n"
+        "              else { _mister_bld_opaque_ms += _dt; _mister_bld_opaque_count++; } }\n"
         "            break;\n"
         "        case SQT_SCREEN: // draw a screen instead of sprite\n"
         "            _o11_t0 = timer_gettick();\n"
