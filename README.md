@@ -110,7 +110,7 @@ Both `OpenBOR_4086` and `OpenBOR_7533` cores have identical support across these
 | Savestates (`<pak>.scr` engine snapshot) | ✅ `/media/fat/savestates/OpenBOR_4086/` | ✅ `/media/fat/savestates/OpenBOR_7533/` |
 | Logs (with auto-prune N=10) | ✅ `/media/fat/logs/OpenBOR_4086/` | ✅ `/media/fat/logs/OpenBOR_7533/` |
 | Configs (`<pak>.cfg` + `default.cfg` + `<pak>.hi`) | ✅ `/media/fat/config/` (shared across sister cores) | ✅ shared with 4086 |
-| MGLs (`_Other/*.mgl` one-click launchers) | ⚠ architectural support, not user-tested yet | ⚠ same |
+| MGLs (`_Other/*.mgl` one-click launchers) | ✅ | ✅ |
 | Gameplay Recordings / TAS (`<pak>.inp`) | ✅ engine-native Record Game / Play Recording | ✅ same |
 | Gamepad (up to 4P, Start adds player) | ✅ | ✅ |
 | Keyboard | ❌ no (SDL keyboard not wired through dummy driver) | ❌ no |
