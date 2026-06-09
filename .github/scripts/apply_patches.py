@@ -1686,6 +1686,30 @@ endif
         "                self->velocity.x = (self->direction == DIRECTION_LEFT)\n"
         "                                   ? -self->modeldata.speed.x\n"
         "                                   : self->modeldata.speed.x;\n"
+        "                /* MiSTer Step 70 (2026-06-09): wall-pin despawn. A roller    */\n"
+        "                /* jammed against a boundary wall never reaches its           */\n"
+        "                /* offscreenkill, deadlocking the level's enemy wait. If it   */\n"
+        "                /* hasn't moved for ~90 ticks, shove it well past the         */\n"
+        "                /* offscreen boundary so the engine's own check_lost()        */\n"
+        "                /* removes it next tick via kill_entity(OUT_OF_BOUNDS).       */\n"
+        "                {\n"
+        "                    /* Threshold 0.1f: [BAR-G] log shows a normal roller moves   */\n"
+        "                    /* 0.70 px/tick (speed.x=0.70) while a wall-pinned barrel    */\n"
+        "                    /* is frozen at dx=0.00. 0.1 cleanly separates them. (The    */\n"
+        "                    /* first cut used 1.0, which flagged EVERY roller since      */\n"
+        "                    /* 0.70 < 1.0, despawning them mid-roll.)                     */\n"
+        "                    float _md = self->position.x - self->mister_stall_lastx;\n"
+        "                    if (_md < 0) _md = -_md;\n"
+        "                    if (_md < 0.1f) {\n"
+        "                        self->mister_stall_ticks++;\n"
+        "                        if (self->mister_stall_ticks > 90) {\n"
+        "                            self->position.x += (float)(videomodes.hRes + (int)self->modeldata.offscreenkill + 200);\n"
+        "                        }\n"
+        "                    } else {\n"
+        "                        self->mister_stall_ticks = 0;\n"
+        "                    }\n"
+        "                    self->mister_stall_lastx = self->position.x;\n"
+        "                }\n"
         "            }\n"
         "            else\n"
         "            {\n"
@@ -1714,6 +1738,25 @@ endif
                              'Step 57: rolling at-rest fix outside airborne block')
     write(ob_path_g, ob_s57)
     print("  Step 57: unconditional rolling block at end of check_gravity (fires for at-rest barrels)")
+
+    # -- Step 70 (2026-06-09): init the stall tracker (added to s_entity END) when
+    # a SUBTYPE_ARROW entity spawns, so a reused entity slot's stale values can't
+    # false-trigger the wall-pin despawn in Step 57's block. Sentinel lastx forces
+    # a clean reset on the barrel's first Step 57 tick. Anchored on the arrow-init
+    # opener (pristine; Steps 45/47 hook the END of this block, not health_current).
+    print("Patching openbor.c (Step 70: init stall tracker in SUBTYPE_ARROW init)...")
+    ob_s70 = read(ob_path_g)
+    s70b_old = ("        else if(e->modeldata.subtype == SUBTYPE_ARROW)\n"
+                "        {\n"
+                "            e->energy_state.health_current = 1;\n")
+    s70b_new = ("        else if(e->modeldata.subtype == SUBTYPE_ARROW)\n"
+                "        {\n"
+                "            e->energy_state.health_current = 1;\n"
+                "            e->mister_stall_lastx = -999999.0f; /* MiSTer Step 70: sentinel forces stall reset on first Step 57 tick */\n"
+                "            e->mister_stall_ticks = 0;\n")
+    ob_s70 = strict_replace(ob_s70, s70b_old, s70b_new, 'Step 70: init stall tracker in SUBTYPE_ARROW init')
+    write(ob_path_g, ob_s70)
+    print("  Step 70: stall tracker initialized on SUBTYPE_ARROW spawn")
 
     # ── Step 45 (2026-05-30): auto-transition cart-spawned in-air arrows to ANI_FALL ────
     # User-reported TMNT-RP construction-level rolling barrels float at spawn
@@ -2280,6 +2323,17 @@ endif
     # END placement preserves the no-offset-shift safety pattern of v3.9/v3.10.
     s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n    int gravity_directive_seen; /* MiSTer Step 31 v2: set by CMD_MODEL_SUBJECT_TO_GRAVITY parser; gates ent_default_init force-gravity for TYPE_NONE */\n    int no_adjust_base_directive_seen; /* MiSTer Step 31 v3: set by CMD_MODEL_NO_ADJUST_BASE parser; gates ent_default_init force-no-adjust-base for TYPE_NONE */\n    int aironly_directive_seen; /* MiSTer Step 45: set by CMD_MODEL_AIRONLY parser when arg>0; gates SUBTYPE_ARROW auto-transition to ANI_FALL */\n    int hole_directive_seen; /* MiSTer Step 67: set by CMD_MODEL_SUBJECT_TO_HOLE parser; gates Step 42 v2 SUBJECT_TO_HOLE force-set for flying characters (Bearz OWL) */\n    int obstacle_directive_seen; /* MiSTer Step 68: set by CMD_MODEL_SUBJECT_TO_OBSTACLE parser; gates Step 42 v2 SUBJECT_TO_OBSTACLE force-set */\n    int platform_directive_seen; /* MiSTer Step 68: set by CMD_MODEL_SUBJECT_TO_PLATFORM parser; gates Step 42 v2 SUBJECT_TO_PLATFORM force-set */\n} s_model;"
     obh = strict_replace(obh, s_model_v310_old, s_model_v310_new, 'v3.10 + Step 31 v2 + v3 + Step 45: add directive_seen fields to s_model END')
+    # -- Step 70 (2026-06-09): stall-tracker fields at END of s_entity for the
+    # wall-pinned rolling-barrel despawn fix (TMNT-RP construction level). A
+    # subtype-arrow aironly roller can jam against a boundary wall just offscreen,
+    # short of its offscreenkill, deadlocking the level's enemy `wait`. We track
+    # per-entity no-move ticks to detect + despawn it. END placement = no offset
+    # shifts (same safety pattern as the s_model directive_seen fields above).
+    s_entity_old = "} entity;"
+    s_entity_new = ("    float mister_stall_lastx; /* MiSTer Step 70: last x for wall-pin stall detect (subtype-arrow rollers) */\n"
+                    "    int mister_stall_ticks;   /* MiSTer Step 70: consecutive no-move ticks; despawn roller pinned at a wall */\n"
+                    "} entity;")
+    obh = strict_replace(obh, s_entity_old, s_entity_new, 'Step 70: add stall-tracker fields to s_entity END')
     write(obh_path, obh)
     print("  s_model.has_palette_directive added at struct end (v3.10)")
 
