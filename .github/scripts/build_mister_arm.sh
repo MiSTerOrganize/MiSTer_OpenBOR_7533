@@ -201,6 +201,17 @@ make BUILD_MISTER=1 SDL_PREFIX=$SDL_PREFIX -j$(nproc)
 echo "=== Binary info ==="
 ls -lh OpenBOR
 
+# DIAG (2026-06-10): grep the freshly-built binary IN CI. If [VCP] appears
+# here but NOT in the downloaded artifact -> upload/download issue. If absent
+# here too -> the compile/link genuinely drops it. BIN_MD5 lets us compare to
+# the locally-downloaded md5.
+echo "=== FINAL BINARY [VCP] CHECK ==="
+echo "BIN_VCP_OCCURRENCES=$(grep -ao 'VCP' OpenBOR 2>/dev/null | wc -l)"
+echo "BIN_VCP_BRACKET=$(grep -ao '\[VCP\]' OpenBOR 2>/dev/null | head -1)"
+echo "BIN_DEINT_OCC=$(grep -ao 'deint=' OpenBOR 2>/dev/null | wc -l)"
+echo "BIN_MD5=$(md5sum OpenBOR | awk '{print $1}')"
+echo "=== END FINAL BINARY [VCP] CHECK ==="
+
 # ── Copy result back to mounted volume ───────────────────────────
 cp OpenBOR /build/OpenBOR
 echo "=== Build complete ==="
