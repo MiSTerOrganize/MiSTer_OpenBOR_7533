@@ -179,7 +179,7 @@ endif
     mf = strict_replace(
         mf,
         "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif",
-        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O2 -fno-aggressive-loop-optimizations -funroll-loops -fno-plt -fno-semantic-interposition -flto -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nLDFLAGS        += -flto\nendif",
+        "ifdef BUILD_SDL\nCFLAGS \t       += -DSDL=1\nendif\n\n\nifdef BUILD_MISTER\nCFLAGS         += -DMISTER_NATIVE_VIDEO -fcommon -Wno-error -O2 -fno-aggressive-loop-optimizations -funroll-loops -fno-plt -fno-semantic-interposition -g -rdynamic -funwind-tables -fasynchronous-unwind-tables -mapcs-frame\nendif",
         'Makefile MISTER_NATIVE_VIDEO CFLAGS injection (Step 25 final: -O2 + funroll + fno-plt + fno-semantic-interposition + LTO)'
     )
 
