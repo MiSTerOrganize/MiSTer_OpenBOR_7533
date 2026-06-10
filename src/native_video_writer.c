@@ -325,14 +325,31 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             s_htab_maxhcnt = maxh;
         }
 
-        /* Raw 2D block-sum accumulators; one divide per output pixel. uint32
-         * is ample: block_sum <= block_area * 255 (~7650 at 1080p source). */
-        uint32_t vr[NV_FRAME_WIDTH], vg[NV_FRAME_WIDTH], vb[NV_FRAME_WIDTH];
+        /* Raw 2D block-sum accumulators; one divide per output pixel.
+         * uint16 is ample for the box path: width<=1280 && height<=896 ->
+         * block area <= 4x4=16 -> max sum 16*255=4080 << 65535. The >4x
+         * stride-cap path writes s_avg directly and never touches these.
+         * 16-bit (vs the prior uint32) halves the NEON vertical-accumulate:
+         * 8 lanes/store instead of 4, AND drops the vmovl_u16 widening, AND
+         * halves accumulator memory traffic -- the dominant vcopy cost.
+         * (The prior "~7650 at 1080p" note was wrong: 1080p uses the
+         * stride-cap path, not these accumulators.) */
+        uint16_t vr[NV_FRAME_WIDTH], vg[NV_FRAME_WIDTH], vb[NV_FRAME_WIDTH];
 
         /* Averaged 8-bit RGB intermediate. Pass 1 fills it from the box
          * average; pass 2 reads 3x3 neighborhoods for the unsharp + packs to
          * DDR3. static (render-thread only). ~215 KB. */
         static uint8_t s_avg[NV_FRAME_HEIGHT * NV_FRAME_WIDTH * 3];
+
+        /* TEMPORARY DIAG (REVERT AFTER MEASURED): verify the 16-bit NEON
+         * accumulate is byte-identical to an independent scalar reference, for
+         * the first 2 He-Man frames. Compares the raw block SUMS (vr/vg/vb),
+         * not the divided output, so the reciprocal-multiply rounding can't
+         * cause a false mismatch. Result logged as [VCV] after PASS 1. */
+        static int  s_vcv_frame    = 0;
+        static long s_vcv_mismatch = 0;
+        int vcv_active = (s_vcv_frame < 2 && width == NV_FRAME_WIDTH * 3);
+        if (vcv_active) s_vcv_mismatch = 0;
 
         /* PASS 1: box area-average -> 8-bit s_avg (no DDR3 write yet). */
         for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
@@ -424,18 +441,15 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                         uint16x8_t ghi = vaddw_u8(vaddl_u8(vget_high_u8(gg.val[0]), vget_high_u8(gg.val[1])), vget_high_u8(gg.val[2]));
                         uint16x8_t blo = vaddw_u8(vaddl_u8(vget_low_u8(gb.val[0]),  vget_low_u8(gb.val[1])),  vget_low_u8(gb.val[2]));
                         uint16x8_t bhi = vaddw_u8(vaddl_u8(vget_high_u8(gb.val[0]), vget_high_u8(gb.val[1])), vget_high_u8(gb.val[2]));
-                        vst1q_u32(&vr[x],      vaddq_u32(vld1q_u32(&vr[x]),      vmovl_u16(vget_low_u16(rlo))));
-                        vst1q_u32(&vr[x + 4],  vaddq_u32(vld1q_u32(&vr[x + 4]),  vmovl_u16(vget_high_u16(rlo))));
-                        vst1q_u32(&vr[x + 8],  vaddq_u32(vld1q_u32(&vr[x + 8]),  vmovl_u16(vget_low_u16(rhi))));
-                        vst1q_u32(&vr[x + 12], vaddq_u32(vld1q_u32(&vr[x + 12]), vmovl_u16(vget_high_u16(rhi))));
-                        vst1q_u32(&vg[x],      vaddq_u32(vld1q_u32(&vg[x]),      vmovl_u16(vget_low_u16(glo))));
-                        vst1q_u32(&vg[x + 4],  vaddq_u32(vld1q_u32(&vg[x + 4]),  vmovl_u16(vget_high_u16(glo))));
-                        vst1q_u32(&vg[x + 8],  vaddq_u32(vld1q_u32(&vg[x + 8]),  vmovl_u16(vget_low_u16(ghi))));
-                        vst1q_u32(&vg[x + 12], vaddq_u32(vld1q_u32(&vg[x + 12]), vmovl_u16(vget_high_u16(ghi))));
-                        vst1q_u32(&vb[x],      vaddq_u32(vld1q_u32(&vb[x]),      vmovl_u16(vget_low_u16(blo))));
-                        vst1q_u32(&vb[x + 4],  vaddq_u32(vld1q_u32(&vb[x + 4]),  vmovl_u16(vget_high_u16(blo))));
-                        vst1q_u32(&vb[x + 8],  vaddq_u32(vld1q_u32(&vb[x + 8]),  vmovl_u16(vget_low_u16(bhi))));
-                        vst1q_u32(&vb[x + 12], vaddq_u32(vld1q_u32(&vb[x + 12]), vmovl_u16(vget_high_u16(bhi))));
+                        /* 16-bit accumulate: rlo->cols x..x+7, rhi->x+8..x+15
+                         * (same lane mapping as the prior uint32 stores). 8
+                         * lanes/store, no vmovl widening. */
+                        vst1q_u16(&vr[x],     vaddq_u16(vld1q_u16(&vr[x]),     rlo));
+                        vst1q_u16(&vr[x + 8], vaddq_u16(vld1q_u16(&vr[x + 8]), rhi));
+                        vst1q_u16(&vg[x],     vaddq_u16(vld1q_u16(&vg[x]),     glo));
+                        vst1q_u16(&vg[x + 8], vaddq_u16(vld1q_u16(&vg[x + 8]), ghi));
+                        vst1q_u16(&vb[x],     vaddq_u16(vld1q_u16(&vb[x]),     blo));
+                        vst1q_u16(&vb[x + 8], vaddq_u16(vld1q_u16(&vb[x + 8]), bhi));
                     }
                 }
             } else
@@ -456,6 +470,22 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                 }
             }
 
+            /* TEMPORARY DIAG (REVERT AFTER MEASURED): cross-check vr/vg/vb
+             * against an independent scalar sum over the SAME block bounds
+             * (y0..y1, s_hx0/s_hcnt). Catches any NEON 16-bit-lane mistake. */
+            if (vcv_active) {
+                for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                    uint32_t rr = 0, rg = 0, rb = 0;
+                    int n = s_hcnt[x];
+                    for (int sy = y0; sy < y1; sy++) {
+                        const uint8_t* p = src + (size_t)sy * pitch + (size_t)s_hx0[x] * 4;
+                        for (int k = 0; k < n; k++) { rr += p[0]; rg += p[1]; rb += p[2]; p += 4; }
+                    }
+                    if ((uint32_t)vr[x] != rr || (uint32_t)vg[x] != rg || (uint32_t)vb[x] != rb)
+                        s_vcv_mismatch++;
+                }
+            }
+
             /* One rounded divide per output pixel -> store 8-bit RGB. */
             uint8_t* arow = s_avg + (size_t)y * NV_FRAME_WIDTH * 3;
             for (int x = 0; x < NV_FRAME_WIDTH; x++) {
@@ -470,6 +500,14 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                 arow[x * 3 + 1] = (uint8_t)g;
                 arow[x * 3 + 2] = (uint8_t)b;
             }
+        }
+
+        /* TEMPORARY DIAG (REVERT AFTER MEASURED): vcopy verify result. */
+        if (vcv_active) {
+            fprintf(stderr, "[VCV] frame=%d 16bit-accum vs scalar-ref: %s (mismatch=%ld)\n",
+                    s_vcv_frame, s_vcv_mismatch == 0 ? "MATCH" : "MISMATCH",
+                    s_vcv_mismatch);
+            s_vcv_frame++;
         }
 
         /* PASS 2: pack the box-averaged image straight to RGB565 — NO sharpen.
