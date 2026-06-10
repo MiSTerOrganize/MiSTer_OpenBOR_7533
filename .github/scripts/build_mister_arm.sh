@@ -167,6 +167,17 @@ cp /build/src/native_video_writer.h .
 cp /build/src/native_audio_writer.c .
 cp /build/src/native_audio_writer.h .
 
+# ── DIAG (2026-06-10): a build shipped a binary lacking native_video_writer.c
+# source changes despite the cp above (binary had no [VCP]/[VCV] markers).
+# Print exactly what is about to compile, flag duplicates, and force a fresh
+# object so no stale .o can be linked.
+echo "=== NVW DIAG: pwd=$(pwd) ==="
+sha256sum native_video_writer.c native_audio_writer.c
+echo "NVW_VCP_COUNT=$(grep -c VCP native_video_writer.c)"
+echo "NVW dupes under /tmp:"; find /tmp -name 'native_video_writer.*' 2>/dev/null
+rm -f native_video_writer.o native_audio_writer.o
+echo "=== END NVW DIAG ==="
+
 # ── Apply Makefile + source patches ──────────────────────────────
 # CRITICAL: hard-fail if apply_patches.py errors. Previously `set +e`
 # at the top let silent patch failures through — CI claimed "success"
