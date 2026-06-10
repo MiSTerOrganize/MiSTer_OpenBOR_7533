@@ -30,10 +30,19 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <time.h>   /* TEMPORARY DIAG (REVERT AFTER MEASURED): [VCP] vcopy profile */
 /* Step 20 (2026-05-27): NEON intrinsics for 128-bit DDR3 stores in the
  * no-squish fast path of WriteFrame. Cortex-A9 + -mfpu=neon -mfloat-abi=hard
  * build flags (see CLAUDE.md OpenBOR build config) guarantee NEON support. */
 #include <arm_neon.h>
+
+/* TEMPORARY DIAG (REVERT AFTER MEASURED): monotonic-ns clock for the [VCP]
+ * vcopy-internal timing split (deinterleave vs accumulate vs divide). */
+static inline unsigned long nv_now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (unsigned long)ts.tv_sec * 1000000000UL + (unsigned long)ts.tv_nsec;
+}
 
 #define NV_DDR_PHYS_BASE    0x3A000000u
 #define NV_DDR_REGION_SIZE  0x00100000u   /* 1MB covers buffers + control + cart data */
@@ -342,6 +351,15 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * the unsharp was removed 2026-06-08, so the staging buffer + the
          * second pass are gone -- saves a 215 KB write + 215 KB read + a full
          * output-size pass per frame. */
+
+        /* TEMPORARY DIAG (REVERT AFTER MEASURED): vcopy-internal timing split,
+         * He-Man (NEON 3x) path only. Decides whether opt C (kill the plane
+         * round-trip) is worth it: if deint dominates, yes. */
+        static unsigned long s_vcp_deint_ns = 0, s_vcp_accum_ns = 0, s_vcp_div_ns = 0;
+        static unsigned long s_vcp_last_ns  = 0;
+        static int s_vcp_frames = 0;
+        int vcp_active = (width == NV_FRAME_WIDTH * 3);
+
         for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
             int y0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
             int y1 = (int)(((long)(y + 1) * height) / NV_FRAME_HEIGHT);
@@ -412,12 +430,14 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                 static uint8_t planeB[NV_FRAME_WIDTH * 3];
                 for (int sy = y0; sy < y1; sy++) {
                     const uint8_t* row = src + (size_t)sy * pitch;
+                    unsigned long _ta = nv_now_ns();   /* TEMP DIAG */
                     for (int sx = 0; sx < NV_FRAME_WIDTH * 3; sx += 16) {
                         uint8x16x4_t px = vld4q_u8(row + (size_t)sx * 4);
                         vst1q_u8(planeR + sx, px.val[0]);
                         vst1q_u8(planeG + sx, px.val[1]);
                         vst1q_u8(planeB + sx, px.val[2]);
                     }
+                    unsigned long _tb = nv_now_ns();   /* TEMP DIAG */
                     for (int x = 0; x < NV_FRAME_WIDTH; x += 16) {
                         int sx = x * 3;
                         uint8x16x3_t gr = vld3q_u8(planeR + sx);
@@ -439,6 +459,8 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                         vst1q_u16(&vb[x],     vaddq_u16(vld1q_u16(&vb[x]),     blo));
                         vst1q_u16(&vb[x + 8], vaddq_u16(vld1q_u16(&vb[x + 8]), bhi));
                     }
+                    s_vcp_deint_ns += _tb - _ta;               /* TEMP DIAG */
+                    s_vcp_accum_ns += nv_now_ns() - _tb;       /* TEMP DIAG */
                 }
             } else
 #endif
@@ -459,6 +481,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             }
 
             /* One rounded divide per output pixel -> pack straight to RGB565. */
+            unsigned long _td = nv_now_ns();   /* TEMP DIAG */
             volatile uint16_t* dst_row = dst + (size_t)y * NV_FRAME_WIDTH;
             for (int x = 0; x < NV_FRAME_WIDTH; x++) {
                 uint32_t rc = recip[s_hcnt[x]];
@@ -469,6 +492,22 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                 if (g > 255) g = 255;
                 if (b > 255) b = 255;
                 dst_row[x] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+            }
+            s_vcp_div_ns += nv_now_ns() - _td;   /* TEMP DIAG */
+        }
+
+        /* TEMPORARY DIAG (REVERT AFTER MEASURED): log [VCP] every ~5s. */
+        if (vcp_active) {
+            s_vcp_frames++;
+            unsigned long _n = nv_now_ns();
+            if (s_vcp_last_ns == 0) s_vcp_last_ns = _n;
+            if (_n - s_vcp_last_ns >= 5000000000UL) {
+                fprintf(stderr, "[VCP] frames=%d deint=%lums accum=%lums div=%lums\n",
+                        s_vcp_frames, s_vcp_deint_ns / 1000000UL,
+                        s_vcp_accum_ns / 1000000UL, s_vcp_div_ns / 1000000UL);
+                s_vcp_deint_ns = s_vcp_accum_ns = s_vcp_div_ns = 0;
+                s_vcp_frames = 0;
+                s_vcp_last_ns = _n;
             }
         }
     }
