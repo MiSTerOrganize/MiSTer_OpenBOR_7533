@@ -38,10 +38,12 @@
 
 /* TEMPORARY DIAG (REVERT AFTER MEASURED): monotonic-ns clock for the [VCP]
  * vcopy-internal timing split (deinterleave vs accumulate vs divide). */
-static inline unsigned long nv_now_ns(void) {
+static inline uint64_t nv_now_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (unsigned long)ts.tv_sec * 1000000000UL + (unsigned long)ts.tv_nsec;
+    /* uint64_t: on ARMv7 `unsigned long` is 32-bit -> tv_sec*1e9 overflows and
+     * a 5e9-ns (5s) gate becomes provably-false, so GCC DCE'd the whole log. */
+    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 }
 
 #define NV_DDR_PHYS_BASE    0x3A000000u
@@ -361,8 +363,8 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
         /* TEMPORARY DIAG (REVERT AFTER MEASURED): vcopy-internal timing split,
          * He-Man (NEON 3x) path only. Decides whether opt C (kill the plane
          * round-trip) is worth it: if deint dominates, yes. */
-        static unsigned long s_vcp_deint_ns = 0, s_vcp_accum_ns = 0, s_vcp_div_ns = 0;
-        static unsigned long s_vcp_last_ns  = 0;
+        static uint64_t s_vcp_deint_ns = 0, s_vcp_accum_ns = 0, s_vcp_div_ns = 0;
+        static uint64_t s_vcp_last_ns  = 0;
         static int s_vcp_frames = 0;
         int vcp_active = (width == NV_FRAME_WIDTH * 3);
 
@@ -436,14 +438,14 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                 static uint8_t planeB[NV_FRAME_WIDTH * 3];
                 for (int sy = y0; sy < y1; sy++) {
                     const uint8_t* row = src + (size_t)sy * pitch;
-                    unsigned long _ta = nv_now_ns();   /* TEMP DIAG */
+                    uint64_t _ta = nv_now_ns();   /* TEMP DIAG */
                     for (int sx = 0; sx < NV_FRAME_WIDTH * 3; sx += 16) {
                         uint8x16x4_t px = vld4q_u8(row + (size_t)sx * 4);
                         vst1q_u8(planeR + sx, px.val[0]);
                         vst1q_u8(planeG + sx, px.val[1]);
                         vst1q_u8(planeB + sx, px.val[2]);
                     }
-                    unsigned long _tb = nv_now_ns();   /* TEMP DIAG */
+                    uint64_t _tb = nv_now_ns();   /* TEMP DIAG */
                     for (int x = 0; x < NV_FRAME_WIDTH; x += 16) {
                         int sx = x * 3;
                         uint8x16x3_t gr = vld3q_u8(planeR + sx);
@@ -487,7 +489,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             }
 
             /* One rounded divide per output pixel -> pack straight to RGB565. */
-            unsigned long _td = nv_now_ns();   /* TEMP DIAG */
+            uint64_t _td = nv_now_ns();   /* TEMP DIAG */
             volatile uint16_t* dst_row = dst + (size_t)y * NV_FRAME_WIDTH;
             for (int x = 0; x < NV_FRAME_WIDTH; x++) {
                 uint32_t rc = recip[s_hcnt[x]];
@@ -505,12 +507,13 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
         /* TEMPORARY DIAG (REVERT AFTER MEASURED): log [VCP] every ~5s. */
         if (vcp_active) {
             s_vcp_frames++;
-            unsigned long _n = nv_now_ns();
+            uint64_t _n = nv_now_ns();
             if (s_vcp_last_ns == 0) s_vcp_last_ns = _n;
-            if (_n - s_vcp_last_ns >= 5000000000UL) {
-                fprintf(stderr, "[VCP] frames=%d deint=%lums accum=%lums div=%lums\n",
-                        s_vcp_frames, s_vcp_deint_ns / 1000000UL,
-                        s_vcp_accum_ns / 1000000UL, s_vcp_div_ns / 1000000UL);
+            if (_n - s_vcp_last_ns >= 5000000000ULL) {
+                fprintf(stderr, "[VCP] frames=%d deint=%llums accum=%llums div=%llums\n",
+                        s_vcp_frames, (unsigned long long)(s_vcp_deint_ns / 1000000ULL),
+                        (unsigned long long)(s_vcp_accum_ns / 1000000ULL),
+                        (unsigned long long)(s_vcp_div_ns / 1000000ULL));
                 s_vcp_deint_ns = s_vcp_accum_ns = s_vcp_div_ns = 0;
                 s_vcp_frames = 0;
                 s_vcp_last_ns = _n;
