@@ -328,7 +328,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
         /* Raw 2D block-sum accumulators; one divide per output pixel.
          * uint16 is ample for the box path: width<=1280 && height<=896 ->
          * block area <= 4x4=16 -> max sum 16*255=4080 << 65535. The >4x
-         * stride-cap path writes s_avg directly and never touches these.
+         * stride-cap path packs to dst directly and never touches these.
          * 16-bit (vs the prior uint32) halves the NEON vertical-accumulate:
          * 8 lanes/store instead of 4, AND drops the vmovl_u16 widening, AND
          * halves accumulator memory traffic -- the dominant vcopy cost.
@@ -336,22 +336,12 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * stride-cap path, not these accumulators.) */
         uint16_t vr[NV_FRAME_WIDTH], vg[NV_FRAME_WIDTH], vb[NV_FRAME_WIDTH];
 
-        /* Averaged 8-bit RGB intermediate. Pass 1 fills it from the box
-         * average; pass 2 reads 3x3 neighborhoods for the unsharp + packs to
-         * DDR3. static (render-thread only). ~215 KB. */
-        static uint8_t s_avg[NV_FRAME_HEIGHT * NV_FRAME_WIDTH * 3];
-
-        /* TEMPORARY DIAG (REVERT AFTER MEASURED): verify the 16-bit NEON
-         * accumulate is byte-identical to an independent scalar reference, for
-         * the first 2 He-Man frames. Compares the raw block SUMS (vr/vg/vb),
-         * not the divided output, so the reciprocal-multiply rounding can't
-         * cause a false mismatch. Result logged as [VCV] after PASS 1. */
-        static int  s_vcv_frame    = 0;
-        static long s_vcv_mismatch = 0;
-        int vcv_active = (s_vcv_frame < 2 && width == NV_FRAME_WIDTH * 3);
-        if (vcv_active) s_vcv_mismatch = 0;
-
-        /* PASS 1: box area-average -> 8-bit s_avg (no DDR3 write yet). */
+        /* Single fused pass: box area-average each output row and pack it
+         * straight to RGB565 in DDR3 (dst). The prior 2-pass s_avg 8-bit
+         * intermediate existed only to feed the unsharp's 3x3 reads in pass 2;
+         * the unsharp was removed 2026-06-08, so the staging buffer + the
+         * second pass are gone -- saves a 215 KB write + 215 KB read + a full
+         * output-size pass per frame. */
         for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
             int y0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
             int y1 = (int)(((long)(y + 1) * height) / NV_FRAME_HEIGHT);
@@ -366,7 +356,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
              * subsample above that. Only fires when source >1280 wide or >896
              * tall -- every PAK <=960x480 keeps the exact box/NEON path below. */
             if (width > NV_FRAME_WIDTH * 4 || height > NV_FRAME_HEIGHT * 4) {
-                uint8_t* arow = s_avg + (size_t)y * NV_FRAME_WIDTH * 3;
+                volatile uint16_t* dst_row = dst + (size_t)y * NV_FRAME_WIDTH;
                 int bh = y1 - y0;
                 for (int x = 0; x < NV_FRAME_WIDTH; x++) {
                     int x0 = (int)(((long)x * width) / NV_FRAME_WIDTH);
@@ -390,11 +380,9 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                     rs = (rs + 8) >> 4;   /* divide by 16 (4x4 samples), rounded */
                     gs = (gs + 8) >> 4;
                     bs = (bs + 8) >> 4;
-                    arow[x * 3 + 0] = (uint8_t)rs;
-                    arow[x * 3 + 1] = (uint8_t)gs;
-                    arow[x * 3 + 2] = (uint8_t)bs;
+                    dst_row[x] = (uint16_t)(((rs >> 3) << 11) | ((gs >> 2) << 5) | (bs >> 3));
                 }
-                continue;   /* stride-cap wrote s_avg directly; skip the box path */
+                continue;   /* stride-cap packed straight to DDR3; skip the box path */
             }
 
             /* Combined reciprocal per distinct horizontal block width:
@@ -470,24 +458,8 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                 }
             }
 
-            /* TEMPORARY DIAG (REVERT AFTER MEASURED): cross-check vr/vg/vb
-             * against an independent scalar sum over the SAME block bounds
-             * (y0..y1, s_hx0/s_hcnt). Catches any NEON 16-bit-lane mistake. */
-            if (vcv_active) {
-                for (int x = 0; x < NV_FRAME_WIDTH; x++) {
-                    uint32_t rr = 0, rg = 0, rb = 0;
-                    int n = s_hcnt[x];
-                    for (int sy = y0; sy < y1; sy++) {
-                        const uint8_t* p = src + (size_t)sy * pitch + (size_t)s_hx0[x] * 4;
-                        for (int k = 0; k < n; k++) { rr += p[0]; rg += p[1]; rb += p[2]; p += 4; }
-                    }
-                    if ((uint32_t)vr[x] != rr || (uint32_t)vg[x] != rg || (uint32_t)vb[x] != rb)
-                        s_vcv_mismatch++;
-                }
-            }
-
-            /* One rounded divide per output pixel -> store 8-bit RGB. */
-            uint8_t* arow = s_avg + (size_t)y * NV_FRAME_WIDTH * 3;
+            /* One rounded divide per output pixel -> pack straight to RGB565. */
+            volatile uint16_t* dst_row = dst + (size_t)y * NV_FRAME_WIDTH;
             for (int x = 0; x < NV_FRAME_WIDTH; x++) {
                 uint32_t rc = recip[s_hcnt[x]];
                 uint32_t r = (vr[x] * rc + (1u << 19)) >> 20;
@@ -496,30 +468,6 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                 if (r > 255) r = 255;
                 if (g > 255) g = 255;
                 if (b > 255) b = 255;
-                arow[x * 3 + 0] = (uint8_t)r;
-                arow[x * 3 + 1] = (uint8_t)g;
-                arow[x * 3 + 2] = (uint8_t)b;
-            }
-        }
-
-        /* TEMPORARY DIAG (REVERT AFTER MEASURED): vcopy verify result. */
-        if (vcv_active) {
-            fprintf(stderr, "[VCV] frame=%d 16bit-accum vs scalar-ref: %s (mismatch=%ld)\n",
-                    s_vcv_frame, s_vcv_mismatch == 0 ? "MATCH" : "MISMATCH",
-                    s_vcv_mismatch);
-            s_vcv_frame++;
-        }
-
-        /* PASS 2: pack the box-averaged image straight to RGB565 — NO sharpen.
-         * (2026-06-08: the cross-Laplacian unsharp was removed; it read jaggier
-         * than 4086 on ATOV. The box area-average in PASS 1 is the only filter.) */
-        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
-            const uint8_t* arow = s_avg + (size_t)y * NV_FRAME_WIDTH * 3;
-            volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
-            for (int x = 0; x < NV_FRAME_WIDTH; x++) {
-                uint8_t r = arow[x * 3 + 0];
-                uint8_t g = arow[x * 3 + 1];
-                uint8_t b = arow[x * 3 + 2];
                 dst_row[x] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
             }
         }
