@@ -148,6 +148,12 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
     if (!ddr_base || !pixels) return;
     if (width <= 0 || height <= 0) return;
 
+    /* TEMP DIAG: unconditional one-time marker at WriteFrame top level. If
+     * WFMARKER survives but [VCP] doesn't, the bpp==32 branch (or the deep
+     * conditional) is being eliminated; prints actual bpp/width at runtime. */
+    { static int _wf_m = 0; if (!_wf_m) { _wf_m = 1;
+        fprintf(stderr, "WFMARKER_TOPLEVEL bpp=%d w=%d h=%d\n", bpp, width, height); } }
+
     /* Anisotropic nearest-neighbor squish: source W×H → NV_FRAME_WIDTH×HEIGHT.
      * Sega CD V28 NTSC active area = 320×224. 320×240 PAKs (ATOV, etc.)
      * get ~7% Y compress; sub-native PAKs (480×272, 960×480) get larger

@@ -207,9 +207,14 @@ ls -lh OpenBOR
 # the locally-downloaded md5.
 echo "=== FINAL BINARY [VCP] CHECK ==="
 echo "BIN_VCP_OCCURRENCES=$(grep -ao 'VCP' OpenBOR 2>/dev/null | wc -l)"
-echo "BIN_VCP_BRACKET=$(grep -ao '\[VCP\]' OpenBOR 2>/dev/null | head -1)"
+echo "BIN_WFMARKER=$(grep -ao 'WFMARKER' OpenBOR 2>/dev/null | head -1)"
 echo "BIN_DEINT_OCC=$(grep -ao 'deint=' OpenBOR 2>/dev/null | wc -l)"
 echo "BIN_MD5=$(md5sum OpenBOR | awk '{print $1}')"
+echo "--- object-file forensics (compile-drop vs link-drop) ---"
+ls -la native_video_writer.o 2>/dev/null
+echo "OBJ_STRINGS=$(strings -n 3 native_video_writer.o 2>/dev/null | grep -iE 'vcp|deint|wfmarker|mapped|pinned' | tr '\n' '|')"
+echo "BIN_STRINGS=$(strings -n 3 OpenBOR 2>/dev/null | grep -iE 'vcp|deint|wfmarker' | tr '\n' '|')"
+echo "BIN_HAS_MAPPED=$(grep -ao 'NativeVideoWriter: mapped' OpenBOR 2>/dev/null | head -1)"
 echo "=== END FINAL BINARY [VCP] CHECK ==="
 
 # ── Copy result back to mounted volume ───────────────────────────
