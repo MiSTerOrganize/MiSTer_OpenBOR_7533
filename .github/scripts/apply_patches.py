@@ -261,6 +261,43 @@ endif
     write(pf_path, pf)
     print("  packfile.c: CACHEBLOCKS=255 + readahead=65536 (paired filecache speedup)")
 
+    # ── Blend dest-read prefetch (2026-06-11) ──────────────────────────
+    # The vcopy source prefetch gave ~24% off deint, so apply the same zero-
+    # risk PLD to the blend's sequential dest read in putsprite_blend_{,flip_}.
+    # __builtin_prefetch(&dest[lx +/- 16], 1, 0): ~1 cache line ahead in the
+    # direction of travel (forward lx++, flip --lx), hinted for write (dest is
+    # read-modify-written). Pure hint -- byte-identical, cannot crash. Blend is
+    # the dominant bucket; free win if it helps the dest-read latency.
+    print("Patching spritex8p32.c (blend dest-read prefetch)...")
+    spx_path = os.path.join(obor, 'source/gamelib/spritex8p32.c')
+    spx = read(spx_path)
+    spx = strict_replace(spx,
+        "            for(; count > 0; count--, lx++)\n"
+        "            {\n"
+        "                dest[lx] = blendfp(palette[*data++], dest[lx]);\n"
+        "            }",
+        "            for(; count > 0; count--, lx++)\n"
+        "            {\n"
+        "                __builtin_prefetch(&dest[lx + 16], 1, 0); /* PLD dest ahead (forward) */\n"
+        "                dest[lx] = blendfp(palette[*data++], dest[lx]);\n"
+        "            }",
+        'blend: prefetch dest in putsprite_blend_ (forward)')
+    spx = strict_replace(spx,
+        "            for(; count > 0; count--)\n"
+        "            {\n"
+        "                --lx;\n"
+        "                dest[lx] = blendfp(palette[*data++], dest[lx]);\n"
+        "            }",
+        "            for(; count > 0; count--)\n"
+        "            {\n"
+        "                --lx;\n"
+        "                __builtin_prefetch(&dest[lx - 16], 1, 0); /* PLD dest ahead (flip) */\n"
+        "                dest[lx] = blendfp(palette[*data++], dest[lx]);\n"
+        "            }",
+        'blend: prefetch dest in putsprite_blend_flip_ (flip)')
+    write(spx_path, spx)
+    print("  spritex8p32.c: blend dest-read prefetch (forward + flip).")
+
     # ── 2. Patch openbor.c — replace pausemenu() ─────────────────────
     print("Patching openbor.c (pausemenu)...")
     src = read(os.path.join(obor, 'openbor.c'))
