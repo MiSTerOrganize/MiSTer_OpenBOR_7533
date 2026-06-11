@@ -4416,6 +4416,164 @@ endif
     # (no patches in this step — step 11 was removed; see comment block above)
 
     # ============================================================
+    # gfxshadow / scaled-draw speedup: resumable _sprite_seek per-line cache
+    # ------------------------------------------------------------
+    # gfxshadow silhouettes (He-Man: ~104 chars) route through gfx_draw_scale,
+    # whose inner loop calls src_seek -> _sprite_seek PER DEST PIXEL, re-walking
+    # the source RLE line from the start each call (O(runs) per pixel). For
+    # monotonic-forward x within a dest line (non-flipped scaled draws), cache
+    # the loop-top (data ptr + lx) and resume from there instead of re-walking
+    # earlier blocks. EXACT cur_src/cur_spr/cur_src_mask semantics preserved --
+    # the same code computes the found-block result; we only skip re-walking
+    # earlier RLE blocks. Reset per-draw in init_gfx_global_draw_stuff so there
+    # is zero cross-sprite staleness. Unmasked walks only (masked draws keep the
+    # full walk). Never slower than upstream; helps all monotonic scaled draws.
+    print("Patching transform.c (resumable _sprite_seek for scaled/shadow draws)...")
+    tf_path = os.path.join(obor, 'source/gamelib/transform.c')
+    tfe = read(tf_path)
+    tfe = strict_replace(tfe,
+        "static unsigned char *cur_spr; // for sprite only",
+        "static unsigned char *cur_spr; // for sprite only\n"
+        "/* MiSTer resumable _sprite_seek cache (render thread only). Reset per\n"
+        " * draw in init_gfx_global_draw_stuff so no cross-sprite staleness. */\n"
+        "static unsigned char *mss_rs_ptr = 0;\n"
+        "static unsigned char *mss_rs_data = 0;\n"
+        "static int mss_rs_y = -1;\n"
+        "static int mss_rs_lx = 0;",
+        'resumable seek: cache statics')
+    tfe = strict_replace(tfe,
+        "void init_gfx_global_draw_stuff(s_screen *dest, gfx_entry *src, s_drawmethod *drawmethod)\n{",
+        "void init_gfx_global_draw_stuff(s_screen *dest, gfx_entry *src, s_drawmethod *drawmethod)\n{\n"
+        "    mss_rs_ptr = 0; /* MiSTer: reset resumable seek cache per draw */",
+        'resumable seek: per-draw reset')
+    sseek_old = (
+        "void _sprite_seek(int x, int y)\n"
+        "{\n"
+        "    int *linetab, *mask_linetab = NULL;\n"
+        "    unsigned char *data = NULL, *mask_data = NULL;\n"
+        "    register int lx = 0, count;\n"
+        "\n"
+        "    linetab = ((int *)ptr_src) + y;\n"
+        "\n"
+        "    data = ((unsigned char *)linetab) + (*linetab);\n"
+        "\n"
+        "    if (ptr_src_mask)\n"
+        "    {\n"
+        "        mask_linetab = ((int *)ptr_src_mask) + y;\n"
+        "        mask_data = ((unsigned char *)mask_linetab) + (*mask_linetab);\n"
+        "    }\n"
+        "\n"
+        "    while(1)\n"
+        "    {\n"
+        "        count = *data++;\n"
+        "        if(count == 0xFF)\n"
+        "        {\n"
+        "            cur_src = dummyptrs;\n"
+        "            cur_src_mask = dummyptrs;\n"
+        "            goto quit;\n"
+        "        }\n"
+        "        if(lx + count > x) // transparent pixel\n"
+        "        {\n"
+        "            cur_src = dummyptrs;\n"
+        "            cur_src_mask = dummyptrs;\n"
+        "            goto quit;\n"
+        "        }\n"
+        "        lx += count;\n"
+        "        count = *data++;\n"
+        "        if(!count)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "        if(lx + count > x)\n"
+        "        {\n"
+        "            cur_src = data + x - lx;\n"
+        "            cur_src_mask = mask_data + x - lx;\n"
+        "            goto quit;\n"
+        "        }\n"
+        "        lx += count;\n"
+        "        data += count;\n"
+        "    }\n"
+        "\n"
+        "quit:\n"
+        "    cur_spr = data - 1; // current block head\n"
+        "    return ;\n"
+        "\n"
+        "}"
+    )
+    sseek_new = (
+        "void _sprite_seek(int x, int y)\n"
+        "{\n"
+        "    int *linetab, *mask_linetab = NULL;\n"
+        "    unsigned char *data = NULL, *mask_data = NULL;\n"
+        "    register int lx = 0, count;\n"
+        "    unsigned char *iter_top = NULL; /* MiSTer: loop-top data ptr to cache */\n"
+        "    int iter_lx = 0;                /* MiSTer: loop-top lx to cache */\n"
+        "\n"
+        "    linetab = ((int *)ptr_src) + y;\n"
+        "\n"
+        "    data = ((unsigned char *)linetab) + (*linetab);\n"
+        "\n"
+        "    if (ptr_src_mask)\n"
+        "    {\n"
+        "        mask_linetab = ((int *)ptr_src_mask) + y;\n"
+        "        mask_data = ((unsigned char *)mask_linetab) + (*mask_linetab);\n"
+        "    }\n"
+        "    else if (mss_rs_ptr == ptr_src && mss_rs_y == y && x >= mss_rs_lx)\n"
+        "    {\n"
+        "        /* MiSTer: resume from cached loop-top (unmasked, same line,\n"
+        "         * monotonic-forward x) instead of re-walking from line start. */\n"
+        "        data = mss_rs_data;\n"
+        "        lx = mss_rs_lx;\n"
+        "    }\n"
+        "\n"
+        "    while(1)\n"
+        "    {\n"
+        "        iter_top = data; iter_lx = lx; /* MiSTer: clean loop-top to cache */\n"
+        "        count = *data++;\n"
+        "        if(count == 0xFF)\n"
+        "        {\n"
+        "            cur_src = dummyptrs;\n"
+        "            cur_src_mask = dummyptrs;\n"
+        "            goto quit;\n"
+        "        }\n"
+        "        if(lx + count > x) // transparent pixel\n"
+        "        {\n"
+        "            cur_src = dummyptrs;\n"
+        "            cur_src_mask = dummyptrs;\n"
+        "            goto quit;\n"
+        "        }\n"
+        "        lx += count;\n"
+        "        count = *data++;\n"
+        "        if(!count)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "        if(lx + count > x)\n"
+        "        {\n"
+        "            cur_src = data + x - lx;\n"
+        "            cur_src_mask = mask_data + x - lx;\n"
+        "            goto quit;\n"
+        "        }\n"
+        "        lx += count;\n"
+        "        data += count;\n"
+        "    }\n"
+        "\n"
+        "quit:\n"
+        "    cur_spr = data - 1; // current block head\n"
+        "    if(!ptr_src_mask) /* MiSTer: update resume cache (unmasked walks) */\n"
+        "    {\n"
+        "        mss_rs_ptr = ptr_src; mss_rs_y = y;\n"
+        "        mss_rs_data = iter_top; mss_rs_lx = iter_lx;\n"
+        "    }\n"
+        "    return ;\n"
+        "\n"
+        "}"
+    )
+    tfe = strict_replace(tfe, sseek_old, sseek_new, 'resumable seek: _sprite_seek body')
+    write(tf_path, tfe)
+    print("  _sprite_seek: resumable per-line cache (monotonic-forward, unmasked)")
+
+    # ============================================================
     # TEMPORARY DIAG (shadow-path magnitude) -- REVERT AFTER MEASURED
     # ------------------------------------------------------------
     # He-Man uses `gfxshadow 1` on ~104 characters. Each entity's
