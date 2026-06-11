@@ -261,31 +261,63 @@ endif
     write(pf_path, pf)
     print("  packfile.c: CACHEBLOCKS=255 + readahead=65536 (paired filecache speedup)")
 
+    # ── 7-bit cache-resident blend tables (2026-06-11) ──────────────────
+    # [VCP]/[BLD] profiling: blend is the dominant frame cost; the short-circuit
+    # diagnostic showed ~29% of it is the 3x gathers into the 256x256 (64KB)
+    # blend tables, which exceed the A9's 32KB L1. Compact each table to
+    # 128x128 (16KB, fits L1) at assignment time and quantize the shared
+    # ri/gi/bi lookup indices to 7-bit (src>>1, dst>>1, stride 128). NOT
+    # byte-identical -- introduces slight blend banding (128 levels/channel);
+    # A/B vs PC. Orthogonal to the LOCKED v3.10 palette path: palette decides
+    # index->color (upstream); blend composites already-colored pixels here.
+    print("Patching pixelformat.c (7-bit cache-resident blend tables)...")
+    pxf_path = os.path.join(obor, 'source/gamelib/pixelformat.c')
+    pxf = read(pxf_path)
+    pxf = strict_replace(pxf,
+        "void set_blendtables(unsigned char *tables[])\n"
+        "{\n"
+        "    int i;\n"
+        "    for(i = 0; i < MAX_BLENDINGS; i++)\n"
+        "    {\n"
+        "        blendtables[i] = tables[i];\n"
+        "    }\n"
+        "}",
+        "void set_blendtables(unsigned char *tables[])\n"
+        "{\n"
+        "    int i;\n"
+        "    for(i = 0; i < MAX_BLENDINGS; i++)\n"
+        "    {\n"
+        "        /* MiSTer 2026-06-11: compact 256x256 -> 128x128 (16KB, L1-resident)\n"
+        "           for 7-bit cache-resident blend; ri/gi/bi quantize the lookup.\n"
+        "           One-time ~6x16KB alloc at init; original tables owned by caller. */\n"
+        "        if(tables[i])\n"
+        "        {\n"
+        "            unsigned char *_c = (unsigned char *)malloc(128 * 128);\n"
+        "            int _a, _b;\n"
+        "            for(_a = 0; _a < 128; _a++)\n"
+        "                for(_b = 0; _b < 128; _b++)\n"
+        "                    _c[(_a << 7) | _b] = tables[i][((_a << 1) << 8) | (_b << 1)];\n"
+        "            blendtables[i] = _c;\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            blendtables[i] = NULL;\n"
+        "        }\n"
+        "    }\n"
+        "}",
+        'blend: compact 256x256 -> 128x128 L1-resident in set_blendtables')
+    pxf = strict_replace(pxf, "#define bi ((bs<<8)|bd)", "#define bi (((bs>>1)<<7)|(bd>>1))", 'blend: bi -> 7-bit')
+    pxf = strict_replace(pxf, "#define gi ((gs<<8)|gd)", "#define gi (((gs>>1)<<7)|(gd>>1))", 'blend: gi -> 7-bit')
+    pxf = strict_replace(pxf, "#define ri ((rs<<8)|rd)", "#define ri (((rs>>1)<<7)|(rd>>1))", 'blend: ri -> 7-bit')
+    write(pxf_path, pxf)
+    print("  pixelformat.c: 7-bit cache-resident blend tables (128x128, 16KB).")
+
     # ── 2. Patch openbor.c — replace pausemenu() ─────────────────────
     print("Patching openbor.c (pausemenu)...")
     src = read(os.path.join(obor, 'openbor.c'))
     src = replace_function(src, "void pausemenu()", "pausemenu_patch.c", patches)
     write(os.path.join(obor, 'openbor.c'), src)
     print("  pausemenu() replaced.")
-
-    # ── DIAG (2026-06-11): blend-table short-circuit to profile blend cost ─
-    # Replace the per-pixel blendfp() call in putsprite_blend_{,flip_} with a
-    # cheap per-channel 50% average that KEEPS the palette read + dest read +
-    # dest write (same memory access pattern) but SKIPS the blend function and
-    # its 3x 64KB-table gathers. If [BLD] blend ms drops a lot vs the real
-    # ~2000ms -> the table gathers are the cost (cache-resident table helps).
-    # If blend ms is ~unchanged -> vscreen memory traffic dominates and nothing
-    # compute-side helps. Image colors will look wrong; we only read timing.
-    # REVERT AFTER MEASURED.
-    print("Patching spritex8p32.c (DIAG: blend short-circuit)...")
-    spx_path = os.path.join(obor, 'source/gamelib/spritex8p32.c')
-    spx = read(spx_path)
-    spx = strict_replace(spx,
-        "dest[lx] = blendfp(palette[*data++], dest[lx]);",
-        "{ unsigned _bs = palette[*data++]; unsigned _bd = dest[lx]; dest[lx] = ((_bs & 0xfefefefeu) + (_bd & 0xfefefefeu)) >> 1; } /* TEMP DIAG: blend short-circuit (no table) */",
-        'DIAG: short-circuit blend-table lookup in putsprite_blend_{,flip_}', count=2)
-    write(spx_path, spx)
-    print("  spritex8p32.c: blend short-circuited (DIAG, 2 sites).")
 
     # ── 3. sdl/video.c — bypass SDL2 renderer chain in video_copy_screen ─
     # Profiling 2026-05-22 showed video_copy_screen consumed ~22ms of every
