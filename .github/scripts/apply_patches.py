@@ -268,6 +268,25 @@ endif
     write(os.path.join(obor, 'openbor.c'), src)
     print("  pausemenu() replaced.")
 
+    # ── DIAG (2026-06-11): blend-table short-circuit to profile blend cost ─
+    # Replace the per-pixel blendfp() call in putsprite_blend_{,flip_} with a
+    # cheap per-channel 50% average that KEEPS the palette read + dest read +
+    # dest write (same memory access pattern) but SKIPS the blend function and
+    # its 3x 64KB-table gathers. If [BLD] blend ms drops a lot vs the real
+    # ~2000ms -> the table gathers are the cost (cache-resident table helps).
+    # If blend ms is ~unchanged -> vscreen memory traffic dominates and nothing
+    # compute-side helps. Image colors will look wrong; we only read timing.
+    # REVERT AFTER MEASURED.
+    print("Patching spritex8p32.c (DIAG: blend short-circuit)...")
+    spx_path = os.path.join(obor, 'source/gamelib/spritex8p32.c')
+    spx = read(spx_path)
+    spx = strict_replace(spx,
+        "dest[lx] = blendfp(palette[*data++], dest[lx]);",
+        "{ unsigned _bs = palette[*data++]; unsigned _bd = dest[lx]; dest[lx] = ((_bs & 0xfefefefeu) + (_bd & 0xfefefefeu)) >> 1; } /* TEMP DIAG: blend short-circuit (no table) */",
+        'DIAG: short-circuit blend-table lookup in putsprite_blend_{,flip_}', count=2)
+    write(spx_path, spx)
+    print("  spritex8p32.c: blend short-circuited (DIAG, 2 sites).")
+
     # ── 3. sdl/video.c — bypass SDL2 renderer chain in video_copy_screen ─
     # Profiling 2026-05-22 showed video_copy_screen consumed ~22ms of every
     # ~25ms update() call (89%). The chain SDL_UpdateTexture → blit() (which
