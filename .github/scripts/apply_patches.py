@@ -4415,6 +4415,100 @@ endif
     # Modern PAKs: untouched (has_legacy_remaps=0, all gates skip).
     # (no patches in this step — step 11 was removed; see comment block above)
 
+    # ============================================================
+    # TEMPORARY DIAG (shadow-path magnitude) -- REVERT AFTER MEASURED
+    # ------------------------------------------------------------
+    # He-Man uses `gfxshadow 1` on ~104 characters. Each entity's
+    # graphic-replica shadow is queued as the entity's full sprite with
+    # scaley != 256 (light.y vertical squish) + fillcolor = shadowcolor,
+    # so putsprite_ex FAILS the fast putsprite_x8p32 gate and routes the
+    # shadow through gfx_draw_scale (per-dest-pixel RLE re-walk). This
+    # diagnostic splits putsprite_ex time into scaled path (= the shadow
+    # silhouette path) vs fast path, counting how many scaled blits were
+    # fill-color silhouettes. Logs ONE [SHADOWDIAG] line per ~1s (NOT a
+    # hotpath log). Sizes the prize before building the fast-silhouette
+    # rasterizer. Marked TEMPORARY DIAG + REVERT AFTER MEASURED so the CI
+    # gate skips binary commit-back (binary deploys via manual WinSCP only).
+    print("Patching transform.c + sprite.c (TEMPORARY DIAG: shadow-path magnitude)...")
+    tf_path = os.path.join(obor, 'source/gamelib/transform.c')
+    tf = read(tf_path)
+    tf_old = '#include <assert.h>\n#include "globals.h"\n#include "types.h"'
+    tf_new = (
+        '#include <assert.h>\n'
+        '#include "globals.h"\n'
+        '#include "types.h"\n'
+        '/* ===== TEMPORARY DIAG (shadow-path magnitude) -- REVERT AFTER MEASURED ===== */\n'
+        '#include <time.h>\n'
+        'extern void writeToLogFile(const char *msg, ...);\n'
+        'static unsigned long long mdiag_scale_ns = 0, mdiag_fast_ns = 0;\n'
+        'static unsigned int mdiag_scale_n = 0, mdiag_fast_n = 0, mdiag_fill_n = 0;\n'
+        'static struct timespec mdiag_t0;\n'
+        'static int mdiag_init = 0;\n'
+        'unsigned long long mdiag_now_ns_pub(void)\n'
+        '{\n'
+        '    struct timespec ts;\n'
+        '    clock_gettime(CLOCK_MONOTONIC, &ts);\n'
+        '    return (unsigned long long)ts.tv_sec * 1000000000ull + (unsigned long long)ts.tv_nsec;\n'
+        '}\n'
+        'static void mdiag_tick(void)\n'
+        '{\n'
+        '    struct timespec now;\n'
+        '    if(!mdiag_init) { clock_gettime(CLOCK_MONOTONIC, &mdiag_t0); mdiag_init = 1; return; }\n'
+        '    clock_gettime(CLOCK_MONOTONIC, &now);\n'
+        '    if((now.tv_sec - mdiag_t0.tv_sec) >= 1)\n'
+        '    {\n'
+        '        writeToLogFile("[SHADOWDIAG] scale: %u blits %llu us (%u fillcolor-shadow) | fast: %u blits %llu us\\n",\n'
+        '            mdiag_scale_n, mdiag_scale_ns / 1000ull, mdiag_fill_n,\n'
+        '            mdiag_fast_n, mdiag_fast_ns / 1000ull);\n'
+        '        mdiag_scale_ns = mdiag_fast_ns = 0; mdiag_scale_n = mdiag_fast_n = mdiag_fill_n = 0;\n'
+        '        mdiag_t0 = now;\n'
+        '    }\n'
+        '}\n'
+        'void mdiag_account_scale(unsigned long long ns, int is_fill)\n'
+        '{\n'
+        '    mdiag_scale_ns += ns; mdiag_scale_n++; if(is_fill) mdiag_fill_n++; mdiag_tick();\n'
+        '}\n'
+        'void mdiag_account_fast(unsigned long long ns)\n'
+        '{\n'
+        '    mdiag_fast_ns += ns; mdiag_fast_n++;\n'
+        '}\n'
+        '/* ===== END TEMPORARY DIAG ===== */'
+    )
+    tf = strict_replace(tf, tf_old, tf_new, 'TEMPORARY DIAG: transform.c shadow-path counters')
+    write(tf_path, tf)
+
+    sp2 = read(sprite_path)
+    sp2_old_scaled = (
+        "    else\n"
+        "    {\n"
+        "        gfx_draw_scale(screen, &gfx, x, y, frame->centerx, frame->centery, drawmethod);\n"
+        "    }"
+    )
+    sp2_new_scaled = (
+        "    else\n"
+        "    {\n"
+        "        /* TEMPORARY DIAG: time the scaled (gfxshadow silhouette) path */\n"
+        "        extern unsigned long long mdiag_now_ns_pub(void);\n"
+        "        extern void mdiag_account_scale(unsigned long long ns, int is_fill);\n"
+        "        unsigned long long _md_t0 = mdiag_now_ns_pub();\n"
+        "        gfx_draw_scale(screen, &gfx, x, y, frame->centerx, frame->centery, drawmethod);\n"
+        "        mdiag_account_scale(mdiag_now_ns_pub() - _md_t0, drawmethod->fillcolor != 0);\n"
+        "    }"
+    )
+    sp2 = strict_replace(sp2, sp2_old_scaled, sp2_new_scaled, 'TEMPORARY DIAG: sprite.c scaled-path timer')
+    sp2_old_fast = "            putsprite_x8p32(x, y, drawmethod->flipx, frame, screen, table_arg, getblendfunction32(drawmethod->alpha));"
+    sp2_new_fast = (
+        "            /* TEMPORARY DIAG: time the fast blend path */\n"
+        "            extern unsigned long long mdiag_now_ns_pub(void);\n"
+        "            extern void mdiag_account_fast(unsigned long long ns);\n"
+        "            unsigned long long _md_f0 = mdiag_now_ns_pub();\n"
+        "            putsprite_x8p32(x, y, drawmethod->flipx, frame, screen, table_arg, getblendfunction32(drawmethod->alpha));\n"
+        "            mdiag_account_fast(mdiag_now_ns_pub() - _md_f0);"
+    )
+    sp2 = strict_replace(sp2, sp2_old_fast, sp2_new_fast, 'TEMPORARY DIAG: sprite.c fast-path timer')
+    write(sprite_path, sp2)
+    print("  TEMPORARY DIAG shadow-path counters installed (logs [SHADOWDIAG] ~1/sec)")
+
     print("\nAll patches applied successfully.")
 
 if __name__ == '__main__':
