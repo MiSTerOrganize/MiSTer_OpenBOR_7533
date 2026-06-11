@@ -445,6 +445,10 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                     const uint8_t* row = src + (size_t)sy * pitch;
                     uint64_t _ta = nv_now_ns();   /* TEMP DIAG */
                     for (int sx = 0; sx < NV_FRAME_WIDTH * 3; sx += 16) {
+                        /* PLD: prefetch source ~256 B (4 iters) ahead -- hides
+                         * read latency on the streaming vld4q. Zero-risk hint:
+                         * byte-identical output, cannot crash. */
+                        __builtin_prefetch(row + (size_t)sx * 4 + 256, 0, 0);
                         uint8x16x4_t px = vld4q_u8(row + (size_t)sx * 4);
                         vst1q_u8(planeR + sx, px.val[0]);
                         vst1q_u8(planeG + sx, px.val[1]);
