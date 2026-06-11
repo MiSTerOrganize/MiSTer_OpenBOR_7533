@@ -367,6 +367,11 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
         static uint64_t s_vcp_last_ns  = 0;
         static int s_vcp_frames = 0;
         int vcp_active = (width == NV_FRAME_WIDTH * 3);
+        /* TEMP DIAG [DCV]: verify the NEON divide+pack == scalar, first 2 frames. */
+        static int s_dcv_frame = 0;
+        static long s_dcv_mismatch = 0;
+        int dcv_active = (width == NV_FRAME_WIDTH * 3 && s_dcv_frame < 2);
+        if (dcv_active) s_dcv_mismatch = 0;
 
         for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
             int y0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
@@ -491,17 +496,68 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             /* One rounded divide per output pixel -> pack straight to RGB565. */
             uint64_t _td = nv_now_ns();   /* TEMP DIAG */
             volatile uint16_t* dst_row = dst + (size_t)y * NV_FRAME_WIDTH;
-            for (int x = 0; x < NV_FRAME_WIDTH; x++) {
-                uint32_t rc = recip[s_hcnt[x]];
-                uint32_t r = (vr[x] * rc + (1u << 19)) >> 20;
-                uint32_t g = (vg[x] * rc + (1u << 19)) >> 20;
-                uint32_t b = (vb[x] * rc + (1u << 19)) >> 20;
-                if (r > 255) r = 255;
-                if (g > 255) g = 255;
-                if (b > 255) b = 255;
-                dst_row[x] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+#ifdef __ARM_NEON
+            if (width == NV_FRAME_WIDTH * 3) {
+                /* Exact-3x: every s_hcnt[x]==3 so the reciprocal is constant
+                 * across the row -> NEON the divide + RGB565 pack, 8 px/iter
+                 * with ONE vst1q_u16 to DDR3 instead of 320 per-pixel volatile
+                 * stores (the dominant vcopy cost per the [VCP] profile).
+                 * Byte-identical to the scalar path below (verified via [DCV]). */
+                const uint32_t   rc     = recip[3];
+                const uint32x4_t rc_v   = vdupq_n_u32(rc);
+                const uint32x4_t halfv  = vdupq_n_u32(1u << 19);
+                const uint16x8_t max255 = vdupq_n_u16(255);
+                for (int x = 0; x < NV_FRAME_WIDTH; x += 8) {
+                    uint16x8_t vr8 = vld1q_u16(&vr[x]);
+                    uint16x8_t vg8 = vld1q_u16(&vg[x]);
+                    uint16x8_t vb8 = vld1q_u16(&vb[x]);
+                    uint32x4_t rl = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_low_u16(vr8)),  rc_v), halfv), 20);
+                    uint32x4_t rh = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_high_u16(vr8)), rc_v), halfv), 20);
+                    uint32x4_t gl = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_low_u16(vg8)),  rc_v), halfv), 20);
+                    uint32x4_t gh = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_high_u16(vg8)), rc_v), halfv), 20);
+                    uint32x4_t bl = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_low_u16(vb8)),  rc_v), halfv), 20);
+                    uint32x4_t bh = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_high_u16(vb8)), rc_v), halfv), 20);
+                    uint16x8_t r16 = vminq_u16(vcombine_u16(vmovn_u32(rl), vmovn_u32(rh)), max255);
+                    uint16x8_t g16 = vminq_u16(vcombine_u16(vmovn_u32(gl), vmovn_u32(gh)), max255);
+                    uint16x8_t b16 = vminq_u16(vcombine_u16(vmovn_u32(bl), vmovn_u32(bh)), max255);
+                    uint16x8_t out = vorrq_u16(vorrq_u16(
+                                         vshlq_n_u16(vshrq_n_u16(r16, 3), 11),
+                                         vshlq_n_u16(vshrq_n_u16(g16, 2), 5)),
+                                         vshrq_n_u16(b16, 3));
+                    vst1q_u16((uint16_t*)(dst_row + x), out);
+                }
+                if (dcv_active) {   /* TEMP DIAG: compare NEON output vs scalar */
+                    for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                        uint32_t r = (vr[x] * rc + (1u << 19)) >> 20;
+                        uint32_t g = (vg[x] * rc + (1u << 19)) >> 20;
+                        uint32_t b = (vb[x] * rc + (1u << 19)) >> 20;
+                        if (r > 255) r = 255; if (g > 255) g = 255; if (b > 255) b = 255;
+                        uint16_t want = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+                        if (dst_row[x] != want) s_dcv_mismatch++;
+                    }
+                }
+            } else
+#endif
+            {
+                for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                    uint32_t rc = recip[s_hcnt[x]];
+                    uint32_t r = (vr[x] * rc + (1u << 19)) >> 20;
+                    uint32_t g = (vg[x] * rc + (1u << 19)) >> 20;
+                    uint32_t b = (vb[x] * rc + (1u << 19)) >> 20;
+                    if (r > 255) r = 255;
+                    if (g > 255) g = 255;
+                    if (b > 255) b = 255;
+                    dst_row[x] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+                }
             }
             s_vcp_div_ns += nv_now_ns() - _td;   /* TEMP DIAG */
+        }
+
+        /* TEMP DIAG: report NEON-divide byte-identity vs scalar (first 2 frames). */
+        if (dcv_active) {
+            fprintf(stderr, "[DCV] frame=%d NEON-div vs scalar: %s (mismatch=%ld)\n",
+                    s_dcv_frame, s_dcv_mismatch == 0 ? "MATCH" : "MISMATCH", s_dcv_mismatch);
+            s_dcv_frame++;
         }
 
         /* TEMPORARY DIAG (REVERT AFTER MEASURED): log [VCP] every ~5s. */
