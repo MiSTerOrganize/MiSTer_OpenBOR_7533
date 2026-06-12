@@ -4180,10 +4180,32 @@ endif
         "                background = bg16;\n"
         "            }\n"
         "        }\n"
+        "    }\n"
+        "    else if (background->pixelformat == PIXEL_32)\n"
+        "    {\n"
+        "        /* MiSTer full-16 (audit concern #1): truecolor (24-bit PNG) bgs load\n"
+        "         * as PIXEL_32 via loadscreen32/pngdec; convert to 565 so they blit\n"
+        "         * into the 16-bit vscreen. No PIXEL_32-src -> PIXEL_16-dest blit path\n"
+        "         * exists, so a PIXEL_32 bg would otherwise render BLACK. */\n"
+        "        s_screen *bg16b = allocscreen(background->width, background->height, PIXEL_16);\n"
+        "        if (bg16b)\n"
+        "        {\n"
+        "            unsigned short *d16 = (unsigned short *)bg16b->data;\n"
+        "            unsigned char *s32 = (unsigned char *)background->data;\n"
+        "            int total2 = background->width * background->height;\n"
+        "            int k;\n"
+        "            for (k = 0; k < total2; k++)\n"
+        "            {\n"
+        "                unsigned char *pp = s32 + (k << 2);\n"
+        "                d16[k] = colour16(pp[0], pp[1], pp[2]); /* RGBA byte0/1/2 = R/G/B -> BGR565 */\n"
+        "            }\n"
+        "            freescreen(&background);\n"
+        "            background = bg16b;\n"
+        "        }\n"
         "    }"
     )
     ob_step23 = strict_replace(ob_step23, step23_old, step23_new,
-                                'Step 23: load_background pre-decode 8 -> 32bpp')
+                                'Step 23: load_background pre-decode 8/32 -> 16bpp')
     write(ob_path_step23, ob_step23)
     print("  openbor.c: load_background pre-decodes 8bpp -> 32bpp; putscreen routes to memcpy fast path.")
 
@@ -4483,10 +4505,10 @@ endif
         "            break;",
         "        case PIXEL_16:\n"
         "        {\n"
-        "            /* MiSTer Path B: same v3.10 discriminator as the locked PIXEL_32\n"
-        "             * case -- pick the effective 32-bit palette (NULL bypass ->\n"
-        "             * putsprite_x8p16 falls back to frame->palette). putsprite_x8p16\n"
-        "             * converts the 32-bit palette to BGR565 internally. */\n"
+        "            /* MiSTer full-16: same v3.10 discriminator as the locked PIXEL_32\n"
+        "             * case -- pick the effective palette (NULL bypass -> putsprite_x8p16\n"
+        "             * falls back to frame->palette). Palettes are NATIVE 565\n"
+        "             * (PAL_BYTES=512), so putsprite_x8p16 reads them directly. */\n"
         "            unsigned *table_arg16 = (frame && frame->palette && drawmethod->has_remap_directive && !drawmethod->has_palette_directive) ? NULL : (unsigned *)drawmethod->table;\n"
         "            putsprite_x8p16(x, y, drawmethod->flipx, frame, screen, (unsigned short *)table_arg16, getblendfunction16(drawmethod->alpha));\n"
         "            break;\n"
@@ -4556,7 +4578,54 @@ endif
         "gif_header.screenheight, PIXEL_16); /* MiSTer full-16: 565 GIF frames blit into the 16-bit vscreen */",
         'Path A P9: anigif frame buffers PIXEL_32 -> PIXEL_16', count=2)
     write(ag_path, ag)
-    print("  Path A: PAL_BYTES=512 native 565 palettes; load_palette/convert_map/neon/HUD -> colour16; anigif 16-bit; convert-at-blit removed.")
+
+    # P10 (audit concern #2): cart script-allocated screens PIXEL_32 -> PIXEL_16.
+    # Carts do allocscreen()+drawscreen() onto the vscreen; a PIXEL_32 script
+    # screen has no blit path into the 16-bit vscreen (and the scaled path
+    # misreads it) -> black/garbage. Match the 16-bit pipeline.
+    obs_path = os.path.join(obor, 'openborscript.c')
+    obs = read(obs_path)
+    obs = strict_replace(obs,
+        "    screen = allocscreen((int)w, (int)h, PIXEL_32);",
+        "    screen = allocscreen((int)w, (int)h, PIXEL_16); /* MiSTer full-16: match 16-bit vscreen so drawscreen blits */",
+        'Path A P10: script allocscreen PIXEL_32 -> PIXEL_16')
+    write(obs_path, obs)
+
+    # P11 (audit concern #3): the gamelib PNG PLTE decoder writes colour32 UNGATED
+    # (unlike readgif/pcx/bmp which switch on PAL_BYTES). With PAL_BYTES=512 a
+    # 256-colour paletted PNG writes 1024 bytes into a 512-byte palette (heap
+    # overflow) AND stores RGBA where 565 is expected. Gate it like the others.
+    li_path = os.path.join(obor, 'source/gamelib/loadimg.c')
+    li = read(li_path)
+    li = strict_replace(li,
+        "            int *pal32 = (int*) pal;\n"
+        "            if (chunk_size % 3 != 0)\n"
+        "            {\n"
+        "                goto readpng_abort;\n"
+        "            }\n"
+        "            for (i = 0; i < ncolors; i++)\n"
+        "            {\n"
+        "                pal32[i] = colour32(png_data_ptr[0], png_data_ptr[1], png_data_ptr[2]);\n"
+        "                png_data_ptr += 3;\n"
+        "            }",
+        "            /* MiSTer full-16: gate PLTE palette on PAL_BYTES like readgif/pcx/bmp\n"
+        "             * (512 -> colour16 565). Ungated colour32 overflowed the now-512-byte\n"
+        "             * palette and wrote RGBA into a 565 buffer. */\n"
+        "            if (chunk_size % 3 != 0)\n"
+        "            {\n"
+        "                goto readpng_abort;\n"
+        "            }\n"
+        "            for (i = 0; i < ncolors; i++)\n"
+        "            {\n"
+        "                if (PAL_BYTES == 512)\n"
+        "                    ((unsigned short *)pal)[i] = colour16(png_data_ptr[0], png_data_ptr[1], png_data_ptr[2]);\n"
+        "                else\n"
+        "                    ((int *)pal)[i] = colour32(png_data_ptr[0], png_data_ptr[1], png_data_ptr[2]);\n"
+        "                png_data_ptr += 3;\n"
+        "            }",
+        'Path A P11: PNG PLTE palette gate on PAL_BYTES')
+    write(li_path, li)
+    print("  Path A: PAL_BYTES=512 native 565; load_palette/convert_map/neon/HUD/PNG-PLTE -> colour16; anigif+script+truecolor-bg 16-bit; convert-at-blit removed.")
 
     print("\nAll patches applied successfully.")
 
