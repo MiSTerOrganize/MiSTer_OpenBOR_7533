@@ -4162,20 +4162,23 @@ endif
         "         * only read by #ifdef CACHE_BACKGROUNDS code path which\n"
         "         * MISTER build does not define. */\n"
         "        {\n"
-        "            s_screen *bg32 = allocscreen(background->width, background->height, PIXEL_32);\n"
-        "            if (bg32)\n"
+        "            /* MiSTer Path B: pre-decode bg to 16-bit (BGR565) so it\n"
+        "             * memcpy-blits into the 16-bit vscreen (same-format fast path). */\n"
+        "            s_screen *bg16 = allocscreen(background->width, background->height, PIXEL_16);\n"
+        "            if (bg16)\n"
         "            {\n"
-        "                unsigned *dst32 = (unsigned *)bg32->data;\n"
+        "                unsigned short *dst16 = (unsigned short *)bg16->data;\n"
         "                unsigned char *src8 = (unsigned char *)background->data;\n"
-        "                unsigned *pal_u32 = (unsigned *)background->palette;\n"
+        "                unsigned char *pal_u8 = (unsigned char *)background->palette;\n"
         "                int total = background->width * background->height;\n"
         "                int i;\n"
         "                for (i = 0; i < total; i++)\n"
         "                {\n"
-        "                    dst32[i] = pal_u32[src8[i]];\n"
+        "                    unsigned char *e = pal_u8 + (src8[i] << 2);\n"
+        "                    dst16[i] = colour16(e[0], e[1], e[2]);\n"
         "                }\n"
         "                freescreen(&background);\n"
-        "                background = bg32;\n"
+        "                background = bg16;\n"
         "            }\n"
         "        }\n"
         "    }"
@@ -4414,6 +4417,153 @@ endif
     #   - Step 4 v3: gate line-29499 model->palette fallback on !has_legacy_remaps
     # Modern PAKs: untouched (has_legacy_remaps=0, all gates skip).
     # (no patches in this step — step 11 was removed; see comment block above)
+
+    # ============================================================
+    # Path B: 16-bit (RGB565) vscreen for fps -- palette pipeline kept 32-bit
+    # ------------------------------------------------------------
+    # vscreen becomes PIXEL_16, halving blend dest + vcopy bandwidth. The locked
+    # 32-bit palette pipeline is UNTOUCHED: the 16-bit blit functions convert the
+    # effective 32-bit palette to BGR565 internally (engine colour16(), so channel
+    # order matches _color16 + the native_video_writer BGR565->RGB565 swap), so
+    # every call site works unchanged. Blends use arithmetic (blendtables NULL in
+    # 16-bit mode -- blend_*16 fall back to per-channel math). Build 1 keeps the
+    # existing NN downscale (box-average added in Build 2). Pause buffers (B2)
+    # deferred to Build 2 (cosmetic, not a gameplay-color issue).
+    print("Patching for Path B (16-bit vscreen, palette pipeline kept 32-bit)...")
+    obpb_path = os.path.join(obor, 'openbor.c')
+    obpb = read(obpb_path)
+    obpb = strict_replace(obpb,
+        "    if((vscreen = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_32)) == NULL)",
+        "    if((vscreen = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_16)) == NULL) /* MiSTer Path B: 16-bit vscreen (videomodes.pixel auto-updates to 2 -> bpp=16 to WriteFrame) */",
+        'Path B B1: vscreen PIXEL_32 -> PIXEL_16')
+    obpb = strict_replace(obpb,
+        "void create_blend_tables_x8(unsigned char *tables[])\n"
+        "{\n"
+        "    int i;\n"
+        "    for(i = 0; i < MAX_BLENDINGS; i++)\n"
+        "    {\n"
+        "        tables[i] = blending_table_functions32[i] ? (blending_table_functions32[i])() : NULL;\n"
+        "    }\n"
+        "\n"
+        "}",
+        "void create_blend_tables_x8(unsigned char *tables[])\n"
+        "{\n"
+        "    int i;\n"
+        "    /* MiSTer Path B: a 16-bit vscreen uses arithmetic blends. The 32-bit\n"
+        "     * RGB blend LUTs are byte-incompatible with the 565-indexed blend_*16\n"
+        "     * funcs, which fall back to correct per-channel math when the table is\n"
+        "     * NULL. videomodes.pixel==2 by the time this runs (video_set_mode\n"
+        "     * precedes create_blend_tables_x8 in startup()). */\n"
+        "    if(videomodes.pixel == 2)\n"
+        "    {\n"
+        "        for(i = 0; i < MAX_BLENDINGS; i++) tables[i] = NULL;\n"
+        "        return;\n"
+        "    }\n"
+        "    for(i = 0; i < MAX_BLENDINGS; i++)\n"
+        "    {\n"
+        "        tables[i] = blending_table_functions32[i] ? (blending_table_functions32[i])() : NULL;\n"
+        "    }\n"
+        "\n"
+        "}",
+        'Path B B3: arithmetic blends (NULL blendtables) for 16-bit vscreen')
+    write(obpb_path, obpb)
+
+    sppb_path = os.path.join(obor, 'source/gamelib/sprite.c')
+    sppb = read(sppb_path)
+    sppb = strict_replace(sppb,
+        "        case PIXEL_16:\n"
+        "            putsprite_x8p16(x, y, drawmethod->flipx, frame, screen, (unsigned short *)drawmethod->table, getblendfunction16(drawmethod->alpha));\n"
+        "            break;",
+        "        case PIXEL_16:\n"
+        "        {\n"
+        "            /* MiSTer Path B: same v3.10 discriminator as the locked PIXEL_32\n"
+        "             * case -- pick the effective 32-bit palette (NULL bypass ->\n"
+        "             * putsprite_x8p16 falls back to frame->palette). putsprite_x8p16\n"
+        "             * converts the 32-bit palette to BGR565 internally. */\n"
+        "            unsigned *table_arg16 = (frame && frame->palette && drawmethod->has_remap_directive && !drawmethod->has_palette_directive) ? NULL : (unsigned *)drawmethod->table;\n"
+        "            putsprite_x8p16(x, y, drawmethod->flipx, frame, screen, (unsigned short *)table_arg16, getblendfunction16(drawmethod->alpha));\n"
+        "            break;\n"
+        "        }",
+        'Path B B4: PIXEL_16 dispatch v3.10 discriminator')
+    write(sppb_path, sppb)
+
+    spx16_path = os.path.join(obor, 'source/gamelib/spritex8p16.c')
+    spx16 = read(spx16_path)
+    spx16 = strict_replace(spx16,
+        '#include "sprite.h"',
+        '#include "sprite.h"\n'
+        '/* MiSTer Path B: convert a 32-bit (locked-pipeline) palette to BGR565 for\n'
+        ' * the 16-bit blit. Single static buffer (consumed synchronously within one\n'
+        ' * blit; render path is single-threaded). colour16() keeps channel order\n'
+        ' * consistent with _color16 + the native_video_writer BGR565->RGB565 swap. */\n'
+        'static unsigned short *mister_pal565(unsigned *pal32)\n'
+        '{\n'
+        '    static unsigned short tab[256];\n'
+        '    const unsigned char *pb;\n'
+        '    int j;\n'
+        '    if(!pal32) return 0;\n'
+        '    pb = (const unsigned char *)pal32;\n'
+        '    for(j = 0; j < 256; j++) { tab[j] = colour16(pb[0], pb[1], pb[2]); pb += 4; }\n'
+        '    return tab;\n'
+        '}',
+        'Path B B5a: spritex8p16 565 helper')
+    spx16 = strict_replace(spx16,
+        "    if(remap)\n"
+        "    {\n"
+        "        m = remap;\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        m = (unsigned short *)sprite->palette;\n"
+        "    }",
+        "    {\n"
+        "        /* MiSTer Path B: convert the effective 32-bit palette to BGR565. */\n"
+        "        unsigned *_s32 = remap ? (unsigned *)remap : (unsigned *)sprite->palette;\n"
+        "        m = mister_pal565(_s32);\n"
+        "    }",
+        'Path B B5b: spritex8p16 convert m to 565')
+    write(spx16_path, spx16)
+
+    scr16_path = os.path.join(obor, 'source/gamelib/screen16.c')
+    scr16 = read(scr16_path)
+    scr16 = strict_replace(scr16,
+        '#include "types.h"',
+        '#include "types.h"\n'
+        '/* MiSTer Path B: 32-bit palette -> BGR565 for 16-bit screen blits. */\n'
+        'static unsigned short *mister_pal565_scr(unsigned *pal32)\n'
+        '{\n'
+        '    static unsigned short tab[256];\n'
+        '    const unsigned char *pb;\n'
+        '    int j;\n'
+        '    if(!pal32) return 0;\n'
+        '    pb = (const unsigned char *)pal32;\n'
+        '    for(j = 0; j < 256; j++) { tab[j] = colour16(pb[0], pb[1], pb[2]); pb += 4; }\n'
+        '    return tab;\n'
+        '}',
+        'Path B B6a: screen16 565 helper')
+    scr16 = strict_replace(scr16,
+        "    if(!remap)\n"
+        "    {\n"
+        "        remap = (unsigned short *)src->palette;\n"
+        "    }\n"
+        "\n"
+        "    if(!remap)\n"
+        "    {\n"
+        "        return;\n"
+        "    }",
+        "    if(!remap)\n"
+        "    {\n"
+        "        remap = (unsigned short *)src->palette;\n"
+        "    }\n"
+        "    remap = mister_pal565_scr((unsigned *)remap); /* MiSTer Path B: 32-bit palette -> BGR565 */\n"
+        "\n"
+        "    if(!remap)\n"
+        "    {\n"
+        "        return;\n"
+        "    }",
+        'Path B B6b: screen16 convert remap to 565')
+    write(scr16_path, scr16)
+    print("  Path B: 16-bit vscreen + internal 565 palette conversion (palette pipeline kept 32-bit).")
 
     print("\nAll patches applied successfully.")
 
