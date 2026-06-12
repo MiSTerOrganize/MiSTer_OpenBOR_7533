@@ -4540,7 +4540,23 @@ endif
         "    return colour16(r, g, b); /* MiSTer full-16: HUD box/line/dot colours 565 */",
         'Path A P8: _makecolour -> colour16')
     write(obpb_path, obp)
-    print("  Path A: PAL_BYTES=512 native 565 palettes; load_palette/convert_map/neon/HUD -> colour16; convert-at-blit removed.")
+
+    # P9: anigif (cutscene/intro GIF) frame buffers PIXEL_32 -> PIXEL_16.
+    # anigif's pal correctly tracks PAL_BYTES (now 512 -> colour16 565), but its
+    # frame buffers were PIXEL_32: the PIXEL_32 decode path reads the 565 pal as
+    # 4-byte entries (garbage + OOB) and the PIXEL_32 frame has no blit path into
+    # the 16-bit vscreen -> the playscene/playgif cutscenes render BLACK. Making
+    # the buffers PIXEL_16 routes decode through the 565-correct case + lets the
+    # frame blit via blendscreen16. (Both allocscreen calls -- backbuffer + the
+    # gifbuffer ring -- match this anchor: count=2.)
+    ag_path = os.path.join(obor, 'source/gamelib/anigif.c')
+    ag = read(ag_path)
+    ag = strict_replace(ag,
+        "gif_header.screenheight, PIXEL_32);",
+        "gif_header.screenheight, PIXEL_16); /* MiSTer full-16: 565 GIF frames blit into the 16-bit vscreen */",
+        'Path A P9: anigif frame buffers PIXEL_32 -> PIXEL_16', count=2)
+    write(ag_path, ag)
+    print("  Path A: PAL_BYTES=512 native 565 palettes; load_palette/convert_map/neon/HUD -> colour16; anigif 16-bit; convert-at-blit removed.")
 
     print("\nAll patches applied successfully.")
 
