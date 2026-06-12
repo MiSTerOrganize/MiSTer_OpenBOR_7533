@@ -221,46 +221,55 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                     vst1q_u16((uint16_t*)(dst_row + x), out);
                 }
             } else {
-                /* Step K v2 (v3.1 perf, 2026-05-28): NEON wide-source squish.
-                 *
-                 * v1 used gather[8] stack array + vld1q_u16(gather) which
-                 * incurred 8 STRH + 1 VLD1 = 9 wasteful memory ops just to
-                 * get values into a NEON register. Avengers v3.1 measurement
-                 * showed vcopy got SLOWER per-frame (7.21 vs 4.45 ms in v12)
-                 * partly because of this round-trip pattern.
-                 *
-                 * v2 uses vsetq_lane_u16 to pack values directly into NEON
-                 * register lanes — no memory traffic, just 8 LDRH + 8 lane-
-                 * insert micro-ops. Result: NEON convert + store still wins
-                 * over scalar uint64_t-packed for the wide-source squish.
-                 *
-                 * Expected: Avengers vcopy 7.21 -> ~3-4 ms/frame (+3-5 fps)
-                 *           He-Man vcopy ~6.1 -> ~3-4 ms/frame */
-                const uint16x8_t mask_r = vdupq_n_u16(0x001F);
-                const uint16x8_t mask_g = vdupq_n_u16(0x07E0);
-                const uint16x8_t mask_b = vdupq_n_u16(0xF800);
-                for (int x = 0; x < NV_FRAME_WIDTH; x += 8) {
-                    /* Pack 8 indexed scalar loads directly into NEON register
-                     * lanes — no stack round-trip. ARMv7 has no native gather
-                     * instruction, but vsetq_lane is a register-to-register
-                     * micro-op (after the LDRH brings the value into a GPR). */
-                    uint16x8_t px = vdupq_n_u16(0);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 0]], px, 0);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 1]], px, 1);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 2]], px, 2);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 3]], px, 3);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 4]], px, 4);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 5]], px, 5);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 6]], px, 6);
-                    px = vsetq_lane_u16(src_row[src_x_table[x + 7]], px, 7);
-                    /* NEON convert BGR565 -> RGB565 (same as Step 20 fast path). */
-                    uint16x8_t r = vandq_u16(px, mask_r);
-                    uint16x8_t g = vandq_u16(px, mask_g);
-                    uint16x8_t b = vandq_u16(px, mask_b);
-                    uint16x8_t r_shifted = vshlq_n_u16(r, 11);
-                    uint16x8_t b_shifted = vshrq_n_u16(b, 11);
-                    uint16x8_t out = vorrq_u16(vorrq_u16(r_shifted, g), b_shifted);
-                    vst1q_u16((uint16_t*)(dst_row + x), out);
+                /* MiSTer Path B Build 2: AREA-AVERAGE (box) 16-bit downscale,
+                 * replacing nearest-neighbor for the squish case (He-Man
+                 * 960x480 -> 320x224, 3x X). Source is BGR565; unpack to 8-bit
+                 * R/G/B, average the output pixel's source-block footprint,
+                 * pack to RGB565 (same output layout as the 32bpp box + the
+                 * FPGA decoder). recip[] avoids a per-pixel divide (A9 has no
+                 * HW integer divide). Scalar: the 16-bit vscreen already halved
+                 * the bandwidth; a NEON box-16 is a later optimization. Self-
+                 * degenerates to a copy on any axis not downscaled. */
+                int yy0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
+                int yy1 = (int)(((long)(y + 1) * height) / NV_FRAME_HEIGHT);
+                if (yy1 <= yy0) yy1 = yy0 + 1;
+                if (yy1 > height) yy1 = height;
+                if (yy0 >= height) yy0 = height - 1;
+                int vcnt = yy1 - yy0;
+                const uint8_t* sbase = src + (size_t)yy0 * pitch;
+                uint32_t recip16[8];
+                {
+                    int h;
+                    for (h = 1; h < 8; h++) recip16[h] = (uint32_t)((1u << 20) / ((uint32_t)h * (uint32_t)vcnt));
+                }
+                for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                    int x0 = (int)(((long)x * width) / NV_FRAME_WIDTH);
+                    int x1 = (int)(((long)(x + 1) * width) / NV_FRAME_WIDTH);
+                    if (x1 <= x0) x1 = x0 + 1;
+                    if (x1 > width) x1 = width;
+                    if (x0 >= width) x0 = width - 1;
+                    int hcnt = x1 - x0;
+                    if (hcnt > 7) hcnt = 7;
+                    uint32_t rs = 0, gs = 0, bs = 0;
+                    const uint8_t* rowp = sbase;
+                    for (int syy = 0; syy < vcnt; syy++) {
+                        const uint16_t* sp = (const uint16_t*)(rowp) + x0;
+                        for (int k = 0; k < hcnt; k++) {
+                            uint16_t pix = sp[k];
+                            uint32_t b5 = (pix >> 11) & 0x1F;
+                            uint32_t g6 = (pix >> 5) & 0x3F;
+                            uint32_t r5 = pix & 0x1F;
+                            rs += (r5 << 3) | (r5 >> 2);
+                            gs += (g6 << 2) | (g6 >> 4);
+                            bs += (b5 << 3) | (b5 >> 2);
+                        }
+                        rowp += pitch;
+                    }
+                    uint32_t rc = recip16[hcnt];
+                    uint32_t r8 = (rs * rc + (1u << 19)) >> 20;
+                    uint32_t g8 = (gs * rc + (1u << 19)) >> 20;
+                    uint32_t b8 = (bs * rc + (1u << 19)) >> 20;
+                    dst_row[x] = (uint16_t)(((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3));
                 }
             }
         }

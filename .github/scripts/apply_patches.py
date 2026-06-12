@@ -4466,6 +4466,14 @@ endif
         "\n"
         "}",
         'Path B B3: arithmetic blends (NULL blendtables) for 16-bit vscreen')
+    # B2: backto_mainmenu pause buffer PIXEL_16 (pausemenu's own buffer is
+    # PIXEL_16 via the edited pausemenu_patch.c, applied earlier at the
+    # pausemenu replace_function -- so only the backto_mainmenu site remains
+    # PIXEL_32 here: count=1). Matches vscreen so copyscreen is not a no-op.
+    obpb = strict_replace(obpb,
+        "    s_screen *pausebuffer = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_32);",
+        "    s_screen *pausebuffer = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_16); /* MiSTer Path B: match 16-bit vscreen */",
+        'Path B B2: backto_mainmenu pause buffer PIXEL_16')
     write(obpb_path, obpb)
 
     sppb_path = os.path.join(obor, 'source/gamelib/sprite.c')
