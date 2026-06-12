@@ -3715,60 +3715,6 @@ endif
     # Removed: fps_globals_new, fps_entity_start, fps_entity_end, fps_render,
     # fps_script, fps_print, se_globals, se_script (+ai), se_anim (+coll), se_arrange.
 
-    # ===== TEMPORARY DIAG (REVERT AFTER MEASURED) 2026-06-12: ATOV L1BOSS missing-enemy tracer =====
-    # Logs every TYPE_ENEMY spawn + dumps the live player/enemy roster once/sec with HP.
-    # Determines: do boss minions spawn-then-vanish (killed), never spawn, or spawn-but-invisible.
-    diag_spawn_old = (
-        "            acting_entity->exists = 1;\n"
-        "            ent_count++;\n"
-        "\n"
-        "            acting_entity->modeldata = *spawn_model; // copy the entir model data here"
-    )
-    diag_spawn_new = (
-        "            acting_entity->exists = 1;\n"
-        "            ent_count++;\n"
-        "            /* TEMPORARY DIAG (REVERT AFTER MEASURED): enemy spawn tracer */\n"
-        "            if(spawn_model->type == TYPE_ENEMY)\n"
-        "                printf(\"[SPWN] %s type=%d x=%.0f z=%.0f maxhp=%d\\n\", spawn_model->name, (int)spawn_model->type, pos_x, pos_z, (int)spawn_model->health);\n"
-        "\n"
-        "            acting_entity->modeldata = *spawn_model; // copy the entir model data here"
-    )
-    ob = strict_replace(ob, diag_spawn_old, diag_spawn_new,
-                        'TEMPORARY DIAG: enemy spawn tracer in spawn()')
-
-    diag_live_old = "void update_ents()\n{\n    int i;"
-    diag_live_new = (
-        "void update_ents()\n"
-        "{\n"
-        "    int i;\n"
-        "    /* TEMPORARY DIAG (REVERT AFTER MEASURED): periodic live entity roster */\n"
-        "    {\n"
-        "        static int _mister_diag_fc = 0;\n"
-        "        if(++_mister_diag_fc >= 30)\n"
-        "        {\n"
-        "            int _dk;\n"
-        "            _mister_diag_fc = 0;\n"
-        "            printf(\"[LIVE] ent_max=%d ent_count=%d\\n\", ent_max, ent_count);\n"
-        "            for(_dk = 0; _dk < ent_max; _dk++)\n"
-        "            {\n"
-        "                if(ent_list[_dk] && ent_list[_dk]->exists &&\n"
-        "                   (ent_list[_dk]->modeldata.type == TYPE_PLAYER || ent_list[_dk]->modeldata.type == TYPE_ENEMY))\n"
-        "                {\n"
-        "                    printf(\"[LIVE]  %s type=%d hp=%d/%d x=%.0f z=%.0f\\n\",\n"
-        "                        ent_list[_dk]->modeldata.name,\n"
-        "                        (int)ent_list[_dk]->modeldata.type,\n"
-        "                        (int)ent_list[_dk]->energy_state.health_current,\n"
-        "                        (int)ent_list[_dk]->modeldata.health,\n"
-        "                        ent_list[_dk]->position.x,\n"
-        "                        ent_list[_dk]->position.z);\n"
-        "                }\n"
-        "            }\n"
-        "        }\n"
-        "    }"
-    )
-    ob = strict_replace(ob, diag_live_old, diag_live_new,
-                        'TEMPORARY DIAG: periodic live entity roster in update_ents()')
-
     write(ob_path, ob)
     print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 — line-29499 fallback intact, no struct mods).")
 
@@ -4571,8 +4517,6 @@ endif
         "             * falls back to frame->palette). Palettes are NATIVE 565\n"
         "             * (PAL_BYTES=512), so putsprite_x8p16 reads them directly. */\n"
         "            unsigned *table_arg16 = (frame && frame->palette && drawmethod->has_remap_directive && !drawmethod->has_palette_directive) ? NULL : (unsigned *)drawmethod->table;\n"
-        "            /* TEMPORARY DIAG (REVERT AFTER MEASURED): render probe for has_remap (alt-palette) enemies */\n"
-        "            { static int _rd = 0; if(drawmethod->has_remap_directive && _rd < 80) { _rd++; printf(\"[REND] hasr=%d hasp=%d frame=%p fpal=%p tbl=%p path=%s alpha=%d x=%d y=%d scr=%p\\n\", drawmethod->has_remap_directive, drawmethod->has_palette_directive, (void*)frame, (void*)(frame ? frame->palette : (void*)0), (void*)drawmethod->table, table_arg16 ? \"TABLE\" : \"spritepal\", drawmethod->alpha, x, y, (void*)screen); } }\n"
         "            putsprite_x8p16(x, y, drawmethod->flipx, frame, screen, (unsigned short *)table_arg16, getblendfunction16(drawmethod->alpha));\n"
         "            break;\n"
         "        }",
