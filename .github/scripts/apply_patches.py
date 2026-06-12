@@ -3708,6 +3708,60 @@ endif
     # Removed: fps_globals_new, fps_entity_start, fps_entity_end, fps_render,
     # fps_script, fps_print, se_globals, se_script (+ai), se_anim (+coll), se_arrange.
 
+    # ===== TEMPORARY DIAG (REVERT AFTER MEASURED) 2026-06-12: ATOV L1BOSS missing-enemy tracer =====
+    # Logs every TYPE_ENEMY spawn + dumps the live player/enemy roster once/sec with HP.
+    # Determines: do boss minions spawn-then-vanish (killed), never spawn, or spawn-but-invisible.
+    diag_spawn_old = (
+        "            acting_entity->exists = 1;\n"
+        "            ent_count++;\n"
+        "\n"
+        "            acting_entity->modeldata = *spawn_model; // copy the entir model data here"
+    )
+    diag_spawn_new = (
+        "            acting_entity->exists = 1;\n"
+        "            ent_count++;\n"
+        "            /* TEMPORARY DIAG (REVERT AFTER MEASURED): enemy spawn tracer */\n"
+        "            if(spawn_model->type == TYPE_ENEMY)\n"
+        "                printf(\"[SPWN] %s type=%d x=%.0f z=%.0f maxhp=%d\\n\", spawn_model->name, (int)spawn_model->type, pos_x, pos_z, (int)spawn_model->health);\n"
+        "\n"
+        "            acting_entity->modeldata = *spawn_model; // copy the entir model data here"
+    )
+    ob = strict_replace(ob, diag_spawn_old, diag_spawn_new,
+                        'TEMPORARY DIAG: enemy spawn tracer in spawn()')
+
+    diag_live_old = "void update_ents()\n{\n    int i;"
+    diag_live_new = (
+        "void update_ents()\n"
+        "{\n"
+        "    int i;\n"
+        "    /* TEMPORARY DIAG (REVERT AFTER MEASURED): periodic live entity roster */\n"
+        "    {\n"
+        "        static int _mister_diag_fc = 0;\n"
+        "        if(++_mister_diag_fc >= 30)\n"
+        "        {\n"
+        "            int _dk;\n"
+        "            _mister_diag_fc = 0;\n"
+        "            printf(\"[LIVE] ent_max=%d ent_count=%d\\n\", ent_max, ent_count);\n"
+        "            for(_dk = 0; _dk < ent_max; _dk++)\n"
+        "            {\n"
+        "                if(ent_list[_dk] && ent_list[_dk]->exists &&\n"
+        "                   (ent_list[_dk]->modeldata.type == TYPE_PLAYER || ent_list[_dk]->modeldata.type == TYPE_ENEMY))\n"
+        "                {\n"
+        "                    printf(\"[LIVE]  %s type=%d hp=%d/%d x=%.0f z=%.0f\\n\",\n"
+        "                        ent_list[_dk]->modeldata.name,\n"
+        "                        (int)ent_list[_dk]->modeldata.type,\n"
+        "                        (int)ent_list[_dk]->energy_state.health_current,\n"
+        "                        (int)ent_list[_dk]->modeldata.health,\n"
+        "                        ent_list[_dk]->position.x,\n"
+        "                        ent_list[_dk]->position.z);\n"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "    }"
+    )
+    ob = strict_replace(ob, diag_live_old, diag_live_new,
+                        'TEMPORARY DIAG: periodic live entity roster in update_ents()')
+
     write(ob_path, ob)
     print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 — line-29499 fallback intact, no struct mods).")
 
