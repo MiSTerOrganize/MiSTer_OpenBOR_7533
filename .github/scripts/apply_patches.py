@@ -4169,13 +4169,12 @@ endif
         "            {\n"
         "                unsigned short *dst16 = (unsigned short *)bg16->data;\n"
         "                unsigned char *src8 = (unsigned char *)background->data;\n"
-        "                unsigned char *pal_u8 = (unsigned char *)background->palette;\n"
+        "                unsigned short *pal16 = (unsigned short *)background->palette;\n"
         "                int total = background->width * background->height;\n"
         "                int i;\n"
         "                for (i = 0; i < total; i++)\n"
         "                {\n"
-        "                    unsigned char *e = pal_u8 + (src8[i] << 2);\n"
-        "                    dst16[i] = colour16(e[0], e[1], e[2]);\n"
+        "                    dst16[i] = pal16[src8[i]]; /* MiSTer full-16: native 565 palette, direct LUT */\n"
         "                }\n"
         "                freescreen(&background);\n"
         "                background = bg16;\n"
@@ -4495,83 +4494,53 @@ endif
         'Path B B4: PIXEL_16 dispatch v3.10 discriminator')
     write(sppb_path, sppb)
 
-    spx16_path = os.path.join(obor, 'source/gamelib/spritex8p16.c')
-    spx16 = read(spx16_path)
-    spx16 = strict_replace(spx16,
-        '#include "sprite.h"',
-        '#include "sprite.h"\n'
-        '/* MiSTer Path B: convert a 32-bit (locked-pipeline) palette to BGR565 for\n'
-        ' * the 16-bit blit. Single static buffer (consumed synchronously within one\n'
-        ' * blit; render path is single-threaded). colour16() keeps channel order\n'
-        ' * consistent with _color16 + the native_video_writer BGR565->RGB565 swap. */\n'
-        'static unsigned short *mister_pal565(unsigned *pal32)\n'
-        '{\n'
-        '    static unsigned short tab[256];\n'
-        '    const unsigned char *pb;\n'
-        '    int j;\n'
-        '    if(!pal32) return 0;\n'
-        '    pb = (const unsigned char *)pal32;\n'
-        '    for(j = 0; j < 256; j++) { tab[j] = colour16(pb[0], pb[1], pb[2]); pb += 4; }\n'
-        '    return tab;\n'
-        '}',
-        'Path B B5a: spritex8p16 565 helper')
-    spx16 = strict_replace(spx16,
-        "    if(remap)\n"
-        "    {\n"
-        "        m = remap;\n"
-        "    }\n"
-        "    else\n"
-        "    {\n"
-        "        m = (unsigned short *)sprite->palette;\n"
-        "    }",
-        "    {\n"
-        "        /* MiSTer Path B: convert the effective 32-bit palette to BGR565. */\n"
-        "        unsigned *_s32 = remap ? (unsigned *)remap : (unsigned *)sprite->palette;\n"
-        "        m = mister_pal565(_s32);\n"
-        "    }",
-        'Path B B5b: spritex8p16 convert m to 565')
-    write(spx16_path, spx16)
+    # ── Full-16-bit (Path A): flip the palette pipeline to NATIVE RGB565 ──
+    # The engine image decoders (loadimg.c readgif/pcx/bmp/png) choose palette
+    # format by PAL_BYTES: 512 -> colour16 (565), 1024 -> colour32 (RGBA).
+    # Flipping PAL_BYTES to 512 makes EVERY palette natively 565 (decoders,
+    # allocscreen, encodesprite, convert_map_to_palette all auto-track), so the
+    # 16-bit blits read sprite/model/screen palettes DIRECTLY with NO per-blit
+    # conversion. That is why B5/B6 (the convert-at-blit hacks) are GONE: stock
+    # putsprite_x8p16 / putscreenx8p16 consume native-565 palettes correctly.
+    # B4 still picks WHICH 565 palette (discriminator is format-independent).
+    print("Patching for Path A (full 16-bit: native 565 palette pipeline)...")
+    tpb_path = os.path.join(obor, 'source/gamelib/types.h')
+    tpb = read(tpb_path)
+    tpb = strict_replace(tpb,
+        "#define PAL_BYTES ((pixelbytes[(int)PIXEL_32]*256))",
+        "#define PAL_BYTES ((pixelbytes[(int)PIXEL_16]*256)) /* MiSTer full-16: 256*2=512 -> decoders take the colour16 565 path */",
+        'Path A P0: PAL_BYTES -> 16-bit (565)')
+    write(tpb_path, tpb)
 
-    scr16_path = os.path.join(obor, 'source/gamelib/screen16.c')
-    scr16 = read(scr16_path)
-    scr16 = strict_replace(scr16,
-        '#include "types.h"',
-        '#include "types.h"\n'
-        '/* MiSTer Path B: 32-bit palette -> BGR565 for 16-bit screen blits. */\n'
-        'static unsigned short *mister_pal565_scr(unsigned *pal32)\n'
-        '{\n'
-        '    static unsigned short tab[256];\n'
-        '    const unsigned char *pb;\n'
-        '    int j;\n'
-        '    if(!pal32) return 0;\n'
-        '    pb = (const unsigned char *)pal32;\n'
-        '    for(j = 0; j < 256; j++) { tab[j] = colour16(pb[0], pb[1], pb[2]); pb += 4; }\n'
-        '    return tab;\n'
-        '}',
-        'Path B B6a: screen16 565 helper')
-    scr16 = strict_replace(scr16,
-        "    if(!remap)\n"
-        "    {\n"
-        "        remap = (unsigned short *)src->palette;\n"
-        "    }\n"
-        "\n"
-        "    if(!remap)\n"
-        "    {\n"
-        "        return;\n"
-        "    }",
-        "    if(!remap)\n"
-        "    {\n"
-        "        remap = (unsigned short *)src->palette;\n"
-        "    }\n"
-        "    remap = mister_pal565_scr((unsigned *)remap); /* MiSTer Path B: 32-bit palette -> BGR565 */\n"
-        "\n"
-        "    if(!remap)\n"
-        "    {\n"
-        "        return;\n"
-        "    }",
-        'Path B B6b: screen16 convert remap to 565')
-    write(scr16_path, scr16)
-    print("  Path B: 16-bit vscreen + internal 565 palette conversion (palette pipeline kept 32-bit).")
+    obp = read(obpb_path)
+    # P1: load_palette (.act) fills 565 entries (dp stays used via cast -> no unused-var warning)
+    obp = strict_replace(obp,
+        "            dp[i] = colour32(tpal[0], tpal[1], tpal[2]);",
+        "            ((unsigned short *)dp)[i] = colour16(tpal[0], tpal[1], tpal[2]); /* MiSTer full-16: 565 */",
+        'Path A P1a: load_palette colour32 -> colour16')
+    obp = strict_replace(obp,
+        "        closepackfile(handle);\n"
+        "        dp[0] = 0;",
+        "        closepackfile(handle);\n"
+        "        ((unsigned short *)dp)[0] = 0; /* MiSTer full-16: transparent entry 0 (565) */",
+        'Path A P1b: load_palette transparent entry 565')
+    # P3: convert_map_to_palette per-colour stride -> 2 bytes
+    obp = strict_replace(obp,
+        "    unsigned pb = pixelbytes[(int)PIXEL_32];",
+        "    unsigned pb = pixelbytes[(int)PIXEL_16]; /* MiSTer full-16: 2-byte 565 stride */",
+        'Path A P3: convert_map_to_palette stride -> 16-bit')
+    # P4: neon palette-rotation per-colour stride -> 2 bytes
+    obp = strict_replace(obp,
+        "    int pb = pixelbytes[(int)PIXEL_32];",
+        "    int pb = pixelbytes[(int)PIXEL_16]; /* MiSTer full-16: 2-byte 565 stride */",
+        'Path A P4: neon palette rotation stride -> 16-bit')
+    # P8: HUD primitive colours (_makecolour) -> 565 (box/line/dot/health bars)
+    obp = strict_replace(obp,
+        "    return colour32(r, g, b);",
+        "    return colour16(r, g, b); /* MiSTer full-16: HUD box/line/dot colours 565 */",
+        'Path A P8: _makecolour -> colour16')
+    write(obpb_path, obp)
+    print("  Path A: PAL_BYTES=512 native 565 palettes; load_palette/convert_map/neon/HUD -> colour16; convert-at-blit removed.")
 
     print("\nAll patches applied successfully.")
 
