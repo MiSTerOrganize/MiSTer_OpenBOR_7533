@@ -2396,7 +2396,7 @@ endif
     # after the v3.9 has_remap_directive line. Carried from model to sprite.c
     # at render-time alongside has_remap_directive (see step 0h).
     s_dm_v310_old = "\tint has_remap_directive; /* MiSTer v3.9: legacy-PAK flag for sprite.c step 4 v2 bypass; copied from model at render-time */\n} s_drawmethod;"
-    s_dm_v310_new = "\tint has_remap_directive; /* MiSTer v3.9: legacy-PAK flag for sprite.c step 4 v2 bypass; copied from model at render-time */\n\tint has_palette_directive; /* MiSTer v3.10: master-palette flag (tightens step 4 v2 gate for TMNT-RP-style modern PAKs); copied from model at render-time */\n} s_drawmethod;"
+    s_dm_v310_new = "\tint has_remap_directive; /* MiSTer v3.9: legacy-PAK flag for sprite.c step 4 v2 bypass; copied from model at render-time */\n\tint has_palette_directive; /* MiSTer v3.10: master-palette flag (tightens step 4 v2 gate for TMNT-RP-style modern PAKs); copied from model at render-time */\n\tint mister_map; /* MiSTer 2026-06-12 alt-palette: entity colourmap index e->map (>0 = an alternate remap colourmap is active); gates step 4 v2 bypass so map>0 renders via drawmethod->table = colourmap[map-1] (the alt palette) instead of the base frame->palette */\n} s_drawmethod;"
     types = strict_replace(types, s_dm_v310_old, s_dm_v310_new, 'v3.10: add has_palette_directive to s_drawmethod END')
     write(types_path, types)
     print("  s_drawmethod.has_palette_directive added at struct end (v3.10)")
@@ -2436,7 +2436,7 @@ endif
     # at render time, alongside v3.9 step 0d's has_remap_directive copy. Together
     # the two flags drive the tightened step 4 v2 gate (see modified sp_new below).
     copy_pal_to_dm_old = "                    drawmethod->has_remap_directive = e->modeldata.has_remap_directive; /* MiSTer v3.9: pass legacy-PAK flag to sprite.c step 4 v2 */\n\n                    if(e->modeldata.alpha >= 1 && e->modeldata.alpha <= MAX_BLENDINGS)"
-    copy_pal_to_dm_new = "                    drawmethod->has_remap_directive = e->modeldata.has_remap_directive; /* MiSTer v3.9: pass legacy-PAK flag to sprite.c step 4 v2 */\n                    drawmethod->has_palette_directive = e->modeldata.has_palette_directive; /* MiSTer v3.10: pass master-palette flag (tightens step 4 v2 gate for TMNT-RP) */\n\n                    if(e->modeldata.alpha >= 1 && e->modeldata.alpha <= MAX_BLENDINGS)"
+    copy_pal_to_dm_new = "                    drawmethod->has_remap_directive = e->modeldata.has_remap_directive; /* MiSTer v3.9: pass legacy-PAK flag to sprite.c step 4 v2 */\n                    drawmethod->has_palette_directive = e->modeldata.has_palette_directive; /* MiSTer v3.10: pass master-palette flag (tightens step 4 v2 gate for TMNT-RP) */\n                    drawmethod->mister_map = e->map; /* MiSTer 2026-06-12 alt-palette: pass entity colourmap index so step 4 v2 renders the alt colourmap (drawmethod->table) for map>0 */\n\n                    if(e->modeldata.alpha >= 1 && e->modeldata.alpha <= MAX_BLENDINGS)"
     ob = strict_replace(ob, copy_pal_to_dm_old, copy_pal_to_dm_new, 'v3.10 step 0h: copy has_palette_directive into commonmethod at render')
     print("  drawmethod->has_palette_directive set at render-time (v3.10)")
 
@@ -4355,7 +4355,7 @@ endif
         "             * master. has_palette_directive cleanly distinguishes them without breaking\n"
         "             * the v3.9 ATOV fix (which depends on sprite->palette being the canonical\n"
         "             * per-frame palette for legacy ATOV-style PAKs). */\n"
-        "            unsigned *table_arg = (frame && frame->palette && drawmethod->has_remap_directive && !drawmethod->has_palette_directive) ? NULL : (unsigned *)drawmethod->table;\n"
+        "            unsigned *table_arg = (frame && frame->palette && drawmethod->has_remap_directive && !drawmethod->has_palette_directive && drawmethod->mister_map == 0) ? NULL : (unsigned *)drawmethod->table;\n"
         "            putsprite_x8p32(x, y, drawmethod->flipx, frame, screen, table_arg, getblendfunction32(drawmethod->alpha));\n"
         "            break;\n"
         "        }"
@@ -4570,7 +4570,7 @@ endif
         "             * case -- pick the effective palette (NULL bypass -> putsprite_x8p16\n"
         "             * falls back to frame->palette). Palettes are NATIVE 565\n"
         "             * (PAL_BYTES=512), so putsprite_x8p16 reads them directly. */\n"
-        "            unsigned *table_arg16 = (frame && frame->palette && drawmethod->has_remap_directive && !drawmethod->has_palette_directive) ? NULL : (unsigned *)drawmethod->table;\n"
+        "            unsigned *table_arg16 = (frame && frame->palette && drawmethod->has_remap_directive && !drawmethod->has_palette_directive && drawmethod->mister_map == 0) ? NULL : (unsigned *)drawmethod->table;\n"
         "            /* TEMPORARY DIAG (REVERT AFTER MEASURED): render probe for has_remap (alt-palette) enemies */\n"
         "            { static int _rd = 0; if(drawmethod->has_remap_directive && _rd < 80) { _rd++; printf(\"[REND] hasr=%d hasp=%d frame=%p fpal=%p tbl=%p path=%s alpha=%d x=%d y=%d scr=%p\\n\", drawmethod->has_remap_directive, drawmethod->has_palette_directive, (void*)frame, (void*)(frame ? frame->palette : (void*)0), (void*)drawmethod->table, table_arg16 ? \"TABLE\" : \"spritepal\", drawmethod->alpha, x, y, (void*)screen); } }\n"
         "            putsprite_x8p16(x, y, drawmethod->flipx, frame, screen, (unsigned short *)table_arg16, getblendfunction16(drawmethod->alpha));\n"
