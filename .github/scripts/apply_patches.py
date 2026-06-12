@@ -4564,10 +4564,12 @@ endif
         "             * falls back to frame->palette). Palettes are NATIVE 565\n"
         "             * (PAL_BYTES=512), so putsprite_x8p16 reads them directly. */\n"
         "            unsigned *table_arg16 = (frame && frame->palette && drawmethod->has_remap_directive && !drawmethod->has_palette_directive) ? NULL : (unsigned *)drawmethod->table;\n"
+        "            /* TEMPORARY DIAG (REVERT AFTER MEASURED): render probe for has_remap (alt-palette) enemies */\n"
+        "            { static int _rd = 0; if(drawmethod->has_remap_directive && _rd < 80) { _rd++; printf(\"[REND] hasr=%d hasp=%d frame=%p fpal=%p tbl=%p path=%s alpha=%d x=%d y=%d scr=%p\\n\", drawmethod->has_remap_directive, drawmethod->has_palette_directive, (void*)frame, (void*)(frame ? frame->palette : (void*)0), (void*)drawmethod->table, table_arg16 ? \"TABLE\" : \"spritepal\", drawmethod->alpha, x, y, (void*)screen); } }\n"
         "            putsprite_x8p16(x, y, drawmethod->flipx, frame, screen, (unsigned short *)table_arg16, getblendfunction16(drawmethod->alpha));\n"
         "            break;\n"
         "        }",
-        'Path B B4: PIXEL_16 dispatch v3.10 discriminator')
+        'Path B B4: PIXEL_16 dispatch v3.10 discriminator + TEMPORARY render probe')
     write(sppb_path, sppb)
 
     # ── Full-16-bit (Path A): flip the palette pipeline to NATIVE RGB565 ──
