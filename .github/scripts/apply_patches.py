@@ -2948,13 +2948,13 @@ endif
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};",
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};\n"
         "/* MiSTer [LOAD] phase timers (microsecond accumulators) */\n"
-        "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0, _mister_size_us = 0;\n"
+        "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0, _mister_size_us = 0, _mister_sprite_us = 0;\n"
         "static unsigned long _mister_load_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }",
         'LOAD-bd: decode/encode us accumulators + us helper')
     ob = strict_replace(ob,
         "    unsigned int _mister_load_t0 = timer_gettick();",
         "    unsigned int _mister_load_t0 = timer_gettick();\n"
-        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; /* MiSTer [LOAD] phase reset */",
+        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; /* MiSTer [LOAD] phase reset */",
         'LOAD-bd: reset phase accumulators at load start')
     ob = strict_replace(ob,
         "    bitmap = loadbitmap(filename, packfile, pixelformat);",
@@ -2985,12 +2985,45 @@ endif
         "    encodesprite(ofsx - clipl, ofsy - clipt, bitmap, curr->sprite);",
         "    { unsigned long _et0 = _mister_load_us(); encodesprite(ofsx - clipl, ofsy - clipt, bitmap, curr->sprite); _mister_encode_us += _mister_load_us() - _et0; }",
         'LOAD-bd: time encodesprite (RLE fill) in loadsprite main path')
+    # 2026-06-13: split 'other' -> in-loadsprite vs outside. Rename loadsprite to
+    # loadsprite_impl and add a thin same-signature timing wrapper (all callers hit
+    # it) accumulating total loadsprite() wall-time into _mister_sprite_us.
+    # sprite-total includes loadsprite's own decode/size/encode; outside = load
+    # total - sprite-total = parse + model/anim setup + script compile + pak open +
+    # level layers. Tells us which half of the 53s 'other' (JL Legacy) to chase.
+    ob = strict_replace(ob,
+        "int loadsprite(char *filename, int ofsx, int ofsy, int bmpformat)\n{",
+        "int loadsprite_impl(char *filename, int ofsx, int ofsy, int bmpformat)\n{",
+        'LOAD-bd: rename loadsprite -> loadsprite_impl for total-time wrapper')
+    ob = strict_replace(ob,
+        "    ++sprites_loaded;\n"
+        "    mister_sprite_hash_insert(sprites_loaded - 1);  /* MiSTer 2026-05-24 hash-map insert (main path) */\n"
+        "    return sprites_loaded - 1;\n"
+        "}",
+        "    ++sprites_loaded;\n"
+        "    mister_sprite_hash_insert(sprites_loaded - 1);  /* MiSTer 2026-05-24 hash-map insert (main path) */\n"
+        "    return sprites_loaded - 1;\n"
+        "}\n"
+        "\n"
+        "/* MiSTer 2026-06-13 [LOAD] split: thin timing wrapper around loadsprite_impl.\n"
+        " * Same signature so all callers hit this; accumulates total loadsprite\n"
+        " * wall-time into _mister_sprite_us. outside = load total - this. */\n"
+        "int loadsprite(char *filename, int ofsx, int ofsy, int bmpformat)\n"
+        "{\n"
+        "    unsigned long _wt0 = _mister_load_us();\n"
+        "    int _wr = loadsprite_impl(filename, ofsx, ofsy, bmpformat);\n"
+        "    _mister_sprite_us += _mister_load_us() - _wt0;\n"
+        "    return _wr;\n"
+        "}",
+        'LOAD-bd: add loadsprite() timing wrapper around loadsprite_impl')
     ob = strict_replace(ob,
         '    printf("[LOAD] PAK loaded in %u ms\\n", (unsigned int)(timer_gettick() - _mister_load_t0));',
         "    { unsigned int _mtot = (unsigned int)(timer_gettick() - _mister_load_t0);\n"
         "      unsigned int _mdec = (unsigned int)(_mister_decode_us / 1000UL), _msz = (unsigned int)(_mister_size_us / 1000UL), _menc = (unsigned int)(_mister_encode_us / 1000UL);\n"
+        "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL);\n"
+        "      unsigned int _mout = (_mtot > _mspr) ? (_mtot - _mspr) : 0;\n"
         "      unsigned int _moth = (_mtot > _mdec + _msz + _menc) ? (_mtot - _mdec - _msz - _menc) : 0;\n"
-        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u)\\n", _mtot, _mdec, _msz, _menc, _moth); }',
+        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout); }',
         'LOAD-bd: extend [LOAD] print with phase breakdown')
 
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
