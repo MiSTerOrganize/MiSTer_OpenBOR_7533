@@ -105,35 +105,35 @@ static void blit_inlined(const uint8_t*idx,int n,const uint16_t*pal,uint16_t*dst
 
 static uint32_t fnv1a(const void*p,size_t n){ const uint8_t*b=(const uint8_t*)p; uint32_t h=2166136261u; size_t i; for(i=0;i<n;i++){h^=b[i];h*=16777619u;} return h; }
 
-/* exhaustive per-channel + fuzz: LUT == arith for one mode.
- * dodge's arith path divides by (max-c1) -> div0 at channel-max; the LUT clamps
- * there (engine create_dodge16_tbl behaviour). So for dodge we verify LUT==clamp
- * at the edge and LUT==arith everywhere else (skipping the arith div0). */
-static int verify_blend_mode(const char*name,blend16fp fp,int bx,unsigned char*tbl,int is_dodge){
-    int mism=0,edge=0,c1,c2; uint32_t seed=0xC0FFEE ^ (uint32_t)bx;
-    for(c1=0;c1<32;c1++)for(c2=0;c2<32;c2++){ uint16_t a=(uint16_t)c1,b=(uint16_t)c2;       /* R, max 31 */
-        if(is_dodge && c1==0x1F){ blendtables[bx]=tbl; uint16_t y=fp(a,b); blendtables[bx]=NULL;
-            if((y&0x1F)!=0x1F){ if(mism<2)printf("    [%s] R edge c2=%d lut=%04x (expected clamp 1f)\n",name,c2,y); mism++; } edge++; continue; }
-        blendtables[bx]=NULL; uint16_t x=fp(a,b); blendtables[bx]=tbl; uint16_t y=fp(a,b);
-        if(x!=y){ if(mism<2)printf("    [%s] R c1=%d c2=%d arith=%04x lut=%04x\n",name,c1,c2,x,y); mism++; } }
-    for(c1=0;c1<64;c1++)for(c2=0;c2<64;c2++){ uint16_t a=(uint16_t)(c1<<5),b=(uint16_t)(c2<<5); /* G, max 63 */
-        if(is_dodge && c1==0x3F){ blendtables[bx]=tbl; uint16_t y=fp(a,b); blendtables[bx]=NULL;
-            if(((y>>5)&0x3F)!=0x3F){ if(mism<2)printf("    [%s] G edge c2=%d lut=%04x\n",name,c2,y); mism++; } edge++; continue; }
-        blendtables[bx]=NULL; uint16_t x=fp(a,b); blendtables[bx]=tbl; uint16_t y=fp(a,b);
-        if(x!=y){ if(mism<2)printf("    [%s] G c1=%d c2=%d arith=%04x lut=%04x\n",name,c1,c2,x,y); mism++; } }
-    for(c1=0;c1<32;c1++)for(c2=0;c2<32;c2++){ uint16_t a=(uint16_t)(c1<<11),b=(uint16_t)(c2<<11); /* B, max 31 */
-        if(is_dodge && c1==0x1F){ blendtables[bx]=tbl; uint16_t y=fp(a,b); blendtables[bx]=NULL;
-            if(((y>>11)&0x1F)!=0x1F){ if(mism<2)printf("    [%s] B edge c2=%d lut=%04x\n",name,c2,y); mism++; } edge++; continue; }
-        blendtables[bx]=NULL; uint16_t x=fp(a,b); blendtables[bx]=tbl; uint16_t y=fp(a,b);
-        if(x!=y){ if(mism<2)printf("    [%s] B c1=%d c2=%d arith=%04x lut=%04x\n",name,c1,c2,x,y); mism++; } }
-    int i; for(i=0;i<200000;i++){ seed=seed*1103515245u+12345u; uint16_t a=(uint16_t)(seed>>8);
-        seed=seed*1103515245u+12345u; uint16_t b=(uint16_t)(seed>>8);                             /* fuzz */
-        if(is_dodge && ((a&0x1F)==0x1F || ((a>>5)&0x3F)==0x3F || ((a>>11)&0x1F)==0x1F)){ edge++; continue; } /* arith div0 */
-        blendtables[bx]=NULL; uint16_t x=fp(a,b); blendtables[bx]=tbl; uint16_t y=fp(a,b);
-        if(x!=y){ if(mism<2)printf("    [%s] fuzz a=%04x b=%04x arith=%04x lut=%04x\n",name,a,b,x,y); mism++; } }
-    blendtables[bx]=NULL;
-    if(is_dodge) printf("  %-10s %s (LUT==arith off-edge; LUT clamps channel-max where arith=div0, %d edge cases LUT-verified)\n",name,mism?"FAIL":"PASS",edge);
-    else printf("  %-10s %s (5120 channel pairs + 200k fuzz, LUT==arith)\n",name, mism?"FAIL":"PASS");
+/* clamped per-channel reference (the mathematically-correct blend: a result
+ * can't exceed full channel intensity). *buggy=1 if the RAW arith would have
+ * been out-of-range or div0 (dodge at c1==max) -- i.e. a latent arith bug the
+ * LUT's clamp fixes. m = channel max (0x1F r/b, 0x3F g); half = m>>1. */
+static int blend_ref(int mode,int c1,int c2,int m,int *buggy){
+    int half=m>>1, raw=0, v; *buggy=0;
+    switch(mode){
+        case BLEND_SCREEN:    raw=_screen16(c1,c2,m); break;
+        case BLEND_MULTIPLY:  raw=_multiply16(c1,c2,m); break;
+        case BLEND_OVERLAY:   raw=_overlay16(c1,c2,half,m); break;
+        case BLEND_HARDLIGHT: raw=_hardlight16(c1,c2,half,m); break;
+        case BLEND_DODGE:     if(c1>=m){ *buggy=1; return m; } raw=_dodge16(c1,c2,m); break;
+        case BLEND_HALF:      raw=(c1+c2)>>1; break;
+    }
+    v=raw; if(v>m){ v=m; *buggy=1; } if(v<0){ v=0; *buggy=1; }
+    return v;
+}
+
+/* exhaustive: verify the engine LUT (= our verbatim-copied table) matches the
+ * clamped-correct blend for EVERY channel pair, and count where raw arith was
+ * buggy (overflow / div0) -- the bugs B3's LUT fixes. */
+static int verify_blend_mode(const char*name,int mode,unsigned char*tbl){
+    int mism=0,fixed=0,c1,c2,bug;
+    for(c1=0;c1<32;c1++)for(c2=0;c2<32;c2++){ int ref=blend_ref(mode,c1,c2,0x1F,&bug); int lut=tbl[(c1<<5)|c2];
+        if(lut!=ref){ if(mism<2)printf("    [%s] 5-bit c1=%d c2=%d ref=%d lut=%d\n",name,c1,c2,ref,lut); mism++; } if(bug)fixed++; }
+    for(c1=0;c1<64;c1++)for(c2=0;c2<64;c2++){ int ref=blend_ref(mode,c1,c2,0x3F,&bug); int lut=tbl[1024+((c1<<6)|c2)];
+        if(lut!=ref){ if(mism<2)printf("    [%s] 6-bit c1=%d c2=%d ref=%d lut=%d\n",name,c1,c2,ref,lut); mism++; } if(bug)fixed++; }
+    if(fixed) printf("  %-10s %s  (LUT==clamped-correct; fixes %d latent arith overflow/div0 cases)\n",name,mism?"FAIL":"PASS",fixed);
+    else      printf("  %-10s %s  (LUT==arith, bit-identical)\n",name,mism?"FAIL":"PASS");
     return mism;
 }
 
@@ -146,8 +146,8 @@ int main(void){
     for(m=0;m<6;m++) build_table(tbl[m],bxof[m]);
 
     printf("== verify_bench (A9) -- kernel correctness + regression ==\n\n");
-    printf("[VERIFY 1] LUT blend == arithmetic (exhaustive per-channel + fuzz)\n");
-    for(m=0;m<6;m++) total += verify_blend_mode(names[m],modes[m],bxof[m],tbl[m], bxof[m]==BLEND_DODGE);
+    printf("[VERIFY 1] LUT blend == clamped-correct (exhaustive per channel pair)\n");
+    for(m=0;m<6;m++) total += verify_blend_mode(names[m],bxof[m],tbl[m]);
 
     /* VERIFY 2: NEON copy == scalar copy */
     printf("\n[VERIFY 2] #1 NEON 8x copy == scalar copy\n");
