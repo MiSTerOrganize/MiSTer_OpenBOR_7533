@@ -2976,14 +2976,14 @@ endif
     print("Patching openbor.c ([LOAD] phase breakdown: decode/encode/other)...")
     ob = strict_replace(ob,
         '#include "openbor.h"',
-        '#include "openbor.h"\n#include <time.h>',
-        'LOAD-bd: time.h include for clock_gettime')
+        '#include "openbor.h"\n#include <sys/time.h>',
+        'LOAD-bd: sys/time.h include for gettimeofday')
     ob = strict_replace(ob,
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};",
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};\n"
         "/* MiSTer [LOAD] phase timers (microsecond accumulators) */\n"
         "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0;\n"
-        "static unsigned long _mister_load_us(void){ struct timespec _t; clock_gettime(CLOCK_MONOTONIC, &_t); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_nsec / 1000UL; }",
+        "static unsigned long _mister_load_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }",
         'LOAD-bd: decode/encode us accumulators + us helper')
     ob = strict_replace(ob,
         "    unsigned int _mister_load_t0 = timer_gettick();",
@@ -4771,10 +4771,14 @@ endif
         "             * falls back to frame->palette). Palettes are NATIVE 565\n"
         "             * (PAL_BYTES=512), so putsprite_x8p16 reads them directly. */\n"
         "            unsigned *table_arg16 = (frame && frame->palette && drawmethod->has_remap_directive && !drawmethod->has_palette_directive) ? NULL : (unsigned *)drawmethod->table;\n"
+        "            { static unsigned char _a15s[256] = {0}; int _av = drawmethod->alpha & 0xFF;\n"
+        "              if(!_a15s[_av]){ _a15s[_av] = 1; blend16fp _bf = getblendfunction16(drawmethod->alpha);\n"
+        "                const char *_nm = \"OOB/tint/channel\"; int _k; if(!_bf) _nm = \"NONE(opaque)\"; else for(_k=0;_k<6;_k++) if(_bf==blendfunctions16[_k]){ _nm=(_k==0?\"screen\":_k==1?\"multiply\":_k==2?\"overlay\":_k==3?\"hardlight\":_k==4?\"dodge\":\"half\"); break; }\n"
+        "                printf(\"[A15] alpha=%d idx=%d %s in_range=%d fp=%p (TEMPORARY DIAG)\\n\", drawmethod->alpha, drawmethod->alpha-1, _nm, (drawmethod->alpha>=1 && drawmethod->alpha<=6), (void*)_bf); } }\n"
         "            putsprite_x8p16(x, y, drawmethod->flipx, frame, screen, (unsigned short *)table_arg16, getblendfunction16(drawmethod->alpha));\n"
         "            break;\n"
         "        }",
-        'Path B B4: PIXEL_16 dispatch v3.10 discriminator + TEMPORARY render probe')
+        'Path B B4: PIXEL_16 dispatch v3.10 discriminator + [A15] alpha/fp probe')
     write(sppb_path, sppb)
 
     # ── Full-16-bit (Path A): flip the palette pipeline to NATIVE RGB565 ──
