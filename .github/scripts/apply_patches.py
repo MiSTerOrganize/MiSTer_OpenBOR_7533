@@ -261,42 +261,242 @@ endif
     write(pf_path, pf)
     print("  packfile.c: CACHEBLOCKS=255 + readahead=65536 (paired filecache speedup)")
 
-    # ── Blend dest-read prefetch (2026-06-11) ──────────────────────────
-    # The vcopy source prefetch gave ~24% off deint, so apply the same zero-
-    # risk PLD to the blend's sequential dest read in putsprite_blend_{,flip_}.
-    # __builtin_prefetch(&dest[lx +/- 16], 1, 0): ~1 cache line ahead in the
-    # direction of travel (forward lx++, flip --lx), hinted for write (dest is
-    # read-modify-written). Pure hint -- byte-identical, cannot crash. Blend is
-    # the dominant bucket; free win if it helps the dest-read latency.
-    print("Patching spritex8p32.c (blend dest-read prefetch)...")
-    spx_path = os.path.join(obor, 'source/gamelib/spritex8p32.c')
-    spx = read(spx_path)
-    spx = strict_replace(spx,
+    # ## #2: inlined-LUT specialized blit in spritex8p16.c (the HOT 16-bit path)
+    # The 16-bit blitter (spritex8p16.c) is what runs in our PIXEL_16 build:
+    # putsprite_x8p16 -> putsprite_blend_{,flip_}, which call the blend fp PER
+    # PIXEL. blend_bench on the A9 showed inlining the LUT lookup + hoisting the
+    # table (one func; the table ptr is the only per-mode difference) is
+    # ~1.25-1.42x faster than the fp-dispatch LUT. Output is bit-identical (same
+    # _color16(tbl[..]) the fp path computes). half + arithmetic (NULL table)
+    # keep the generic fp path.
+    print("Patching spritex8p16.c (#2: inlined-LUT specialized blit)...")
+    s16_path = os.path.join(obor, 'source/gamelib/spritex8p16.c')
+    s16 = read(s16_path)
+    s16 = strict_replace(s16,
+        "void putsprite_x8p16(\n"
+        "    int x, int y, int is_flip, s_sprite *sprite, s_screen *screen,\n"
+        "    unsigned short *remap, blend16fp blend\n"
+        ")",
+        "/* MiSTer #2: inlined-LUT blit -- same RLE walk as putsprite_blend_, but\n"
+        " * the per-pixel blend is the LUT lookup inlined with the table hoisted\n"
+        " * (no per-pixel fp call, no per-pixel blendtables[] reload). One func\n"
+        " * serves every mode; only `tbl` differs. Bit-identical to the fp path. */\n"
+        "#define _b1 (color1>>11)\n"
+        "#define _g1 ((color1&0x7E0)>>5)\n"
+        "#define _r1 (color1&0x1F)\n"
+        "#define _b2 (color2>>11)\n"
+        "#define _g2 ((color2&0x7E0)>>5)\n"
+        "#define _r2 (color2&0x1F)\n"
+        "#define _lutbi ((_b1<<5)|_b2)\n"
+        "#define _lutgi (((_g1<<6)|_g2)+1024)\n"
+        "#define _lutri ((_r1<<5)|_r2)\n"
+        "#define _lutcolor(r,g,b) ( ((b)<<11)|((g)<<5)|(r) )\n"
+        "static void putsprite_lut_(\n"
+        "    unsigned short *dest, int x, int xmin, int xmax, int *linetab, unsigned short *palette, int h, int screenwidth,\n"
+        "    const unsigned char *tbl\n"
+        ")\n"
+        "{\n"
+        "    for(; h > 0; h--, dest += screenwidth)\n"
+        "    {\n"
+        "        register int lx = x;\n"
+        "        unsigned char *data = ((unsigned char *)linetab) + (*linetab);\n"
+        "        linetab++;\n"
+        "        while(lx < xmax)\n"
+        "        {\n"
+        "            register int count = *data++;\n"
+        "            if(count == 0xFF) break;\n"
+        "            lx += count;\n"
+        "            if(lx >= xmax) break;\n"
+        "            count = *data++;\n"
+        "            if(!count) continue;\n"
+        "            if((lx + count) <= xmin) { lx += count; data += count; continue; }\n"
+        "            if(lx < xmin) { int diff = lx - xmin; count += diff; data -= diff; lx = xmin; }\n"
+        "            if((lx + count) > xmax) count = xmax - lx;\n"
         "            for(; count > 0; count--, lx++)\n"
         "            {\n"
-        "                dest[lx] = blendfp(palette[*data++], dest[lx]);\n"
-        "            }",
-        "            for(; count > 0; count--, lx++)\n"
-        "            {\n"
-        "                __builtin_prefetch(&dest[lx + 16], 1, 0); /* PLD dest ahead (forward) */\n"
-        "                dest[lx] = blendfp(palette[*data++], dest[lx]);\n"
-        "            }",
-        'blend: prefetch dest in putsprite_blend_ (forward)')
-    spx = strict_replace(spx,
+        "                unsigned short color1 = palette[*data++], color2 = dest[lx];\n"
+        "                dest[lx] = (unsigned short)_lutcolor(tbl[_lutri], tbl[_lutgi], tbl[_lutbi]);\n"
+        "            }\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "static void putsprite_lut_flip_(\n"
+        "    unsigned short *dest, int x, int xmin, int xmax, int *linetab, unsigned short *palette, int h, int screenwidth,\n"
+        "    const unsigned char *tbl\n"
+        ")\n"
+        "{\n"
+        "    for(; h > 0; h--, dest += screenwidth)\n"
+        "    {\n"
+        "        register int lx = x;\n"
+        "        unsigned char *data = ((unsigned char *)linetab) + (*linetab);\n"
+        "        linetab++;\n"
+        "        while(lx > xmin)\n"
+        "        {\n"
+        "            register int count = *data++;\n"
+        "            if(count == 0xFF) break;\n"
+        "            lx -= count;\n"
+        "            if(lx <= xmin) break;\n"
+        "            count = *data++;\n"
+        "            if(!count) continue;\n"
+        "            if((lx - count) >= xmax) { lx -= count; data += count; continue; }\n"
+        "            if(lx > xmax) { int diff = (lx - xmax); count -= diff; data += diff; lx = xmax; }\n"
+        "            if((lx - count) < xmin) count = lx - xmin;\n"
         "            for(; count > 0; count--)\n"
         "            {\n"
         "                --lx;\n"
-        "                dest[lx] = blendfp(palette[*data++], dest[lx]);\n"
-        "            }",
+        "                unsigned short color1 = palette[*data++], color2 = dest[lx];\n"
+        "                dest[lx] = (unsigned short)_lutcolor(tbl[_lutri], tbl[_lutgi], tbl[_lutbi]);\n"
+        "            }\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "#undef _b1\n#undef _g1\n#undef _r1\n#undef _b2\n#undef _g2\n#undef _r2\n"
+        "#undef _lutbi\n#undef _lutgi\n#undef _lutri\n#undef _lutcolor\n"
+        "\n"
+        "void putsprite_x8p16(\n"
+        "    int x, int y, int is_flip, s_sprite *sprite, s_screen *screen,\n"
+        "    unsigned short *remap, blend16fp blend\n"
+        ")",
+        '#2: insert putsprite_lut_ + _flip_ before putsprite_x8p16')
+    s16 = strict_replace(s16,
+        "    else if(blend)\n"
+        "    {\n"
+        "        if(is_flip)\n"
+        "        {\n"
+        "            putsprite_blend_flip_(dest, x, xmin, xmax, linetab, m , h, screenwidth, blend);\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            putsprite_blend_     (dest, x, xmin, xmax, linetab, m , h, screenwidth, blend);\n"
+        "        }\n"
+        "    }",
+        "    else if(blend)\n"
+        "    {\n"
+        "        /* MiSTer #2: built-LUT modes (screen/multiply/overlay/hardlight/\n"
+        "         * dodge = blendfunctions16[0..4]) take the inlined-LUT blit. half\n"
+        "         * (idx 5) + arithmetic (NULL table) fall through to the fp path. */\n"
+        "        unsigned char *lut = NULL; int _bi;\n"
+        "        for(_bi = 0; _bi < 5; _bi++) { if(blend == blendfunctions16[_bi]) { lut = blendtables[_bi]; break; } }\n"
+        "        if(lut)\n"
+        "        {\n"
+        "            if(is_flip) putsprite_lut_flip_(dest, x, xmin, xmax, linetab, m , h, screenwidth, lut);\n"
+        "            else        putsprite_lut_     (dest, x, xmin, xmax, linetab, m , h, screenwidth, lut);\n"
+        "        }\n"
+        "        else if(is_flip)\n"
+        "        {\n"
+        "            putsprite_blend_flip_(dest, x, xmin, xmax, linetab, m , h, screenwidth, blend);\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            putsprite_blend_     (dest, x, xmin, xmax, linetab, m , h, screenwidth, blend);\n"
+        "        }\n"
+        "    }",
+        '#2: dispatch built-LUT modes to inlined-LUT blit')
+    write(s16_path, s16)
+    print("  spritex8p16.c: #2 inlined-LUT specialized blit (screen/multiply/overlay/hardlight/dodge).")
+
+    # ## #1: port spritex8p32 Step 22/26 NEON copy to spritex8p16.c (the HOT path)
+    # 8x unroll + NEON 128-bit store (vst1q_u16 = 8 px/store) + source prefetch,
+    # adapted from the cold 32-bit blitter. Scalar palette[idx] gather kept (A9
+    # has no NEON gather; the live LUT keeps flash/remap correct). Output
+    # byte-identical to the stock copy loop.
+    print("Patching spritex8p16.c (#1: NEON copy ported from spritex8p32 Step 22/26)...")
+    s16b = read(s16_path)
+    s16b = strict_replace(s16b,
+        '#include "types.h"',
+        '#include "types.h"\n#ifdef __ARM_NEON\n#include <arm_neon.h>\n#endif',
+        '#1: arm_neon.h include in spritex8p16.c')
+    s16b = strict_replace(s16b,
+        "            if((lx + count) > xmax)\n"
+        "            {\n"
+        "                count = xmax - lx;\n"
+        "            }\n"
         "            for(; count > 0; count--)\n"
         "            {\n"
-        "                --lx;\n"
-        "                __builtin_prefetch(&dest[lx - 16], 1, 0); /* PLD dest ahead (flip) */\n"
-        "                dest[lx] = blendfp(palette[*data++], dest[lx]);\n"
+        "                dest[lx++] = palette[*data++];\n"
+        "            }\n"
+        "            //u16pcpy(dest+lx, data, palette, count);\n"
+        "            //lx+=count;\n"
+        "            //data+=count;",
+        "            if((lx + count) > xmax)\n"
+        "            {\n"
+        "                count = xmax - lx;\n"
+        "            }\n"
+        "            /* MiSTer #1 (ported from spritex8p32 Step 22/26 -> 16-bit):\n"
+        "             *  8x unroll + NEON 128-bit store (vst1q_u16 = 8 px) + src\n"
+        "             *  prefetch. Scalar palette[idx] gather kept (no A9 NEON\n"
+        "             *  gather; live LUT keeps flash/remap correct). */\n"
+        "            __builtin_prefetch(data + 128, 0, 0);\n"
+        "            __builtin_prefetch(data + 192, 0, 0);\n"
+        "            {\n"
+        "                unsigned short * const __restrict__ pal_r = palette;\n"
+        "                unsigned char *data_p = data;\n"
+        "                unsigned short *dest_p = &dest[lx];\n"
+        "                while(count >= 8)\n"
+        "                {\n"
+        "                    unsigned short p0 = pal_r[data_p[0]];\n"
+        "                    unsigned short p1 = pal_r[data_p[1]];\n"
+        "                    unsigned short p2 = pal_r[data_p[2]];\n"
+        "                    unsigned short p3 = pal_r[data_p[3]];\n"
+        "                    unsigned short p4 = pal_r[data_p[4]];\n"
+        "                    unsigned short p5 = pal_r[data_p[5]];\n"
+        "                    unsigned short p6 = pal_r[data_p[6]];\n"
+        "                    unsigned short p7 = pal_r[data_p[7]];\n"
+        "#ifdef __ARM_NEON\n"
+        "                    vst1q_u16((uint16_t *)dest_p, (uint16x8_t){p0, p1, p2, p3, p4, p5, p6, p7});\n"
+        "#else\n"
+        "                    dest_p[0] = p0; dest_p[1] = p1; dest_p[2] = p2; dest_p[3] = p3;\n"
+        "                    dest_p[4] = p4; dest_p[5] = p5; dest_p[6] = p6; dest_p[7] = p7;\n"
+        "#endif\n"
+        "                    dest_p += 8;\n"
+        "                    data_p += 8;\n"
+        "                    count  -= 8;\n"
+        "                }\n"
+        "                while(count > 0)\n"
+        "                {\n"
+        "                    *dest_p++ = pal_r[*data_p++];\n"
+        "                    count--;\n"
+        "                }\n"
+        "                lx   = (int)(dest_p - dest);\n"
+        "                data = data_p;\n"
         "            }",
-        'blend: prefetch dest in putsprite_blend_flip_ (flip)')
-    write(spx_path, spx)
-    print("  spritex8p32.c: blend dest-read prefetch (forward + flip).")
+        '#1: putsprite_ 8x-unroll + NEON u16 store (ported from 32-bit)')
+    write(s16_path, s16b)
+    print("  spritex8p16.c: #1 NEON copy in putsprite_ (8x unroll + vst1q_u16 + prefetch).")
+
+    # ## Verification probe (TEMPORARY DIAG): prove the 16-bit blitter is the hot
+    # path. One-shot printf the first time EACH blitter runs. During He-Man
+    # gameplay we expect [X8P16] only; if [X8P32] appears, a 32-bit dest exists
+    # and the cold-path assumption is wrong. CI gate skips commit-back on DIAG.
+    print("Patching spritex8p16/32.c (TEMPORARY DIAG: blitter hot-path probe)...")
+    s16c = read(s16_path)
+    s16c = strict_replace(s16c,
+        "    int *linetab, *masklinetab = NULL;\n"
+        "    int w, h;\n"
+        "    unsigned short *dest;\n"
+        "    unsigned short *m;",
+        "    int *linetab, *masklinetab = NULL;\n"
+        "    int w, h;\n"
+        "    unsigned short *dest;\n"
+        "    unsigned short *m;\n"
+        "    { static int _m16 = 0; if(!_m16){ _m16 = 1; printf(\"[X8P16] 16-bit sprite blitter active (TEMPORARY DIAG)\\n\"); } }",
+        'DIAG: one-shot probe in putsprite_x8p16')
+    write(s16_path, s16c)
+    _sp32_diag_path = os.path.join(obor, 'source/gamelib/spritex8p32.c')
+    sp32c = read(_sp32_diag_path)
+    sp32c = strict_replace(sp32c,
+        "    int *linetab, *masklinetab = NULL;\n"
+        "    int w, h;\n"
+        "    unsigned *dest;\n"
+        "    unsigned *m;",
+        "    int *linetab, *masklinetab = NULL;\n"
+        "    int w, h;\n"
+        "    unsigned *dest;\n"
+        "    unsigned *m;\n"
+        "    { static int _m32 = 0; if(!_m32){ _m32 = 1; printf(\"[X8P32] 32-bit sprite blitter HIT -- NOT cold (TEMPORARY DIAG)\\n\"); } }",
+        'DIAG: one-shot probe in putsprite_x8p32')
+    write(_sp32_diag_path, sp32c)
+    print("  spritex8p16/32.c: TEMPORARY DIAG hot-path probes inserted.")
 
     # ── 2. Patch openbor.c — replace pausemenu() ─────────────────────
     print("Patching openbor.c (pausemenu)...")
