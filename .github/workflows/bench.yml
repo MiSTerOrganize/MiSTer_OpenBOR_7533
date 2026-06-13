@@ -1,0 +1,35 @@
+name: Build Blend Benchmark
+
+# Dev tool: compiles tools/blend_bench.c (a self-contained A9 micro-benchmark of
+# the OpenBOR 16-bit blend kernel) into a static armhf binary, uploaded as an
+# artifact for manual deploy to the MiSTer. NOT shipped, NOT part of the engine.
+# Fast (~1-2 min): plain cross-compiler, no SDL/QEMU/Docker. Static link is fine
+# and intentional here because there is no SDL/dlopen (the engine's no-static
+# rule is about SDL).
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Build label'
+        required: false
+        type: string
+
+run-name: ${{ inputs.reason || 'blend_bench' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM cross-compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf
+      - name: Compile blend_bench (armhf, static, A9+NEON)
+        run: |
+          arm-linux-gnueabihf-gcc -O2 -static -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard tools/blend_bench.c -o blend_bench -lrt
+          file blend_bench
+          ls -la blend_bench
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blend-bench
+          path: blend_bench
