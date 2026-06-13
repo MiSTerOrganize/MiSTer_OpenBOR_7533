@@ -81,7 +81,7 @@ static void *audio_thread_fn(void *arg) {
     {
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
-        CPU_SET(0, &cpuset);
+        CPU_SET(1, &cpuset); /* EXPERIMENT 2026-06-13 (REVERT AFTER MEASURED): audio -> core 1 (render moved to core 0). Keeps render+audio on separate cores. Was CPU_SET(0). */
         pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
     }
 

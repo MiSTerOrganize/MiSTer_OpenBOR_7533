@@ -81,11 +81,11 @@ bool NativeVideoWriter_Init(void) {
     {
         cpu_set_t _cs;
         CPU_ZERO(&_cs);
-        CPU_SET(1, &_cs);
+        CPU_SET(0, &_cs); /* EXPERIMENT 2026-06-13 (REVERT AFTER MEASURED): render -> core 0, the memory-fast core (mem_bench: ~1.85x BW vs core 1). He-Man render is memory-bound, so BW may beat core-1 IRQ-avoidance. Was CPU_SET(1). */
         if (sched_setaffinity(0, sizeof(_cs), &_cs) != 0) {
-            perror("NativeVideoWriter: sched_setaffinity core 1");
+            perror("NativeVideoWriter: sched_setaffinity core 0");
         } else {
-            fprintf(stderr, "NativeVideoWriter: render thread pinned to core 1\n");
+            fprintf(stderr, "NativeVideoWriter: render thread pinned to core 0 (EXPERIMENT)\n");
         }
     }
 
