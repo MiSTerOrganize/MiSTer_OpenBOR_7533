@@ -1,11 +1,9 @@
-name: Build Blend Benchmark
+name: Build Benchmarks
 
-# Dev tool: compiles tools/blend_bench.c (a self-contained A9 micro-benchmark of
-# the OpenBOR 16-bit blend kernel) into a static armhf binary, uploaded as an
-# artifact for manual deploy to the MiSTer. NOT shipped, NOT part of the engine.
-# Fast (~1-2 min): plain cross-compiler, no SDL/QEMU/Docker. Static link is fine
-# and intentional here because there is no SDL/dlopen (the engine's no-static
-# rule is about SDL).
+# Dev tool: compiles every tools/*_bench.c (self-contained A9 micro-benchmarks)
+# into static armhf binaries, uploaded as one "benchmarks" artifact for manual
+# deploy to the MiSTer. NOT shipped, NOT part of the engine. Fast (~1-2 min):
+# plain cross-compiler, no SDL/QEMU/Docker. Static link is fine here (no SDL).
 
 on:
   workflow_dispatch:
@@ -15,7 +13,7 @@ on:
         required: false
         type: string
 
-run-name: ${{ inputs.reason || 'blend_bench' }}
+run-name: ${{ inputs.reason || 'benchmarks' }}
 
 jobs:
   build:
@@ -24,12 +22,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install ARM cross-compiler
         run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf
-      - name: Compile blend_bench (armhf, static, A9+NEON)
+      - name: Compile all tools/*_bench.c (armhf, static, A9+NEON)
         run: |
-          arm-linux-gnueabihf-gcc -O2 -static -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard tools/blend_bench.c -o blend_bench -lrt
-          file blend_bench
-          ls -la blend_bench
+          mkdir -p bench_out
+          for f in tools/*_bench.c; do
+            name=$(basename "$f" .c)
+            echo "=== compiling $name ==="
+            arm-linux-gnueabihf-gcc -O2 -static -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard "$f" -o "bench_out/$name" -lrt
+            file "bench_out/$name"
+          done
+          ls -la bench_out
       - uses: actions/upload-artifact@v4
         with:
-          name: blend-bench
-          path: blend_bench
+          name: benchmarks
+          path: bench_out/*
