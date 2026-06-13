@@ -219,4 +219,13 @@ echo "=== END FINAL BINARY [VCP] CHECK ==="
 
 # ── Copy result back to mounted volume ───────────────────────────
 cp OpenBOR /build/OpenBOR
+# Unstripped binary (Makefile TARGET = OpenBOR.elf, built with -g per our
+# CFLAGS) for crash_symbolize.py. The SHIPPED binary stays the stripped
+# OpenBOR; this copy is artifact-only and is never committed/shipped.
+if [ -f OpenBOR.elf ]; then
+    cp OpenBOR.elf /build/OpenBOR_unstripped
+    echo "unstripped OpenBOR.elf captured ($(ls -lh OpenBOR.elf | awk '{print $5}'))"
+else
+    echo "WARN: OpenBOR.elf (unstripped TARGET) not found -- crash symbolization unavailable for this build"
+fi
 echo "=== Build complete ==="

@@ -85,3 +85,10 @@ jobs:
         with:
           name: OpenBOR_7533-arm-binary
           path: OpenBOR
+
+      - name: Upload unstripped binary (for crash_symbolize.py)
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenBOR_7533-unstripped
+          path: OpenBOR_unstripped
+          if-no-files-found: warn
