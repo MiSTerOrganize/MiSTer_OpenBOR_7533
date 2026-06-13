@@ -4474,17 +4474,32 @@ endif
         "    }\n"
         "\n"
         "}",
+        "extern unsigned char *create_screen16_tbl();\n"
+        "extern unsigned char *create_multiply16_tbl();\n"
+        "extern unsigned char *create_overlay16_tbl();\n"
+        "extern unsigned char *create_hardlight16_tbl();\n"
+        "extern unsigned char *create_dodge16_tbl();\n"
         "void create_blend_tables_x8(unsigned char *tables[])\n"
         "{\n"
         "    int i;\n"
-        "    /* MiSTer Path B: a 16-bit vscreen uses arithmetic blends. The 32-bit\n"
-        "     * RGB blend LUTs are byte-incompatible with the 565-indexed blend_*16\n"
-        "     * funcs, which fall back to correct per-channel math when the table is\n"
-        "     * NULL. videomodes.pixel==2 by the time this runs (video_set_mode\n"
-        "     * precedes create_blend_tables_x8 in startup()). */\n"
+        "    /* MiSTer Path B: 16-bit vscreen. Build the NATIVE 565-indexed blend\n"
+        "     * LUTs (create_*16_tbl) for the 5 divide-heavy modes. Bit-exact with\n"
+        "     * the arithmetic path (each table is precomputed _<mode>16, the same\n"
+        "     * macro the NULL-table fallback evaluates), so colors are identical --\n"
+        "     * only the per-pixel cost changes. A9 benchmark (blend_bench): LUT is\n"
+        "     * 1.3-4.2x faster than the divide path (dodge 4.2x, hardlight 2.4x,\n"
+        "     * overlay 2.1x, multiply 1.4x, screen 1.3x). BLEND_HALF stays NULL:\n"
+        "     * its arithmetic ((a+b)>>1) has no divide and beats the LUT's extra\n"
+        "     * memory traffic (0.96x). videomodes.pixel==2 by the time this runs\n"
+        "     * (video_set_mode precedes create_blend_tables_x8 in startup()). */\n"
         "    if(videomodes.pixel == 2)\n"
         "    {\n"
-        "        for(i = 0; i < MAX_BLENDINGS; i++) tables[i] = NULL;\n"
+        "        tables[BLEND_SCREEN]    = create_screen16_tbl();\n"
+        "        tables[BLEND_MULTIPLY]  = create_multiply16_tbl();\n"
+        "        tables[BLEND_OVERLAY]   = create_overlay16_tbl();\n"
+        "        tables[BLEND_HARDLIGHT] = create_hardlight16_tbl();\n"
+        "        tables[BLEND_DODGE]     = create_dodge16_tbl();\n"
+        "        tables[BLEND_HALF]      = NULL;\n"
         "        return;\n"
         "    }\n"
         "    for(i = 0; i < MAX_BLENDINGS; i++)\n"
@@ -4493,7 +4508,7 @@ endif
         "    }\n"
         "\n"
         "}",
-        'Path B B3: arithmetic blends (NULL blendtables) for 16-bit vscreen')
+        'Path B B3: 16-bit blend LUTs for divide-heavy modes (benchmarked fps lever)')
     # B2: backto_mainmenu pause buffer PIXEL_16 (pausemenu's own buffer is
     # PIXEL_16 via the edited pausemenu_patch.c, applied earlier at the
     # pausemenu replace_function -- so only the backto_mainmenu site remains
