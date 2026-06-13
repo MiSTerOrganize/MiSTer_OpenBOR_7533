@@ -2967,6 +2967,45 @@ endif
     ob = strict_replace(ob, load_timer_end_old, load_timer_end_new,
                         'Step 13g: load-time timer end + printf in load_models()')
 
+    # ## [LOAD] PHASE BREAKDOWN (decode / encode / other) -- microsecond accurate
+    # timer_gettick() is ms-resolution; per-sprite loadbitmap/encodesprite are
+    # sub-ms, so ms deltas would round to 0. Use clock_gettime (us) accumulators.
+    # decode = loadbitmap (GIF/PNG decode + pak I/O); encode = encodesprite (RLE);
+    # other = total - decode - encode (clip/sizing/malloc/parse/hash). Load-time
+    # only (NOT per-frame), so the clock_gettime overhead is irrelevant.
+    print("Patching openbor.c ([LOAD] phase breakdown: decode/encode/other)...")
+    ob = strict_replace(ob,
+        '#include "openbor.h"',
+        '#include "openbor.h"\n#include <time.h>',
+        'LOAD-bd: time.h include for clock_gettime')
+    ob = strict_replace(ob,
+        "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};",
+        "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};\n"
+        "/* MiSTer [LOAD] phase timers (microsecond accumulators) */\n"
+        "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0;\n"
+        "static unsigned long _mister_load_us(void){ struct timespec _t; clock_gettime(CLOCK_MONOTONIC, &_t); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_nsec / 1000UL; }",
+        'LOAD-bd: decode/encode us accumulators + us helper')
+    ob = strict_replace(ob,
+        "    unsigned int _mister_load_t0 = timer_gettick();",
+        "    unsigned int _mister_load_t0 = timer_gettick();\n"
+        "    _mister_decode_us = 0; _mister_encode_us = 0; /* MiSTer [LOAD] phase reset */",
+        'LOAD-bd: reset phase accumulators at load start')
+    ob = strict_replace(ob,
+        "    bitmap = loadbitmap(filename, packfile, pixelformat);",
+        "    { unsigned long _lt0 = _mister_load_us(); bitmap = loadbitmap(filename, packfile, pixelformat); _mister_decode_us += _mister_load_us() - _lt0; }",
+        'LOAD-bd: time loadbitmap (decode) in loadsprite2')
+    ob = strict_replace(ob,
+        "    encodesprite(-clip_left, -clip_top, bitmap, sprite);",
+        "    { unsigned long _et0 = _mister_load_us(); encodesprite(-clip_left, -clip_top, bitmap, sprite); _mister_encode_us += _mister_load_us() - _et0; }",
+        'LOAD-bd: time encodesprite (RLE encode) in loadsprite2')
+    ob = strict_replace(ob,
+        '    printf("[LOAD] PAK loaded in %u ms\\n", (unsigned int)(timer_gettick() - _mister_load_t0));',
+        "    { unsigned int _mtot = (unsigned int)(timer_gettick() - _mister_load_t0);\n"
+        "      unsigned int _mdec = (unsigned int)(_mister_decode_us / 1000UL), _menc = (unsigned int)(_mister_encode_us / 1000UL);\n"
+        "      unsigned int _moth = (_mtot > _mdec + _menc) ? (_mtot - _mdec - _menc) : 0;\n"
+        '      printf("[LOAD] PAK loaded in %u ms (decode %u, encode %u, other %u)\\n", _mtot, _mdec, _menc, _moth); }',
+        'LOAD-bd: extend [LOAD] print with phase breakdown')
+
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
     # 256 -> 4096. Reduces realloc count from ~195 to ~12 for a 50k-sprite
     # PAK. Each realloc copies the entire previous array; fewer reallocs =
