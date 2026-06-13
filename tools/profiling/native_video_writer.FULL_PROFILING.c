@@ -30,10 +30,21 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <time.h>   /* TEMPORARY DIAG (REVERT AFTER MEASURED): [VCP] vcopy profile */
 /* Step 20 (2026-05-27): NEON intrinsics for 128-bit DDR3 stores in the
  * no-squish fast path of WriteFrame. Cortex-A9 + -mfpu=neon -mfloat-abi=hard
  * build flags (see CLAUDE.md OpenBOR build config) guarantee NEON support. */
 #include <arm_neon.h>
+
+/* TEMPORARY DIAG (REVERT AFTER MEASURED): monotonic-ns clock for the [VCP]
+ * vcopy-internal timing split (deinterleave vs accumulate vs divide). */
+static inline uint64_t nv_now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    /* uint64_t: on ARMv7 `unsigned long` is 32-bit -> tv_sec*1e9 overflows and
+     * a 5e9-ns (5s) gate becomes provably-false, so GCC DCE'd the whole log. */
+    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+}
 
 #define NV_DDR_PHYS_BASE    0x3A000000u
 #define NV_DDR_REGION_SIZE  0x00100000u   /* 1MB covers buffers + control + cart data */
@@ -61,22 +72,20 @@ static uint32_t frame_counter = 0;
 static int active_buf = 0;
 
 bool NativeVideoWriter_Init(void) {
-    /* 2026-06-13 affinity: pin this (engine/render/main) thread to CORE 0 -- the
-     * memory-fast core. mem_bench measured core 0 at ~1.85x core 1's DDR3 read
-     * bandwidth; the sprite render is memory-bound, so that bandwidth win beats
-     * core 0's device-IRQ load. Validated clean A/B: He-Man 15.3 -> 27.6 fps,
-     * per-sprite blend 1.70x faster; Avengers also up; light PAKs not hurt.
-     * Audio is pinned to core 1 (sblaster_patch.c) so the two stay separate.
-     * Handler launches with taskset 0x03 (both cores) so this pin can take.
+    /* 2026-06-07 affinity fix: pin this (engine/render/main) thread to core 1.
+     * The handler now launches with taskset 0x03 (both cores); previously 0x02
+     * (core 1 only) silently EINVAL'd the audio thread's core-0 pin. Pinning
+     * render to core 1 keeps it on its cache-warm core while audio moves to
+     * core 0 (sblaster_patch.c), so audio stops contending with the render loop.
      * Init runs once at startup on the main thread, so this pins the render thread. */
     {
         cpu_set_t _cs;
         CPU_ZERO(&_cs);
-        CPU_SET(0, &_cs); /* render -> core 0 (memory-fast); audio -> core 1 */
+        CPU_SET(0, &_cs); /* EXPERIMENT 2026-06-13 (REVERT AFTER MEASURED): render -> core 0, the memory-fast core (mem_bench: ~1.85x BW vs core 1). He-Man render is memory-bound, so BW may beat core-1 IRQ-avoidance. Was CPU_SET(1). */
         if (sched_setaffinity(0, sizeof(_cs), &_cs) != 0) {
             perror("NativeVideoWriter: sched_setaffinity core 0");
         } else {
-            fprintf(stderr, "NativeVideoWriter: render thread pinned to core 0\n");
+            fprintf(stderr, "NativeVideoWriter: render thread pinned to core 0 (EXPERIMENT)\n");
         }
     }
 
@@ -360,6 +369,18 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * second pass are gone -- saves a 215 KB write + 215 KB read + a full
          * output-size pass per frame. */
 
+        /* TEMPORARY DIAG (REVERT AFTER MEASURED): vcopy-internal timing split,
+         * He-Man (NEON 3x) path only. Decides whether opt C (kill the plane
+         * round-trip) is worth it: if deint dominates, yes. */
+        static uint64_t s_vcp_deint_ns = 0, s_vcp_accum_ns = 0, s_vcp_div_ns = 0;
+        static uint64_t s_vcp_last_ns  = 0;
+        static int s_vcp_frames = 0;
+        int vcp_active = (width == NV_FRAME_WIDTH * 3);
+        /* TEMP DIAG [DCV]: verify the NEON divide+pack == scalar, first 2 frames. */
+        static int s_dcv_frame = 0;
+        static long s_dcv_mismatch = 0;
+        int dcv_active = (width == NV_FRAME_WIDTH * 3 && s_dcv_frame < 2);
+        if (dcv_active) s_dcv_mismatch = 0;
 
         for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
             int y0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
@@ -431,6 +452,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                 static uint8_t planeB[NV_FRAME_WIDTH * 3];
                 for (int sy = y0; sy < y1; sy++) {
                     const uint8_t* row = src + (size_t)sy * pitch;
+                    uint64_t _ta = nv_now_ns();   /* TEMP DIAG */
                     for (int sx = 0; sx < NV_FRAME_WIDTH * 3; sx += 16) {
                         /* PLD: prefetch source ~256 B (4 iters) ahead -- hides
                          * read latency on the streaming vld4q. Zero-risk hint:
@@ -441,6 +463,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                         vst1q_u8(planeG + sx, px.val[1]);
                         vst1q_u8(planeB + sx, px.val[2]);
                     }
+                    uint64_t _tb = nv_now_ns();   /* TEMP DIAG */
                     for (int x = 0; x < NV_FRAME_WIDTH; x += 16) {
                         int sx = x * 3;
                         uint8x16x3_t gr = vld3q_u8(planeR + sx);
@@ -462,6 +485,8 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                         vst1q_u16(&vb[x],     vaddq_u16(vld1q_u16(&vb[x]),     blo));
                         vst1q_u16(&vb[x + 8], vaddq_u16(vld1q_u16(&vb[x + 8]), bhi));
                     }
+                    s_vcp_deint_ns += _tb - _ta;               /* TEMP DIAG */
+                    s_vcp_accum_ns += nv_now_ns() - _tb;       /* TEMP DIAG */
                 }
             } else
 #endif
@@ -482,6 +507,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
             }
 
             /* One rounded divide per output pixel -> pack straight to RGB565. */
+            uint64_t _td = nv_now_ns();   /* TEMP DIAG */
             volatile uint16_t* dst_row = dst + (size_t)y * NV_FRAME_WIDTH;
 #ifdef __ARM_NEON
             if (width == NV_FRAME_WIDTH * 3) {
@@ -513,6 +539,16 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                          vshrq_n_u16(b16, 3));
                     vst1q_u16((uint16_t*)(dst_row + x), out);
                 }
+                if (dcv_active) {   /* TEMP DIAG: compare NEON output vs scalar */
+                    for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                        uint32_t r = (vr[x] * rc + (1u << 19)) >> 20;
+                        uint32_t g = (vg[x] * rc + (1u << 19)) >> 20;
+                        uint32_t b = (vb[x] * rc + (1u << 19)) >> 20;
+                        if (r > 255) r = 255; if (g > 255) g = 255; if (b > 255) b = 255;
+                        uint16_t want = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+                        if (dst_row[x] != want) s_dcv_mismatch++;
+                    }
+                }
             } else
 #endif
             {
@@ -527,9 +563,31 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                     dst_row[x] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
                 }
             }
+            s_vcp_div_ns += nv_now_ns() - _td;   /* TEMP DIAG */
         }
 
+        /* TEMP DIAG: report NEON-divide byte-identity vs scalar (first 2 frames). */
+        if (dcv_active) {
+            fprintf(stderr, "[DCV] frame=%d NEON-div vs scalar: %s (mismatch=%ld)\n",
+                    s_dcv_frame, s_dcv_mismatch == 0 ? "MATCH" : "MISMATCH", s_dcv_mismatch);
+            s_dcv_frame++;
+        }
 
+        /* TEMPORARY DIAG (REVERT AFTER MEASURED): log [VCP] every ~5s. */
+        if (vcp_active) {
+            s_vcp_frames++;
+            uint64_t _n = nv_now_ns();
+            if (s_vcp_last_ns == 0) s_vcp_last_ns = _n;
+            if (_n - s_vcp_last_ns >= 5000000000ULL) {
+                fprintf(stderr, "[VCP] frames=%d deint=%llums accum=%llums div=%llums\n",
+                        s_vcp_frames, (unsigned long long)(s_vcp_deint_ns / 1000000ULL),
+                        (unsigned long long)(s_vcp_accum_ns / 1000000ULL),
+                        (unsigned long long)(s_vcp_div_ns / 1000000ULL));
+                s_vcp_deint_ns = s_vcp_accum_ns = s_vcp_div_ns = 0;
+                s_vcp_frames = 0;
+                s_vcp_last_ns = _n;
+            }
+        }
     }
     else {
         return;  /* unsupported format, skip frame */
