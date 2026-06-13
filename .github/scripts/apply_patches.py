@@ -2948,13 +2948,13 @@ endif
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};",
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};\n"
         "/* MiSTer [LOAD] phase timers (microsecond accumulators) */\n"
-        "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0, _mister_size_us = 0, _mister_sprite_us = 0;\n"
+        "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0, _mister_size_us = 0, _mister_sprite_us = 0, _mister_script_us = 0;\n"
         "static unsigned long _mister_load_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }",
         'LOAD-bd: decode/encode us accumulators + us helper')
     ob = strict_replace(ob,
         "    unsigned int _mister_load_t0 = timer_gettick();",
         "    unsigned int _mister_load_t0 = timer_gettick();\n"
-        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; /* MiSTer [LOAD] phase reset */",
+        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; /* MiSTer [LOAD] phase reset */",
         'LOAD-bd: reset phase accumulators at load start')
     ob = strict_replace(ob,
         "    bitmap = loadbitmap(filename, packfile, pixelformat);",
@@ -3016,14 +3016,27 @@ endif
         "    return _wr;\n"
         "}",
         'LOAD-bd: add loadsprite() timing wrapper around loadsprite_impl')
+    # 2026-06-13: split 'outside' -> script-compile vs parse. The level scripts
+    # (load_scripts) compile BEFORE load_models, outside the [LOAD] timer. The
+    # script compile INSIDE [LOAD] is per-model: animation_script (17378, inside
+    # load_cached_model) + spawnscript (21212). Time them into _mister_script_us.
+    # script is a subset of 'outside'; outside - script = parse + setup + pak I/O.
+    ob = strict_replace(ob,
+        "        Script_Compile(newchar->scripts->animation_script);",
+        "        { unsigned long _ct0 = _mister_load_us(); Script_Compile(newchar->scripts->animation_script); _mister_script_us += _mister_load_us() - _ct0; }",
+        'LOAD-bd: time per-model animation_script Script_Compile (script bucket)')
+    ob = strict_replace(ob,
+        "                Script_Compile(&next.spawnscript);",
+        "                { unsigned long _ct0 = _mister_load_us(); Script_Compile(&next.spawnscript); _mister_script_us += _mister_load_us() - _ct0; }",
+        'LOAD-bd: time spawnscript Script_Compile (script bucket)')
     ob = strict_replace(ob,
         '    printf("[LOAD] PAK loaded in %u ms\\n", (unsigned int)(timer_gettick() - _mister_load_t0));',
         "    { unsigned int _mtot = (unsigned int)(timer_gettick() - _mister_load_t0);\n"
         "      unsigned int _mdec = (unsigned int)(_mister_decode_us / 1000UL), _msz = (unsigned int)(_mister_size_us / 1000UL), _menc = (unsigned int)(_mister_encode_us / 1000UL);\n"
-        "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL);\n"
+        "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL);\n"
         "      unsigned int _mout = (_mtot > _mspr) ? (_mtot - _mspr) : 0;\n"
         "      unsigned int _moth = (_mtot > _mdec + _msz + _menc) ? (_mtot - _mdec - _msz - _menc) : 0;\n"
-        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout); }',
+        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr); }',
         'LOAD-bd: extend [LOAD] print with phase breakdown')
 
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
