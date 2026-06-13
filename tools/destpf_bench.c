@@ -69,7 +69,7 @@ int main(int argc,char**argv){
     static unsigned char tbl[5120]; build_mul(tbl);
     long px=(long)N*op*F;
     printf("== destpf_bench (A9) fb=%dx%d scattered, %ld opaque-px/measure ==\n",FBW,FBH,px);
-    #define M(CALL,OUT) do{CALL;double b=1e30;for(r=0;r<3;r++){double t0=now_ns();for(f=0;f<F;f++)CALL;double dt=now_ns()-t0;if(dt<b)b=dt;}OUT=b/px;}while(0)
+    #define M(CALL,OUT) do{CALL;double _mb=1e30;for(r=0;r<3;r++){double t0=now_ns();for(f=0;f<F;f++)CALL;double dt=now_ns()-t0;if(dt<_mb)_mb=dt;}OUT=_mb/px;}while(0)
     double a,b;
     M(copy_np(fb,FBW,FBH,spr,SW,SH,pal,N),a); M(copy_pf(fb,FBW,FBH,spr,SW,SH,pal,N),b);
     printf("OPAQUE copy : no-pf %6.2f  pf %6.2f  ns/px  (%.2fx)\n",a,b,a/b);
