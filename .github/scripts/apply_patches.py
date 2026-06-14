@@ -3193,6 +3193,9 @@ endif
         "static mister_scache_entry *mister_scache = NULL;\n"
         "static int mister_scache_n = 0, mister_scache_cap = 0;\n"
         "static unsigned int mister_sdedup_hits = 0, mister_sdedup_total = 0; /* [LOAD] diagnostic */\n"
+        "/* bit-exact alias (openborscript.c): aliases the compiled interpreter like\n"
+        "   Script_Copy but runs init with iscopy=0 -> matches a fresh Script_Compile. */\n"
+        "extern void mister_script_alias_fresh(Script *pdest, Script *psrc);\n"
         "static unsigned int mister_scache_hash(const char *s)\n"
         "{\n"
         "    unsigned int h = 5381;\n"
@@ -3341,8 +3344,8 @@ endif
         "            _mmaster = mister_scache_lookup(_mfinal, _muc);\n"
         "            if(_mmaster)\n"
         "            {\n"
-        "                /* DEDUP HIT: alias cached interpreter, skip lex + compile */\n"
-        "                Script_Copy(newchar->scripts->animation_script, _mmaster, 1);\n"
+        "                /* DEDUP HIT: bit-exact alias (iscopy=0), skip lex + compile */\n"
+        "                mister_script_alias_fresh(newchar->scripts->animation_script, _mmaster);\n"
         "                mister_sdedup_hits++;\n"
         "            }\n"
         "            else\n"
@@ -3386,6 +3389,54 @@ endif
         "        free_all_scripts(&model->scripts);\n"
         "    }",
         'script dedup: invalidate cache entry in free_model')
+    # (4) bit-exact alias helper in openborscript.c (where the file-static
+    #     execute_init_method is reachable). Identical to Script_Copy EXCEPT it
+    #     runs init with iscopy=0,localclear=1 -- byte-for-byte matching a fresh
+    #     Script_Compile (execute_init_method(pscript,0,1)). So a deduped model
+    #     ends in EXACTLY the fresh-compile end state (no iscopy divergence); the
+    #     only residue is the shared interpreter's symbol-table name/comment (the
+    #     first owner's), used solely in fatal error messages. Read fresh so it
+    #     picks up prior openborscript.c patches (Steps 32/35/61/...).
+    obs_alias_path = os.path.join(obor, 'openborscript.c')
+    obs_alias = read(obs_alias_path)
+    obs_alias = strict_replace(obs_alias,
+        "    pdest->pinterpreter = psrc->pinterpreter;\n"
+        "    pdest->comment = psrc->comment;\n"
+        "    pdest->interpreterowner = 0; // dont own it\n"
+        "    pdest->initialized = psrc->initialized; //just copy, it should be 1\n"
+        "    execute_init_method(pdest, 1, localclear);\n"
+        "}",
+        "    pdest->pinterpreter = psrc->pinterpreter;\n"
+        "    pdest->comment = psrc->comment;\n"
+        "    pdest->interpreterowner = 0; // dont own it\n"
+        "    pdest->initialized = psrc->initialized; //just copy, it should be 1\n"
+        "    execute_init_method(pdest, 1, localclear);\n"
+        "}\n"
+        "\n"
+        "/* MiSTer 2026-06-14 bit-exact dedup alias. Identical to Script_Copy above\n"
+        "   (aliases the compiled interpreter, interpreterowner=0 -> no double-free)\n"
+        "   EXCEPT it runs the init method with iscopy=0,localclear=1 -- byte-for-byte\n"
+        "   matching a fresh Script_Compile (execute_init_method(pscript,0,1) below).\n"
+        "   Used by the load-time animation_script dedup so a deduped duplicate model\n"
+        "   ends in EXACTLY the fresh-compile end state (no iscopy divergence). */\n"
+        "void mister_script_alias_fresh(Script *pdest, Script *psrc)\n"
+        "{\n"
+        "    if(!psrc->initialized)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    if(pdest->initialized)\n"
+        "    {\n"
+        "        Script_Clear(pdest, 1);\n"
+        "    }\n"
+        "    pdest->pinterpreter = psrc->pinterpreter;\n"
+        "    pdest->comment = psrc->comment;\n"
+        "    pdest->interpreterowner = 0; // don't own it (shared with the cache owner)\n"
+        "    pdest->initialized = psrc->initialized;\n"
+        "    execute_init_method(pdest, 0, 1); // iscopy=0,localclear=1 -> matches fresh Script_Compile\n"
+        "}",
+        'script dedup: bit-exact alias helper (iscopy=0) in openborscript.c')
+    write(obs_alias_path, obs_alias)
 
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
     # 256 -> 4096. Reduces realloc count from ~195 to ~12 for a 50k-sprite
