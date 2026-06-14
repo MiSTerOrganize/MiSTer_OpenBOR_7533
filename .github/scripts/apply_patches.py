@@ -2989,7 +2989,7 @@ endif
     ob = strict_replace(ob,
         "    unsigned int _mister_load_t0 = timer_gettick();",
         "    unsigned int _mister_load_t0 = timer_gettick();\n"
-        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; _mister_tok_us = 0; _mister_disp_us = 0; _mister_prescan_us = 0; _mister_hinc_us = 0; _mister_applex_us = 0; _mister_script_total = 0; _mister_script_distinct = 0; _mister_seen_n = 0; /* MiSTer [LOAD] phase reset */",
+        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; _mister_tok_us = 0; _mister_disp_us = 0; _mister_prescan_us = 0; _mister_hinc_us = 0; _mister_applex_us = 0; _mister_script_total = 0; _mister_script_distinct = 0; _mister_seen_n = 0; mister_sdedup_hits = 0; mister_sdedup_total = 0; /* MiSTer [LOAD] phase reset */",
         'LOAD-bd: reset phase accumulators at load start')
     ob = strict_replace(ob,
         "    bitmap = loadbitmap(filename, packfile, pixelformat);",
@@ -3153,8 +3153,239 @@ endif
         "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL), _mio = (unsigned int)(_mister_io_us / 1000UL), _mdio = (unsigned int)(_mister_decode_io_us / 1000UL), _mtok = (unsigned int)(_mister_tok_us / 1000UL), _mdsp = (unsigned int)(_mister_disp_us / 1000UL), _mpre = (unsigned int)(_mister_prescan_us / 1000UL), _mhinc = (unsigned int)(_mister_hinc_us / 1000UL), _mapl = (unsigned int)(_mister_applex_us / 1000UL);\n"
         "      unsigned int _mout = (_mtot > _mspr) ? (_mtot - _mspr) : 0;\n"
         "      unsigned int _moth = (_mtot > _mdec + _msz + _menc) ? (_mtot - _mdec - _msz - _menc) : 0;\n"
-        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u, tokenize %u, dispatch %u, prescan %u, hinc %u, applex %u, scripts %u/%u uniq)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio, _mtok, _mdsp, _mpre, _mhinc, _mapl, _mister_script_distinct, _mister_script_total); }',
+        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u, tokenize %u, dispatch %u, prescan %u, hinc %u, applex %u, scripts %u/%u uniq, deduped %u/%u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio, _mtok, _mdsp, _mpre, _mhinc, _mapl, _mister_script_distinct, _mister_script_total, mister_sdedup_hits, mister_sdedup_total); }',
         'LOAD-bd: extend [LOAD] print with phase breakdown')
+
+    # =====================================================================
+    # SCRIPT DEDUP (2026-06-14) -- the big remaining load-time lever.
+    # Roster-heavy PAKs compile many byte-identical animation scripts (JL
+    # Legacy: 364/629 = 58% duplicates -> ~30s of wasted lex+resolve). Cache
+    # the FIRST model's compiled animation_script (interpreterowner=1) keyed by
+    # source text; duplicate models with the same (unload&1) class get
+    # Script_Copy -- the engine's own per-frame primitive, which ALIASES the
+    # compiled interpreter and sets interpreterowner=0, so no double-free.
+    # Variant 1 (first-model-owns): first occurrence keeps today's exact path
+    # (Script_Init + AppendText + Compile, iscopy=0); only duplicates alias.
+    # Safety: (a) gate on (unload&1) so owner + aliases are always freed in the
+    # same teardown batch (unload_level frees unload&1 models together;
+    # free_models frees all) -> no live-alias-after-owner-free; (b) drop the
+    # cache entry in free_model BEFORE the interpreter is freed so a freed owner
+    # can't serve a post-free duplicate. Full-text compare guards hash
+    # collisions. RAM-only, no SD files. Doesn't touch the LOCKED palette path.
+    # (Investigated against pristine v7533: Script_Copy openborscript.c:484
+    # sets interpreterowner=0; Script_Clear:548 frees interpreter only if owner;
+    # free_model->clear_all_scripts(model->scripts,2) is the single model-script
+    # free site; unload_level:20001 frees individual models mid-session.)
+    print("  Script dedup: cache compiled animation_script by source text (skip lex+compile for duplicate roster models)")
+    # (1) cache + helpers, inserted before execute_animation_script (Script type
+    #     + Script_Copy are in scope there; site/free_model uses come after).
+    ob = strict_replace(ob,
+        "void execute_animation_script(entity *ent)\n{",
+        "/* MiSTer 2026-06-14 within-load animation_script dedup cache. See block\n"
+        "   comment in apply_patches.py. RAM-only; first-model-owns + (unload&1)\n"
+        "   gate + free_model invalidation. */\n"
+        "typedef struct {\n"
+        "    unsigned int hash;\n"
+        "    char *text;          /* owned copy of source (full-compare vs hash collision) */\n"
+        "    int unloadclass;     /* owner's (unload & 1) */\n"
+        "    Script *master;      /* owner model's animation_script (interpreterowner==1) */\n"
+        "} mister_scache_entry;\n"
+        "static mister_scache_entry *mister_scache = NULL;\n"
+        "static int mister_scache_n = 0, mister_scache_cap = 0;\n"
+        "static unsigned int mister_sdedup_hits = 0, mister_sdedup_total = 0; /* [LOAD] diagnostic */\n"
+        "static unsigned int mister_scache_hash(const char *s)\n"
+        "{\n"
+        "    unsigned int h = 5381;\n"
+        "    if(s) while(*s) h = ((h << 5) + h) + (unsigned char)(*s++);\n"
+        "    return h;\n"
+        "}\n"
+        "static Script *mister_scache_lookup(const char *txt, int unloadclass)\n"
+        "{\n"
+        "    unsigned int h = mister_scache_hash(txt);\n"
+        "    int i;\n"
+        "    for(i = 0; i < mister_scache_n; i++)\n"
+        "        if(mister_scache[i].hash == h && mister_scache[i].unloadclass == unloadclass\n"
+        "           && mister_scache[i].text && strcmp(mister_scache[i].text, txt) == 0)\n"
+        "            return mister_scache[i].master;\n"
+        "    return NULL;\n"
+        "}\n"
+        "static void mister_scache_insert(const char *txt, int unloadclass, Script *master)\n"
+        "{\n"
+        "    int len; char *copy; mister_scache_entry *np;\n"
+        "    if(!txt || !master) return;\n"
+        "    if(mister_scache_n >= mister_scache_cap)\n"
+        "    {\n"
+        "        int nc = mister_scache_cap ? (mister_scache_cap * 2) : 256;\n"
+        "        np = (mister_scache_entry *)realloc(mister_scache, nc * sizeof(mister_scache_entry));\n"
+        "        if(!np) return; /* OOM: skip caching, model still works (recompiles) */\n"
+        "        mister_scache = np; mister_scache_cap = nc;\n"
+        "    }\n"
+        "    len = (int)strlen(txt);\n"
+        "    copy = (char *)malloc(len + 1);\n"
+        "    if(!copy) return;\n"
+        "    memcpy(copy, txt, len + 1);\n"
+        "    mister_scache[mister_scache_n].hash = mister_scache_hash(txt);\n"
+        "    mister_scache[mister_scache_n].text = copy;\n"
+        "    mister_scache[mister_scache_n].unloadclass = unloadclass;\n"
+        "    mister_scache[mister_scache_n].master = master;\n"
+        "    mister_scache_n++;\n"
+        "}\n"
+        "/* Drop any cache entry owned by this model; called from free_model BEFORE\n"
+        "   its scripts/interpreter are freed, so a freed owner never leaves a live\n"
+        "   alias pointing at a freed interpreter. */\n"
+        "static void mister_scache_drop_master(Script *master)\n"
+        "{\n"
+        "    int i;\n"
+        "    if(!master) return;\n"
+        "    for(i = 0; i < mister_scache_n; i++)\n"
+        "        if(mister_scache[i].master == master)\n"
+        "        {\n"
+        "            if(mister_scache[i].text) free(mister_scache[i].text);\n"
+        "            mister_scache[i] = mister_scache[mister_scache_n - 1];\n"
+        "            mister_scache_n--; i--;\n"
+        "        }\n"
+        "}\n"
+        "void execute_animation_script(entity *ent)\n{",
+        'script dedup: cache + helpers before execute_animation_script')
+    # (2) restructure the animation_script assembly: finalize text -> dedup
+    #     decision. Matches the measurement-modified compile block (the dedup
+    #     patch runs AFTER the [LOAD] phase patches, so the compile block here
+    #     already carries _mister_script_record + the _mister_script_us timer).
+    ob = strict_replace(ob,
+        "    if(scriptbuf && animscriptbuf && scriptbuf[0] && animscriptbuf[0])\n"
+        "    {\n"
+        "        writeToScriptLog(\"\\n#### animationscript function main #####\\n# \");\n"
+        "        writeToScriptLog(filename);\n"
+        "        writeToScriptLog(\"\\n########################################\\n\");\n"
+        "        writeToScriptLog(scriptbuf);\n"
+        "\n"
+        "        lcmScriptDeleteMain(&scriptbuf);\n"
+        "        lcmScriptAddMain(&animscriptbuf);\n"
+        "        lcmScriptJoinMain(&animscriptbuf,scriptbuf);\n"
+        "\n"
+        "        if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
+        "        {\n"
+        "            Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
+        "        }\n"
+        "        tempInt = Script_AppendText(newchar->scripts->animation_script, animscriptbuf, filename);\n"
+        "    }\n"
+        "    else if(animscriptbuf && animscriptbuf[0])\n"
+        "    {\n"
+        "        lcmScriptAddMain(&animscriptbuf);\n"
+        "\n"
+        "        if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
+        "        {\n"
+        "            Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
+        "        }\n"
+        "        tempInt = Script_AppendText(newchar->scripts->animation_script, animscriptbuf, filename);\n"
+        "    }\n"
+        "    else if(scriptbuf && scriptbuf[0])\n"
+        "    {\n"
+        "        //printf(\"\\n%s\\n\", scriptbuf);\n"
+        "        if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
+        "        {\n"
+        "            Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
+        "        }\n"
+        "        tempInt = Script_AppendText(newchar->scripts->animation_script, scriptbuf, filename);\n"
+        "        //Interpreter_OutputPCode(newchar->scripts->animation_script.pinterpreter, \"code\");\n"
+        "        writeToScriptLog(\"\\n#### animationscript function main #####\\n# \");\n"
+        "        writeToScriptLog(filename);\n"
+        "        writeToScriptLog(\"\\n########################################\\n\");\n"
+        "        writeToScriptLog(scriptbuf);\n"
+        "    }\n"
+        "\n"
+        "    if(!newchar->isSubclassed)\n"
+        "    {\n"
+        "        _mister_script_record(animscriptbuf && animscriptbuf[0] ? animscriptbuf : scriptbuf); /* MiSTer final drill: count distinct scripts */\n"
+        "        { unsigned long _ct0 = _mister_load_us(); Script_Compile(newchar->scripts->animation_script); _mister_script_us += _mister_load_us() - _ct0; }\n"
+        "    }",
+        "    {\n"
+        "        /* MiSTer 2026-06-14 animation_script dedup: finalize the text via the\n"
+        "           lcmScript* transforms, then for non-subclassed models reuse a cached\n"
+        "           identical compile (Script_Copy aliases the compiled interpreter ->\n"
+        "           skips BOTH lex and resolve) or build fresh as the cache owner. */\n"
+        "        char *_mfinal = 0;\n"
+        "\n"
+        "        if(scriptbuf && animscriptbuf && scriptbuf[0] && animscriptbuf[0])\n"
+        "        {\n"
+        "            writeToScriptLog(\"\\n#### animationscript function main #####\\n# \");\n"
+        "            writeToScriptLog(filename);\n"
+        "            writeToScriptLog(\"\\n########################################\\n\");\n"
+        "            writeToScriptLog(scriptbuf);\n"
+        "\n"
+        "            lcmScriptDeleteMain(&scriptbuf);\n"
+        "            lcmScriptAddMain(&animscriptbuf);\n"
+        "            lcmScriptJoinMain(&animscriptbuf,scriptbuf);\n"
+        "            _mfinal = animscriptbuf;\n"
+        "        }\n"
+        "        else if(animscriptbuf && animscriptbuf[0])\n"
+        "        {\n"
+        "            lcmScriptAddMain(&animscriptbuf);\n"
+        "            _mfinal = animscriptbuf;\n"
+        "        }\n"
+        "        else if(scriptbuf && scriptbuf[0])\n"
+        "        {\n"
+        "            _mfinal = scriptbuf;\n"
+        "            writeToScriptLog(\"\\n#### animationscript function main #####\\n# \");\n"
+        "            writeToScriptLog(filename);\n"
+        "            writeToScriptLog(\"\\n########################################\\n\");\n"
+        "            writeToScriptLog(scriptbuf);\n"
+        "        }\n"
+        "\n"
+        "        if(_mfinal && _mfinal[0] && !newchar->isSubclassed)\n"
+        "        {\n"
+        "            int _muc = (newchar->unload & 1);\n"
+        "            Script *_mmaster;\n"
+        "            _mister_script_record(_mfinal); /* distinct-count cross-check */\n"
+        "            mister_sdedup_total++;\n"
+        "            _mmaster = mister_scache_lookup(_mfinal, _muc);\n"
+        "            if(_mmaster)\n"
+        "            {\n"
+        "                /* DEDUP HIT: alias cached interpreter, skip lex + compile */\n"
+        "                Script_Copy(newchar->scripts->animation_script, _mmaster, 1);\n"
+        "                mister_sdedup_hits++;\n"
+        "            }\n"
+        "            else\n"
+        "            {\n"
+        "                /* miss: build fresh (unchanged path), register as cache owner */\n"
+        "                if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
+        "                {\n"
+        "                    Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
+        "                }\n"
+        "                tempInt = Script_AppendText(newchar->scripts->animation_script, _mfinal, filename);\n"
+        "                { unsigned long _ct0 = _mister_load_us(); Script_Compile(newchar->scripts->animation_script); _mister_script_us += _mister_load_us() - _ct0; }\n"
+        "                if(tempInt)\n"
+        "                {\n"
+        "                    mister_scache_insert(_mfinal, _muc, newchar->scripts->animation_script);\n"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "        else if(_mfinal && _mfinal[0])\n"
+        "        {\n"
+        "            /* subclassed: original behavior -- Init (if needed) + AppendText, NO compile */\n"
+        "            if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
+        "            {\n"
+        "                Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
+        "            }\n"
+        "            tempInt = Script_AppendText(newchar->scripts->animation_script, _mfinal, filename);\n"
+        "        }\n"
+        "    }",
+        'script dedup: restructure animation_script assembly -> dedup decision')
+    # (3) invalidate cache entry when its owner model is freed (before the
+    #     interpreter is freed by clear_all_scripts). Unique to free_model.
+    ob = strict_replace(ob,
+        "    if(hasFreetype(model, MF_SCRIPTS))\n"
+        "    {\n"
+        "        clear_all_scripts(model->scripts, 2);\n"
+        "        free_all_scripts(&model->scripts);\n"
+        "    }",
+        "    if(hasFreetype(model, MF_SCRIPTS))\n"
+        "    {\n"
+        "        mister_scache_drop_master(model->scripts->animation_script); /* MiSTer dedup: drop owner entry before its interpreter is freed */\n"
+        "        clear_all_scripts(model->scripts, 2);\n"
+        "        free_all_scripts(&model->scripts);\n"
+        "    }",
+        'script dedup: invalidate cache entry in free_model')
 
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
     # 256 -> 4096. Reduces realloc count from ~195 to ~12 for a 50k-sprite
