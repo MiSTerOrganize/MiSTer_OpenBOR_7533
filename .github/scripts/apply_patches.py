@@ -2972,7 +2972,7 @@ endif
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};",
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};\n"
         "/* MiSTer [LOAD] phase timers (microsecond accumulators) */\n"
-        "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0, _mister_size_us = 0, _mister_sprite_us = 0, _mister_script_us = 0, _mister_io_us = 0;\n"
+        "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0, _mister_size_us = 0, _mister_sprite_us = 0, _mister_script_us = 0, _mister_io_us = 0, _mister_tok_us = 0, _mister_disp_us = 0;\n"
         "static int _mister_bp_depth = 0; /* MiSTer [LOAD] io bucket re-entrancy guard */\n"
         "unsigned long _mister_decode_io_us = 0; /* MiSTer [LOAD] decode-io: NON-static (shared w/ packfile.c readpackfile wrapper) */\n"
         "int _mister_decode_io_active = 0; /* set around loadbitmap; packfile.c times readpackfile only when set */\n"
@@ -2981,7 +2981,7 @@ endif
     ob = strict_replace(ob,
         "    unsigned int _mister_load_t0 = timer_gettick();",
         "    unsigned int _mister_load_t0 = timer_gettick();\n"
-        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; /* MiSTer [LOAD] phase reset */",
+        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; _mister_tok_us = 0; _mister_disp_us = 0; /* MiSTer [LOAD] phase reset */",
         'LOAD-bd: reset phase accumulators at load start')
     ob = strict_replace(ob,
         "    bitmap = loadbitmap(filename, packfile, pixelformat);",
@@ -3056,6 +3056,24 @@ endif
         "                Script_Compile(&next.spawnscript);",
         "                { unsigned long _ct0 = _mister_load_us(); Script_Compile(&next.spawnscript); _mister_script_us += _mister_load_us() - _ct0; }",
         'LOAD-bd: time spawnscript Script_Compile (script bucket)')
+    # 2026-06-14: split parse+setup -> tokenize / dispatch / setup. The model parse
+    # loop (load_cached_model) is: ParseArgs (tokenize a line) -> getModelCommand
+    # (string->enum dispatch -- the prime hash candidate) -> switch (execute/setup).
+    # Time ParseArgs (tok) + getModelCommand (disp); setup = (outside - script - io)
+    # - tok - disp. Anchored on the unique 5-line block. ParseArgs timed via a GCC
+    # statement-expression so it keeps its bool result for the if.
+    ob = strict_replace(ob,
+        "        line++;\n"
+        "        if(ParseArgs(&arglist, buf + pos, argbuf))\n"
+        "        {\n"
+        "            command = GET_ARG(0);\n"
+        "            cmd = getModelCommand(modelcmdlist, command);",
+        "        line++;\n"
+        "        if(({ unsigned long _pt0 = _mister_load_us(); int _par = ParseArgs(&arglist, buf + pos, argbuf); _mister_tok_us += _mister_load_us() - _pt0; _par; }))\n"
+        "        {\n"
+        "            command = GET_ARG(0);\n"
+        "            { unsigned long _dt0 = _mister_load_us(); cmd = getModelCommand(modelcmdlist, command); _mister_disp_us += _mister_load_us() - _dt0; }",
+        'LOAD-bd: time ParseArgs (tokenize) + getModelCommand (dispatch) in model parse loop')
     # 2026-06-13: split 'parse+setup+IO' -> pak-I/O vs CPU. buffer_pakfile is the
     # text/data whole-file pak reader (character.txt, anim scripts, models.txt) --
     # it does NOT overlap 'decode' (sprite GIFs stream via openpackfile/readpackfile,
@@ -3083,10 +3101,10 @@ endif
         '    printf("[LOAD] PAK loaded in %u ms\\n", (unsigned int)(timer_gettick() - _mister_load_t0));',
         "    { unsigned int _mtot = (unsigned int)(timer_gettick() - _mister_load_t0);\n"
         "      unsigned int _mdec = (unsigned int)(_mister_decode_us / 1000UL), _msz = (unsigned int)(_mister_size_us / 1000UL), _menc = (unsigned int)(_mister_encode_us / 1000UL);\n"
-        "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL), _mio = (unsigned int)(_mister_io_us / 1000UL), _mdio = (unsigned int)(_mister_decode_io_us / 1000UL);\n"
+        "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL), _mio = (unsigned int)(_mister_io_us / 1000UL), _mdio = (unsigned int)(_mister_decode_io_us / 1000UL), _mtok = (unsigned int)(_mister_tok_us / 1000UL), _mdsp = (unsigned int)(_mister_disp_us / 1000UL);\n"
         "      unsigned int _mout = (_mtot > _mspr) ? (_mtot - _mspr) : 0;\n"
         "      unsigned int _moth = (_mtot > _mdec + _msz + _menc) ? (_mtot - _mdec - _msz - _menc) : 0;\n"
-        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio); }',
+        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u, tokenize %u, dispatch %u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio, _mtok, _mdsp); }',
         'LOAD-bd: extend [LOAD] print with phase breakdown')
 
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
