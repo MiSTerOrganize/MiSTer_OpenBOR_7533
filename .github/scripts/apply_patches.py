@@ -3458,17 +3458,24 @@ endif
         '        printf("[PDC2DIAG] screen_status 0x%x -> 0x%x SELECT=%d\\n", _mdiag_prev_ss, (int)screen_status, (screen_status & IN_SCREEN_SELECT) ? 1 : 0);\n'
         "        _mdiag_prev_ss = (int)screen_status;\n"
         "      } }\n"
+        "    /* TEMPORARY DIAG (PDC2): periodic panel-entity dump (~every 120 ticks) */\n"
+        "    { static int _mdiag_fc = 0;\n"
+        "      if(++_mdiag_fc >= 120) { int _mi, _mn = 0; char _mb[256]; _mdiag_fc = 0; _mb[0] = 0;\n"
+        "        for(_mi = 0; _mi < ent_max; _mi++) { entity *_me = ent_list[_mi];\n"
+        "          if(_me && _me->exists && (_me->modeldata.type & TYPE_PANEL)) { _mn++;\n"
+        "            if(strlen(_mb) < 220) { strcat(_mb, _me->modeldata.name ? _me->modeldata.name : \"?\"); strcat(_mb, \" \"); } } }\n"
+        '        printf("[PDC2DIAG] TICK level=%d screen=0x%x panels=%d [%s]\\n", level ? 1 : 0, (int)screen_status, _mn, _mb); } }\n'
         "    if(Script_IsInitialized(&update_script))",
-        'TEMPORARY DIAG: screen_status transition log')
+        'TEMPORARY DIAG: screen_status transition log + periodic panel dump')
     ob = strict_replace(ob,
         "            ent_default_init(acting_entity);\n"
         "            return acting_entity;",
         "            ent_default_init(acting_entity);\n"
-        "            /* TEMPORARY DIAG (PDC2): log bgfx/cover spawns */\n"
-        "            if(model_name && (strstr(model_name, \"bgfx\") || strstr(model_name, \"cover\")))\n"
-        '                printf("[PDC2DIAG] SPAWN %s screen=0x%x SELECT=%d\\n", model_name, (int)screen_status, (screen_status & IN_SCREEN_SELECT) ? 1 : 0);\n'
+        "            /* TEMPORARY DIAG (PDC2): log panel/bgfx/cover spawns by entity model name */\n"
+        "            if(acting_entity && ((acting_entity->modeldata.type & TYPE_PANEL) || (acting_entity->modeldata.name && (strstr(acting_entity->modeldata.name, \"bgfx\") || strstr(acting_entity->modeldata.name, \"cover\")))))\n"
+        '                printf("[PDC2DIAG] SPAWN %s type=0x%x level=%d screen=0x%x\\n", acting_entity->modeldata.name ? acting_entity->modeldata.name : "?", (int)acting_entity->modeldata.type, level ? 1 : 0, (int)screen_status);\n'
         "            return acting_entity;",
-        'TEMPORARY DIAG: bgfx/cover spawn log')
+        'TEMPORARY DIAG: panel/bgfx/cover spawn log')
     ob = strict_replace(ob,
         "void kill_all()\n"
         "{\n"
@@ -3480,6 +3487,15 @@ endif
         "    entity *e = NULL;\n"
         '    printf("[PDC2DIAG] kill_all() screen=0x%x SELECT=%d ent_max=%d\\n", (int)screen_status, (screen_status & IN_SCREEN_SELECT) ? 1 : 0, ent_max);',
         'TEMPORARY DIAG: kill_all log')
+    ob = strict_replace(ob,
+        "void kill_entity(entity *victim, e_kill_entity_trigger trigger)\n"
+        "{",
+        "void kill_entity(entity *victim, e_kill_entity_trigger trigger)\n"
+        "{\n"
+        "    /* TEMPORARY DIAG (PDC2): log bgfx/cover kills */\n"
+        "    if(victim && victim->modeldata.name && (strstr(victim->modeldata.name, \"bgfx\") || strstr(victim->modeldata.name, \"cover\")))\n"
+        '        printf("[PDC2DIAG] KILL %s level=%d screen=0x%x\\n", victim->modeldata.name, level ? 1 : 0, (int)screen_status);',
+        'TEMPORARY DIAG: bgfx/cover kill_entity log')
 
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
     # 256 -> 4096. Reduces realloc count from ~195 to ~12 for a 50k-sprite
