@@ -2977,12 +2977,19 @@ endif
         "unsigned long _mister_decode_io_us = 0; /* MiSTer [LOAD] decode-io: NON-static (shared w/ packfile.c readpackfile wrapper) */\n"
         "int _mister_decode_io_active = 0; /* set around loadbitmap; packfile.c times readpackfile only when set */\n"
         "unsigned long _mister_hinc_us = 0; /* MiSTer #2 re-drill: openbor.h re-include time (NON-static, shared w/ scriptlib Parser.c) */\n"
-        "static unsigned long _mister_load_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }",
+        "static unsigned long _mister_load_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }\n"
+        "/* MiSTer final drill: script-lex (Script_AppendText) timer + distinct-script counter (sizes the dedup win) */\n"
+        "static unsigned long _mister_applex_us = 0;\n"
+        "static unsigned int _mister_script_total = 0, _mister_script_distinct = 0;\n"
+        "static unsigned int _mister_seen_hashes[4096]; static int _mister_seen_n = 0;\n"
+        "static unsigned int _mister_djb2(const char *s){ unsigned int h = 5381; if(s) while(*s) h = ((h << 5) + h) + (unsigned char)(*s++); return h; }\n"
+        "static void _mister_script_record(const char *txt){ unsigned int h = _mister_djb2(txt); int i; _mister_script_total++; for(i = 0; i < _mister_seen_n; i++) if(_mister_seen_hashes[i] == h) return; if(_mister_seen_n < 4096) _mister_seen_hashes[_mister_seen_n++] = h; _mister_script_distinct++; }\n"
+        "#define Script_AppendText(a, b, c) ({ unsigned long _at0 = _mister_load_us(); int _ar = (Script_AppendText)(a, b, c); _mister_applex_us += _mister_load_us() - _at0; _ar; })",
         'LOAD-bd: decode/encode us accumulators + us helper')
     ob = strict_replace(ob,
         "    unsigned int _mister_load_t0 = timer_gettick();",
         "    unsigned int _mister_load_t0 = timer_gettick();\n"
-        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; _mister_tok_us = 0; _mister_disp_us = 0; _mister_prescan_us = 0; _mister_hinc_us = 0; /* MiSTer [LOAD] phase reset */",
+        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; _mister_tok_us = 0; _mister_disp_us = 0; _mister_prescan_us = 0; _mister_hinc_us = 0; _mister_applex_us = 0; _mister_script_total = 0; _mister_script_distinct = 0; _mister_seen_n = 0; /* MiSTer [LOAD] phase reset */",
         'LOAD-bd: reset phase accumulators at load start')
     ob = strict_replace(ob,
         "    bitmap = loadbitmap(filename, packfile, pixelformat);",
@@ -3102,6 +3109,20 @@ endif
         "                _mister_prescan_us += _mister_load_us() - _ps0; }\n"
         "                value = GET_ARG(1);",
         '#1 re-drill: pre-scan timer stop')
+    # 2026-06-14 final drill: count distinct vs total model scripts (sizes the
+    # within-load dedup win). Hash the per-model script text (animscriptbuf, else
+    # scriptbuf) right before Script_Compile. distinct == total -> no dedup win;
+    # distinct << total -> dedup kills both the lex (setup) + resolve (script) for
+    # every duplicate.
+    ob = strict_replace(ob,
+        "    if(!newchar->isSubclassed)\n"
+        "    {\n"
+        "        { unsigned long _ct0 = _mister_load_us(); Script_Compile(newchar->scripts->animation_script); _mister_script_us += _mister_load_us() - _ct0; }",
+        "    if(!newchar->isSubclassed)\n"
+        "    {\n"
+        "        _mister_script_record(animscriptbuf && animscriptbuf[0] ? animscriptbuf : scriptbuf); /* MiSTer final drill: count distinct scripts */\n"
+        "        { unsigned long _ct0 = _mister_load_us(); Script_Compile(newchar->scripts->animation_script); _mister_script_us += _mister_load_us() - _ct0; }",
+        'final drill: record distinct-script count before Script_Compile')
     # 2026-06-13: split 'parse+setup+IO' -> pak-I/O vs CPU. buffer_pakfile is the
     # text/data whole-file pak reader (character.txt, anim scripts, models.txt) --
     # it does NOT overlap 'decode' (sprite GIFs stream via openpackfile/readpackfile,
@@ -3129,10 +3150,10 @@ endif
         '    printf("[LOAD] PAK loaded in %u ms\\n", (unsigned int)(timer_gettick() - _mister_load_t0));',
         "    { unsigned int _mtot = (unsigned int)(timer_gettick() - _mister_load_t0);\n"
         "      unsigned int _mdec = (unsigned int)(_mister_decode_us / 1000UL), _msz = (unsigned int)(_mister_size_us / 1000UL), _menc = (unsigned int)(_mister_encode_us / 1000UL);\n"
-        "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL), _mio = (unsigned int)(_mister_io_us / 1000UL), _mdio = (unsigned int)(_mister_decode_io_us / 1000UL), _mtok = (unsigned int)(_mister_tok_us / 1000UL), _mdsp = (unsigned int)(_mister_disp_us / 1000UL), _mpre = (unsigned int)(_mister_prescan_us / 1000UL), _mhinc = (unsigned int)(_mister_hinc_us / 1000UL);\n"
+        "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL), _mio = (unsigned int)(_mister_io_us / 1000UL), _mdio = (unsigned int)(_mister_decode_io_us / 1000UL), _mtok = (unsigned int)(_mister_tok_us / 1000UL), _mdsp = (unsigned int)(_mister_disp_us / 1000UL), _mpre = (unsigned int)(_mister_prescan_us / 1000UL), _mhinc = (unsigned int)(_mister_hinc_us / 1000UL), _mapl = (unsigned int)(_mister_applex_us / 1000UL);\n"
         "      unsigned int _mout = (_mtot > _mspr) ? (_mtot - _mspr) : 0;\n"
         "      unsigned int _moth = (_mtot > _mdec + _msz + _menc) ? (_mtot - _mdec - _msz - _menc) : 0;\n"
-        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u, tokenize %u, dispatch %u, prescan %u, hinc %u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio, _mtok, _mdsp, _mpre, _mhinc); }',
+        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u, tokenize %u, dispatch %u, prescan %u, hinc %u, applex %u, scripts %u/%u uniq)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio, _mtok, _mdsp, _mpre, _mhinc, _mapl, _mister_script_distinct, _mister_script_total); }',
         'LOAD-bd: extend [LOAD] print with phase breakdown')
 
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
