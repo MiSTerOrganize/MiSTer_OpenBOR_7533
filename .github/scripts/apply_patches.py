@@ -258,8 +258,32 @@ endif
         '        pak_vfdreadahead[i] = -1;\n    }\n    pak_initialized = 0;',
         '        pak_vfdreadahead[i] = 65536; /* MiSTer 2026-05-24: 64KB default readahead (was -1=none); paired with bumped CACHEBLOCKS */\n    }\n    pak_initialized = 0;',
         'filecache: init pak_vfdreadahead = 64KB (was -1)')
+    # 2026-06-13: [LOAD] decode-io split. readpackfile (the bulk pak read) is the
+    # I/O inside loadbitmap (sprite GIF/PNG decode). _mister_decode_io_active is set
+    # ONLY around loadbitmap in openbor.c, so this times sprite-decode reads but NOT
+    # buffer_pakfile/other reads (flag=0 there -> wrapper is a single branch, ~free).
+    # decode-io is a subset of 'decode'; decode - decode-io = LZW/inflate CPU.
+    pf = strict_replace(pf,
+        '#include "packfile.h"',
+        '#include "packfile.h"\n'
+        '#include <sys/time.h>\n'
+        'extern unsigned long _mister_decode_io_us; /* defined in openbor.c */\n'
+        'extern int _mister_decode_io_active;\n'
+        'static unsigned long _mister_pf_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }',
+        'decode-io: packfile.c sys/time.h + extern accumulators + us helper')
+    pf = strict_replace(pf,
+        'int readpackfile(int handle, void *buf, int len)\n{',
+        'int readpackfile_impl(int handle, void *buf, int len);\n'
+        'int readpackfile(int handle, void *buf, int len)\n'
+        '{\n'
+        '    if (!_mister_decode_io_active) return readpackfile_impl(handle, buf, len);\n'
+        '    { unsigned long _pft0 = _mister_pf_us(); int _pfr = readpackfile_impl(handle, buf, len); _mister_decode_io_us += _mister_pf_us() - _pft0; return _pfr; }\n'
+        '}\n'
+        'int readpackfile_impl(int handle, void *buf, int len)\n{',
+        'decode-io: rename readpackfile -> _impl + flag-gated timing wrapper')
     write(pf_path, pf)
     print("  packfile.c: CACHEBLOCKS=255 + readahead=65536 (paired filecache speedup)")
+    print("  packfile.c: readpackfile decode-io timing wrapper (flag-gated)")
 
     # ## #2: inlined-LUT specialized blit in spritex8p16.c (the HOT 16-bit path)
     # The 16-bit blitter (spritex8p16.c) is what runs in our PIXEL_16 build:
@@ -2950,17 +2974,19 @@ endif
         "/* MiSTer [LOAD] phase timers (microsecond accumulators) */\n"
         "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0, _mister_size_us = 0, _mister_sprite_us = 0, _mister_script_us = 0, _mister_io_us = 0;\n"
         "static int _mister_bp_depth = 0; /* MiSTer [LOAD] io bucket re-entrancy guard */\n"
+        "unsigned long _mister_decode_io_us = 0; /* MiSTer [LOAD] decode-io: NON-static (shared w/ packfile.c readpackfile wrapper) */\n"
+        "int _mister_decode_io_active = 0; /* set around loadbitmap; packfile.c times readpackfile only when set */\n"
         "static unsigned long _mister_load_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }",
         'LOAD-bd: decode/encode us accumulators + us helper')
     ob = strict_replace(ob,
         "    unsigned int _mister_load_t0 = timer_gettick();",
         "    unsigned int _mister_load_t0 = timer_gettick();\n"
-        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; /* MiSTer [LOAD] phase reset */",
+        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; /* MiSTer [LOAD] phase reset */",
         'LOAD-bd: reset phase accumulators at load start')
     ob = strict_replace(ob,
         "    bitmap = loadbitmap(filename, packfile, pixelformat);",
-        "    { unsigned long _lt0 = _mister_load_us(); bitmap = loadbitmap(filename, packfile, pixelformat); _mister_decode_us += _mister_load_us() - _lt0; }",
-        'LOAD-bd: time loadbitmap (decode) in loadsprite2')
+        "    { unsigned long _lt0 = _mister_load_us(); _mister_decode_io_active = 1; bitmap = loadbitmap(filename, packfile, pixelformat); _mister_decode_io_active = 0; _mister_decode_us += _mister_load_us() - _lt0; }",
+        'LOAD-bd: time loadbitmap (decode) in loadsprite2 + flag decode-io')
     ob = strict_replace(ob,
         "    encodesprite(-clip_left, -clip_top, bitmap, sprite);",
         "    { unsigned long _et0 = _mister_load_us(); encodesprite(-clip_left, -clip_top, bitmap, sprite); _mister_encode_us += _mister_load_us() - _et0; }",
@@ -2975,8 +3001,8 @@ endif
     # single-pass-refactor candidate (rle_encode_bench: ~7-9 ns/px dead weight).
     ob = strict_replace(ob,
         "    bitmap = loadbitmap(filename, packfile, bmpformat);",
-        "    { unsigned long _lt0 = _mister_load_us(); bitmap = loadbitmap(filename, packfile, bmpformat); _mister_decode_us += _mister_load_us() - _lt0; }",
-        'LOAD-bd: time loadbitmap (decode) in loadsprite main path')
+        "    { unsigned long _lt0 = _mister_load_us(); _mister_decode_io_active = 1; bitmap = loadbitmap(filename, packfile, bmpformat); _mister_decode_io_active = 0; _mister_decode_us += _mister_load_us() - _lt0; }",
+        'LOAD-bd: time loadbitmap (decode) in loadsprite main path + flag decode-io')
     ob = strict_replace(ob,
         "    size = fakey_encodesprite(bitmap);",
         "    { unsigned long _st0 = _mister_load_us(); size = fakey_encodesprite(bitmap); _mister_size_us += _mister_load_us() - _st0; }",
@@ -3057,10 +3083,10 @@ endif
         '    printf("[LOAD] PAK loaded in %u ms\\n", (unsigned int)(timer_gettick() - _mister_load_t0));',
         "    { unsigned int _mtot = (unsigned int)(timer_gettick() - _mister_load_t0);\n"
         "      unsigned int _mdec = (unsigned int)(_mister_decode_us / 1000UL), _msz = (unsigned int)(_mister_size_us / 1000UL), _menc = (unsigned int)(_mister_encode_us / 1000UL);\n"
-        "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL), _mio = (unsigned int)(_mister_io_us / 1000UL);\n"
+        "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL), _mio = (unsigned int)(_mister_io_us / 1000UL), _mdio = (unsigned int)(_mister_decode_io_us / 1000UL);\n"
         "      unsigned int _mout = (_mtot > _mspr) ? (_mtot - _mspr) : 0;\n"
         "      unsigned int _moth = (_mtot > _mdec + _msz + _menc) ? (_mtot - _mdec - _msz - _menc) : 0;\n"
-        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio); }',
+        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio); }',
         'LOAD-bd: extend [LOAD] print with phase breakdown')
 
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
