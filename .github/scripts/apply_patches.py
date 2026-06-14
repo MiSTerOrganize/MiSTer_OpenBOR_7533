@@ -1028,8 +1028,23 @@ endif
             continue
         obs_s35 = obs_s35.replace(old, new, 1)
         s35_fixed += 1
+    # PDC2 fix (2026-06-14): in_selectscreen must be FALSE once a level is loaded.
+    # PDC2's update.c spawns select-screen panels (bgfx/cover) gated on
+    # in_selectscreen. The select->level transition has a window where SELECT is
+    # still set while load_level runs (level != NULL) -- the cart's update script
+    # fires in that window and re-spawns the panels into the level (the 16-bit fps
+    # shift exposed this timing race). Gating on !level closes it and is
+    # semantically correct: you cannot be in the select screen while a level is
+    # loaded. No-op where SELECT is already clear in-level. (Diag line confirms
+    # the gate fires; TEMPORARY DIAG -> CI gate skips commit-back.)
+    obs_s35 = strict_replace(obs_s35,
+        "        var->lVal = (screen_status & IN_SCREEN_SELECT) ? 1 : 0; /* MiSTer Step 35: normalize to 0/1 for legacy cart compat */",
+        "        if((screen_status & IN_SCREEN_SELECT) && level) printf(\"[PDC2DIAG] in_select gated by !level (screen=0x%x)\\n\", (int)screen_status); /* TEMPORARY DIAG */\n"
+        "        var->lVal = ((screen_status & IN_SCREEN_SELECT) && !level) ? 1 : 0; /* MiSTer Step 35 + PDC2 fix (2026-06-14): select is false once a level is loaded */",
+        'PDC2 fix: in_selectscreen false when level loaded (+ DIAG)')
     write(obs_s35_path, obs_s35)
     print(f"  Step 35: normalized {s35_fixed} of {len(s35_props)} in_*screen openborvariant getters to return 0/1 (was bitmask value)")
+    print("  PDC2 fix: in_selectscreen gated on !level (prevents select-panel re-spawn during load_level overlap)")
 
     # ── Step 33 (2026-05-28): NULL-check ent_list[i] in kill_entity loop ──
     # User reported TMNT-RP continue-from-save still SIGSEGVing AFTER Step 32.
