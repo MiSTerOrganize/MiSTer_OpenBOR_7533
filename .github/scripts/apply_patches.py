@@ -2972,16 +2972,17 @@ endif
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};",
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};\n"
         "/* MiSTer [LOAD] phase timers (microsecond accumulators) */\n"
-        "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0, _mister_size_us = 0, _mister_sprite_us = 0, _mister_script_us = 0, _mister_io_us = 0, _mister_tok_us = 0, _mister_disp_us = 0;\n"
+        "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0, _mister_size_us = 0, _mister_sprite_us = 0, _mister_script_us = 0, _mister_io_us = 0, _mister_tok_us = 0, _mister_disp_us = 0, _mister_prescan_us = 0;\n"
         "static int _mister_bp_depth = 0; /* MiSTer [LOAD] io bucket re-entrancy guard */\n"
         "unsigned long _mister_decode_io_us = 0; /* MiSTer [LOAD] decode-io: NON-static (shared w/ packfile.c readpackfile wrapper) */\n"
         "int _mister_decode_io_active = 0; /* set around loadbitmap; packfile.c times readpackfile only when set */\n"
+        "unsigned long _mister_hinc_us = 0; /* MiSTer #2 re-drill: openbor.h re-include time (NON-static, shared w/ scriptlib Parser.c) */\n"
         "static unsigned long _mister_load_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }",
         'LOAD-bd: decode/encode us accumulators + us helper')
     ob = strict_replace(ob,
         "    unsigned int _mister_load_t0 = timer_gettick();",
         "    unsigned int _mister_load_t0 = timer_gettick();\n"
-        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; _mister_tok_us = 0; _mister_disp_us = 0; /* MiSTer [LOAD] phase reset */",
+        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; _mister_tok_us = 0; _mister_disp_us = 0; _mister_prescan_us = 0; _mister_hinc_us = 0; /* MiSTer [LOAD] phase reset */",
         'LOAD-bd: reset phase accumulators at load start')
     ob = strict_replace(ob,
         "    bitmap = loadbitmap(filename, packfile, pixelformat);",
@@ -3074,6 +3075,33 @@ endif
         "            command = GET_ARG(0);\n"
         "            { unsigned long _dt0 = _mister_load_us(); cmd = getModelCommand(modelcmdlist, command); _mister_disp_us += _mister_load_us() - _dt0; }",
         'LOAD-bd: time ParseArgs (tokenize) + getModelCommand (dispatch) in model parse loop')
+    # 2026-06-14 #1 re-drill: time the CMD_MODEL_FRAME look-ahead pre-scan (the
+    # `while(!frameset)` findarg loop that counts frames to the next anim). It's in
+    # the 'setup' bucket; if it's a big share, the fix is to cache the count instead
+    # of re-scanning. Wrap with a brace block (peek/frameset/framecount are function-
+    # scope, unaffected). Start before peek=0, stop after the pre-scan while.
+    ob = strict_replace(ob,
+        "                peek = 0;\n"
+        "                if(frameset && framecount >= 0)",
+        "                { unsigned long _ps0 = _mister_load_us(); /* MiSTer #1 re-drill: time pre-scan */\n"
+        "                peek = 0;\n"
+        "                if(frameset && framecount >= 0)",
+        '#1 re-drill: pre-scan timer start')
+    ob = strict_replace(ob,
+        "                    while(buf[pos + peek] == '\\n' || buf[pos + peek] == '\\r')\n"
+        "                    {\n"
+        "                        ++peek;\n"
+        "                    }\n"
+        "                }\n"
+        "                value = GET_ARG(1);",
+        "                    while(buf[pos + peek] == '\\n' || buf[pos + peek] == '\\r')\n"
+        "                    {\n"
+        "                        ++peek;\n"
+        "                    }\n"
+        "                }\n"
+        "                _mister_prescan_us += _mister_load_us() - _ps0; }\n"
+        "                value = GET_ARG(1);",
+        '#1 re-drill: pre-scan timer stop')
     # 2026-06-13: split 'parse+setup+IO' -> pak-I/O vs CPU. buffer_pakfile is the
     # text/data whole-file pak reader (character.txt, anim scripts, models.txt) --
     # it does NOT overlap 'decode' (sprite GIFs stream via openpackfile/readpackfile,
@@ -3101,10 +3129,10 @@ endif
         '    printf("[LOAD] PAK loaded in %u ms\\n", (unsigned int)(timer_gettick() - _mister_load_t0));',
         "    { unsigned int _mtot = (unsigned int)(timer_gettick() - _mister_load_t0);\n"
         "      unsigned int _mdec = (unsigned int)(_mister_decode_us / 1000UL), _msz = (unsigned int)(_mister_size_us / 1000UL), _menc = (unsigned int)(_mister_encode_us / 1000UL);\n"
-        "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL), _mio = (unsigned int)(_mister_io_us / 1000UL), _mdio = (unsigned int)(_mister_decode_io_us / 1000UL), _mtok = (unsigned int)(_mister_tok_us / 1000UL), _mdsp = (unsigned int)(_mister_disp_us / 1000UL);\n"
+        "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL), _mio = (unsigned int)(_mister_io_us / 1000UL), _mdio = (unsigned int)(_mister_decode_io_us / 1000UL), _mtok = (unsigned int)(_mister_tok_us / 1000UL), _mdsp = (unsigned int)(_mister_disp_us / 1000UL), _mpre = (unsigned int)(_mister_prescan_us / 1000UL), _mhinc = (unsigned int)(_mister_hinc_us / 1000UL);\n"
         "      unsigned int _mout = (_mtot > _mspr) ? (_mtot - _mspr) : 0;\n"
         "      unsigned int _moth = (_mtot > _mdec + _msz + _menc) ? (_mtot - _mdec - _msz - _menc) : 0;\n"
-        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u, tokenize %u, dispatch %u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio, _mtok, _mdsp); }',
+        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u, tokenize %u, dispatch %u, prescan %u, hinc %u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio, _mtok, _mdsp, _mpre, _mhinc); }',
         'LOAD-bd: extend [LOAD] print with phase breakdown')
 
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
@@ -4359,6 +4387,29 @@ endif
     write(li_path, li)
     print("  Path A: PAL_BYTES=512 native 565; load_palette/convert_map/neon/HUD/PNG-PLTE -> colour16; anigif+script+truecolor-bg 16-bit; convert-at-blit removed.")
     print("  #3 decode-CPU: decodegifblock per-pixel invariant hoist (bit-exact).")
+
+    # 2026-06-14 #2 re-drill: time the per-model openbor.h re-include (scriptlib
+    # Parser.c). openbor.h is force-#included + re-lexed + re-#defined for every
+    # script-bearing model (pp_context destroyed per compile -> no sharing). This is
+    # lex/parse time (Script_AppendText path), so it lands in the [LOAD] 'setup'
+    # bucket. Timing it sizes the macro-cache target. _mister_hinc_us is the NON-
+    # static global defined in openbor.c; extern it here + a local us-helper.
+    print("Patching Parser.c (#2 re-drill: time openbor.h re-include)...")
+    parser_path = os.path.join(obor, 'source/scriptlib/Parser.c')
+    pa = read(parser_path)
+    pa = strict_replace(pa,
+        '#include "Parser.h"',
+        '#include "Parser.h"\n'
+        '#include <sys/time.h>\n'
+        'extern unsigned long _mister_hinc_us; /* defined in openbor.c */\n'
+        'static unsigned long _mister_pp_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }',
+        '#2 re-drill: Parser.c sys/time.h + extern _mister_hinc_us + us helper')
+    pa = strict_replace(pa,
+        '        pp_parser_include(&pparser->theLexer.preprocessor, "data/scripts/openbor.h");',
+        '        { unsigned long _hp0 = _mister_pp_us(); pp_parser_include(&pparser->theLexer.preprocessor, "data/scripts/openbor.h"); _mister_hinc_us += _mister_pp_us() - _hp0; }',
+        '#2 re-drill: time openbor.h pp_parser_include')
+    write(parser_path, pa)
+    print("  Parser.c: openbor.h re-include timer (#2 re-drill).")
 
     print("\nAll patches applied successfully.")
 
