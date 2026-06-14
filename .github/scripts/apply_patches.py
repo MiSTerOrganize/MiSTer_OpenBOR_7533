@@ -4332,8 +4332,33 @@ endif
         "                png_data_ptr += 3;\n"
         "            }",
         'Path A P11: PNG PLTE palette gate on PAL_BYTES')
+    # 2026-06-14 #3 (decode-CPU): hoist the per-output-pixel loop invariants in
+    # decodegifblock. `height - gb->top` and `gb->left + gb->width` are loop-
+    # invariant, but -O2 re-loads gb->* every pixel (it can't prove gb doesn't
+    # alias the linebuffer[] store). Precompute to const locals. BIT-EXACT: every
+    # hoisted term is read-only inside the loop; only `line` mutates and stays in
+    # the compare. Targets the hottest loop (runs once per decoded pixel).
+    li = strict_replace(li,
+        "    int line = 0;\n"
+        "    int byte = gb->left;\n"
+        "    int pass = 0;",
+        "    int line = 0;\n"
+        "    int byte = gb->left;\n"
+        "    int pass = 0;\n"
+        "    const int row_end = gb->left + gb->width; /* MiSTer #3: hoist per-pixel invariant */\n"
+        "    const int max_line = height - gb->top;    /* MiSTer #3: hoist per-pixel invariant */",
+        '#3 decode-CPU: precompute per-pixel loop invariants in decodegifblock')
+    li = strict_replace(li,
+        "            if(byte < width && line < (height - gb->top))",
+        "            if(byte < width && line < max_line)",
+        '#3 decode-CPU: use hoisted max_line in bounds check')
+    li = strict_replace(li,
+        "            if(byte >= gb->left + gb->width)",
+        "            if(byte >= row_end)",
+        '#3 decode-CPU: use hoisted row_end in row-end test')
     write(li_path, li)
     print("  Path A: PAL_BYTES=512 native 565; load_palette/convert_map/neon/HUD/PNG-PLTE -> colour16; anigif+script+truecolor-bg 16-bit; convert-at-blit removed.")
+    print("  #3 decode-CPU: decodegifblock per-pixel invariant hoist (bit-exact).")
 
     print("\nAll patches applied successfully.")
 
