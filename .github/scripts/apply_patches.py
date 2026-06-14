@@ -3438,6 +3438,49 @@ endif
         'script dedup: bit-exact alias helper (iscopy=0) in openborscript.c')
     write(obs_alias_path, obs_alias)
 
+    # ===================================================================
+    # TEMPORARY DIAG (PDC2 vscreen-16bit bug, 2026-06-14): trace the
+    # screen-state timeline + bgfx/cover panel spawns + kill_all calls to
+    # localize why select-screen panels persist into the tutorial level.
+    # Bounded (transition-only / filtered by name / per-kill_all). Marked
+    # TEMPORARY DIAG so the CI gate skips binary commit-back. REMOVE after.
+    # ===================================================================
+    print("  TEMPORARY DIAG: PDC2 screen-state + panel-lifecycle trace")
+    ob = strict_replace(ob,
+        "void execute_updatescripts()\n"
+        "{\n"
+        "    if(Script_IsInitialized(&update_script))",
+        "void execute_updatescripts()\n"
+        "{\n"
+        "    /* TEMPORARY DIAG (PDC2): log screen_status transitions */\n"
+        "    { static int _mdiag_prev_ss = -1;\n"
+        "      if((int)screen_status != _mdiag_prev_ss) {\n"
+        '        printf("[PDC2DIAG] screen_status 0x%x -> 0x%x SELECT=%d\\n", _mdiag_prev_ss, (int)screen_status, (screen_status & IN_SCREEN_SELECT) ? 1 : 0);\n'
+        "        _mdiag_prev_ss = (int)screen_status;\n"
+        "      } }\n"
+        "    if(Script_IsInitialized(&update_script))",
+        'TEMPORARY DIAG: screen_status transition log')
+    ob = strict_replace(ob,
+        "            ent_default_init(acting_entity);\n"
+        "            return acting_entity;",
+        "            ent_default_init(acting_entity);\n"
+        "            /* TEMPORARY DIAG (PDC2): log bgfx/cover spawns */\n"
+        "            if(model_name && (strstr(model_name, \"bgfx\") || strstr(model_name, \"cover\")))\n"
+        '                printf("[PDC2DIAG] SPAWN %s screen=0x%x SELECT=%d\\n", model_name, (int)screen_status, (screen_status & IN_SCREEN_SELECT) ? 1 : 0);\n'
+        "            return acting_entity;",
+        'TEMPORARY DIAG: bgfx/cover spawn log')
+    ob = strict_replace(ob,
+        "void kill_all()\n"
+        "{\n"
+        "    int i;\n"
+        "    entity *e = NULL;",
+        "void kill_all()\n"
+        "{\n"
+        "    int i;\n"
+        "    entity *e = NULL;\n"
+        '    printf("[PDC2DIAG] kill_all() screen=0x%x SELECT=%d ent_max=%d\\n", (int)screen_status, (screen_status & IN_SCREEN_SELECT) ? 1 : 0, ent_max);',
+        'TEMPORARY DIAG: kill_all log')
+
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
     # 256 -> 4096. Reduces realloc count from ~195 to ~12 for a 50k-sprite
     # PAK. Each realloc copies the entire previous array; fewer reallocs =
