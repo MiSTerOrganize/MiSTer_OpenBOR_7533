@@ -2989,7 +2989,7 @@ endif
     ob = strict_replace(ob,
         "    unsigned int _mister_load_t0 = timer_gettick();",
         "    unsigned int _mister_load_t0 = timer_gettick();\n"
-        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; _mister_tok_us = 0; _mister_disp_us = 0; _mister_prescan_us = 0; _mister_hinc_us = 0; _mister_applex_us = 0; _mister_script_total = 0; _mister_script_distinct = 0; _mister_seen_n = 0; mister_sdedup_hits = 0; mister_sdedup_total = 0; /* MiSTer [LOAD] phase reset */",
+        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; _mister_tok_us = 0; _mister_disp_us = 0; _mister_prescan_us = 0; _mister_hinc_us = 0; _mister_applex_us = 0; _mister_script_total = 0; _mister_script_distinct = 0; _mister_seen_n = 0; mister_sdedup_hits = 0; mister_sdedup_total = 0; _mister_anim_us = 0; _mister_ccmd_paid_us = 0; _mister_ccmd_saved_us = 0; _mister_ccmd_hits = 0; _mister_ccmd_misses = 0; _mister_ccache_last_cost = 0; /* MiSTer [LOAD] phase reset */",
         'LOAD-bd: reset phase accumulators at load start')
     ob = strict_replace(ob,
         "    bitmap = loadbitmap(filename, packfile, pixelformat);",
@@ -3151,9 +3151,10 @@ endif
         "    { unsigned int _mtot = (unsigned int)(timer_gettick() - _mister_load_t0);\n"
         "      unsigned int _mdec = (unsigned int)(_mister_decode_us / 1000UL), _msz = (unsigned int)(_mister_size_us / 1000UL), _menc = (unsigned int)(_mister_encode_us / 1000UL);\n"
         "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL), _mio = (unsigned int)(_mister_io_us / 1000UL), _mdio = (unsigned int)(_mister_decode_io_us / 1000UL), _mtok = (unsigned int)(_mister_tok_us / 1000UL), _mdsp = (unsigned int)(_mister_disp_us / 1000UL), _mpre = (unsigned int)(_mister_prescan_us / 1000UL), _mhinc = (unsigned int)(_mister_hinc_us / 1000UL), _mapl = (unsigned int)(_mister_applex_us / 1000UL);\n"
+        "      unsigned int _manim = (unsigned int)(_mister_anim_us / 1000UL), _mccp = (unsigned int)(_mister_ccmd_paid_us / 1000UL), _mccs = (unsigned int)(_mister_ccmd_saved_us / 1000UL); /* TEMPORARY DIAG #10 + [CCMD] */\n"
         "      unsigned int _mout = (_mtot > _mspr) ? (_mtot - _mspr) : 0;\n"
         "      unsigned int _moth = (_mtot > _mdec + _msz + _menc) ? (_mtot - _mdec - _msz - _menc) : 0;\n"
-        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u, tokenize %u, dispatch %u, prescan %u, hinc %u, applex %u, scripts %u/%u uniq, deduped %u/%u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio, _mtok, _mdsp, _mpre, _mhinc, _mapl, _mister_script_distinct, _mister_script_total, mister_sdedup_hits, mister_sdedup_total); }',
+        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u, tokenize %u, dispatch %u, prescan %u, hinc %u, applex %u, anim %u | [CCMD] cmd-paid %u cmd-saved %u %u/%u hit/miss | scripts %u/%u uniq, deduped %u/%u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio, _mtok, _mdsp, _mpre, _mhinc, _mapl, _manim, _mccp, _mccs, _mister_ccmd_hits, _mister_ccmd_misses, _mister_script_distinct, _mister_script_total, mister_sdedup_hits, mister_sdedup_total); }',
         'LOAD-bd: extend [LOAD] print with phase breakdown')
 
     # =====================================================================
@@ -3993,9 +3994,15 @@ endif
         "    unsigned int hash;\n"
         "    char *key;       /* prefix byte ('F' path / 'I' inline) + key text */\n"
         "    Script *master;  /* cache-owned compiled interpreter (interpreterowner==1) */\n"
+        "    unsigned long cost_us; /* TEMPORARY DIAG [CCMD]: this script's miss compile+lex+io cost */\n"
         "} mister_ccache_entry;\n"
         "static mister_ccache_entry *mister_ccache = NULL;\n"
         "static int mister_ccache_n = 0, mister_ccache_cap = 0;\n"
+        "/* TEMPORARY DIAG (REVERT AFTER MEASURED) [CCMD]: exact command-script dedup saving + #10 anim-parse timer. */\n"
+        "unsigned long _mister_anim_us = 0;\n"
+        "unsigned long _mister_ccmd_paid_us = 0, _mister_ccmd_saved_us = 0;\n"
+        "unsigned int _mister_ccmd_hits = 0, _mister_ccmd_misses = 0;\n"
+        "static unsigned long _mister_ccache_last_cost = 0; /* set by lookup on hit */\n"
         "extern void mister_script_alias_fresh(Script *pdest, Script *psrc);\n"
         "extern int mister_script_compile_noinit(Script *pscript);\n"
         "static unsigned int mister_ccache_hash(char pfx, const char *s)\n"
@@ -4011,10 +4018,10 @@ endif
         "    for(i = 0; i < mister_ccache_n; i++)\n"
         "        if(mister_ccache[i].hash == h && mister_ccache[i].key\n"
         "           && mister_ccache[i].key[0] == pfx && strcmp(mister_ccache[i].key + 1, key) == 0)\n"
-        "            return mister_ccache[i].master;\n"
+        "            { _mister_ccache_last_cost = mister_ccache[i].cost_us; return mister_ccache[i].master; }\n"
         "    return NULL;\n"
         "}\n"
-        "static void mister_ccache_insert(char pfx, const char *key, Script *master)\n"
+        "static void mister_ccache_insert(char pfx, const char *key, Script *master, unsigned long cost_us)\n"
         "{\n"
         "    int len; char *copy; mister_ccache_entry *np;\n"
         "    if(!key || !master) return;\n"
@@ -4032,6 +4039,7 @@ endif
         "    mister_ccache[mister_ccache_n].hash = mister_ccache_hash(pfx, key);\n"
         "    mister_ccache[mister_ccache_n].key = copy;\n"
         "    mister_ccache[mister_ccache_n].master = master;\n"
+        "    mister_ccache[mister_ccache_n].cost_us = cost_us;\n"
         "    mister_ccache_n++;\n"
         "}\n"
         "/* Free all cache-owned masters. Called from free_models AFTER every model\n"
@@ -4133,20 +4141,25 @@ endif
         "                /* HIT: alias this model's (varlist-only, un-Script_Init'd) script.\n"
         "                   No Script_Init here -> no per-model interpreter to leak. */\n"
         "                mister_script_alias_fresh(script, _cm);\n"
+        "                _mister_ccmd_saved_us += _mister_ccache_last_cost; _mister_ccmd_hits++; /* TEMPORARY DIAG [CCMD] */\n"
         "                result = 1;\n"
         "            }\n"
         "            else\n"
         "            {\n"
         "                /* MISS: build a cache-OWNED master, then alias this model. */\n"
+        "                unsigned long _cm0 = _mister_load_us(); /* TEMPORARY DIAG [CCMD]: time the miss */\n"
         "                _cm = alloc_script();\n"
         "                Script_Init(_cm, scriptname, filename, 0);\n"
         "                if(_cinlinebuf) result = Script_AppendText(_cm, _cinlinebuf, filename);\n"
         "                else            result = load_script(_cm, GET_ARGP(1));\n"
         "                if(result)\n"
         "                {\n"
+        "                    unsigned long _cmcost;\n"
         "                    mister_script_compile_noinit(_cm); /* master = code-only; init runs once per alias */\n"
-        "                    mister_ccache_insert(_cpfx, _ckey, _cm);\n"
+        "                    _cmcost = _mister_load_us() - _cm0; /* [CCMD] compile+lex+io for this distinct script */\n"
+        "                    mister_ccache_insert(_cpfx, _ckey, _cm, _cmcost);\n"
         "                    mister_script_alias_fresh(script, _cm);\n"
+        "                    _mister_ccmd_paid_us += _cmcost; _mister_ccmd_misses++; /* TEMPORARY DIAG [CCMD] */\n"
         "                }\n"
         "                else\n"
         "                {\n"
@@ -4189,6 +4202,14 @@ endif
         "    return pos;\n"
         "}",
         'command-script dedup: lcmHandleCommandScripts cache-owned alias (gate compile && !first)')
+
+    # [#10] TEMPORARY DIAG (REVERT AFTER MEASURED): time per-frame parse (addframe)
+    # -- the prime suspect for the ~18.8s unaccounted "outside" bucket. One call
+    # site (load_cached_model). _mister_anim_us declared in the cmd-dedup cache block.
+    ob = strict_replace(ob,
+        "                curframe = addframe(&add_frame_data);",
+        "                { unsigned long _af0 = _mister_load_us(); curframe = addframe(&add_frame_data); _mister_anim_us += _mister_load_us() - _af0; } /* TEMPORARY DIAG #10: per-frame parse timer */",
+        '[#10] time addframe (per-frame parse) into _mister_anim_us')
 
     write(ob_path, ob)
     print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 — line-29499 fallback intact, no struct mods).")
