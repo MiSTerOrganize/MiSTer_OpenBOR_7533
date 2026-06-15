@@ -2981,8 +2981,8 @@ endif
     print("Patching openbor.c ([LOAD] phase breakdown: decode/encode/other)...")
     ob = strict_replace(ob,
         '#include "openbor.h"',
-        '#include "openbor.h"\n#include <sys/time.h>',
-        'LOAD-bd: sys/time.h include for gettimeofday')
+        '#include "openbor.h"\n#include <sys/time.h>\n#include <execinfo.h>',
+        'LOAD-bd: sys/time.h include for gettimeofday (+ execinfo.h for PDC2 backtrace)')
     ob = strict_replace(ob,
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};",
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};\n"
@@ -3532,6 +3532,11 @@ endif
         "            /* TEMPORARY DIAG (PDC2): log panel/bgfx/cover spawns by entity model name */\n"
         "            if(acting_entity && ((acting_entity->modeldata.type & TYPE_PANEL) || (acting_entity->modeldata.name && (strstr(acting_entity->modeldata.name, \"bgfx\") || strstr(acting_entity->modeldata.name, \"cover\")))))\n"
         '                printf("[PDC2DIAG] SPAWN %s type=0x%x level=%d screen=0x%x ctx=%d\\n", acting_entity->modeldata.name ? acting_entity->modeldata.name : "?", (int)acting_entity->modeldata.type, level ? 1 : 0, (int)screen_status, _mister_exec_ctx);\n'
+        "            /* TEMPORARY DIAG (PDC2): backtrace at the ENGINE (ctx==0) in-level bgfx spawn; offsets from spawn() are load-base-independent -> symbolize vs OpenBOR.elf */\n"
+        "            if(_mister_exec_ctx == 0 && level && acting_entity && acting_entity->modeldata.name && strstr(acting_entity->modeldata.name, \"bgfx\")) {\n"
+        "                void *_bt[16]; int _btn = backtrace(_bt, 16); int _bi;\n"
+        '                for(_bi = 0; _bi < _btn; _bi++) printf("[PDC2DIAG] BT[%d] off=%ld\\n", _bi, (long)((char *)_bt[_bi] - (char *)spawn));\n'
+        "            }\n"
         "            return acting_entity;",
         'TEMPORARY DIAG: panel/bgfx/cover spawn log')
     ob = strict_replace(ob,
