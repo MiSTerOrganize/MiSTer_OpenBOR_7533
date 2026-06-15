@@ -2966,8 +2966,8 @@ endif
     print("Patching openbor.c ([LOAD] phase breakdown: decode/encode/other)...")
     ob = strict_replace(ob,
         '#include "openbor.h"',
-        '#include "openbor.h"\n#include <sys/time.h>\n#include <execinfo.h>',
-        'LOAD-bd: sys/time.h include for gettimeofday (+ execinfo.h for PDC2 backtrace)')
+        '#include "openbor.h"\n#include <sys/time.h>',
+        'LOAD-bd: sys/time.h include for gettimeofday')
     ob = strict_replace(ob,
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};",
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};\n"
@@ -3437,125 +3437,6 @@ endif
         "}",
         'script dedup: bit-exact alias helper (iscopy=0) in openborscript.c')
     write(obs_alias_path, obs_alias)
-
-    # ===================================================================
-    # TEMPORARY DIAG (PDC2 vscreen-16bit bug, 2026-06-14): trace the
-    # screen-state timeline + bgfx/cover panel spawns + kill_all calls to
-    # localize why select-screen panels persist into the tutorial level.
-    # Bounded (transition-only / filtered by name / per-kill_all). Marked
-    # TEMPORARY DIAG so the CI gate skips binary commit-back. REMOVE after.
-    # ===================================================================
-    print("  TEMPORARY DIAG: PDC2 screen-state + panel-lifecycle trace")
-    ob = strict_replace(ob,
-        "entity *spawn(const float pos_x, const float pos_z, const float pos_y, const e_direction direction, char *model_name, const int model_index, s_model* model_pointer)\n"
-        "{",
-        "int _mister_exec_ctx = 0; /* TEMPORARY DIAG (PDC2): spawn-caller context 1=update.c 2=level-update 0=other */\n"
-        "entity *spawn(const float pos_x, const float pos_z, const float pos_y, const e_direction direction, char *model_name, const int model_index, s_model* model_pointer)\n"
-        "{",
-        'TEMPORARY DIAG: declare _mister_exec_ctx before spawn')
-    ob = strict_replace(ob,
-        "    if(Script_IsInitialized(&update_script))\n"
-        "    {\n"
-        "        Script_Execute(&(update_script));\n"
-        "    }\n"
-        "    if(level && Script_IsInitialized(&(level->update_script)))\n"
-        "    {\n"
-        "        Script_Execute(&(level->update_script));\n"
-        "    }",
-        "    if(Script_IsInitialized(&update_script))\n"
-        "    {\n"
-        "        _mister_exec_ctx += 1; Script_Execute(&(update_script)); _mister_exec_ctx -= 1; /* TEMPORARY DIAG depth */\n"
-        "    }\n"
-        "    if(level && Script_IsInitialized(&(level->update_script)))\n"
-        "    {\n"
-        "        _mister_exec_ctx += 1; Script_Execute(&(level->update_script)); _mister_exec_ctx -= 1; /* TEMPORARY DIAG depth */\n"
-        "    }",
-        'TEMPORARY DIAG: bracket update-script execution with exec_ctx depth')
-    ob = strict_replace(ob,
-        "    if(Script_IsInitialized(&updated_script))\n"
-        "    {\n"
-        "        Script_Execute(&(updated_script));\n"
-        "    }\n"
-        "    if(level && Script_IsInitialized(&(level->updated_script)))\n"
-        "    {\n"
-        "        Script_Execute(&(level->updated_script));\n"
-        "    }",
-        "    if(Script_IsInitialized(&updated_script))\n"
-        "    {\n"
-        "        _mister_exec_ctx += 100; Script_Execute(&(updated_script)); _mister_exec_ctx -= 100; /* TEMPORARY DIAG */\n"
-        "    }\n"
-        "    if(level && Script_IsInitialized(&(level->updated_script)))\n"
-        "    {\n"
-        "        _mister_exec_ctx += 100; Script_Execute(&(level->updated_script)); _mister_exec_ctx -= 100; /* TEMPORARY DIAG */\n"
-        "    }",
-        'TEMPORARY DIAG: bracket updated-script execution (+100)')
-    ob = strict_replace(ob,
-        "void execute_updatescripts()\n"
-        "{\n"
-        "    if(Script_IsInitialized(&update_script))",
-        "void execute_updatescripts()\n"
-        "{\n"
-        "    /* TEMPORARY DIAG (PDC2): log screen_status transitions */\n"
-        "    { static int _mdiag_prev_ss = -1;\n"
-        "      if((int)screen_status != _mdiag_prev_ss) {\n"
-        '        printf("[PDC2DIAG] screen_status 0x%x -> 0x%x SELECT=%d\\n", _mdiag_prev_ss, (int)screen_status, (screen_status & IN_SCREEN_SELECT) ? 1 : 0);\n'
-        "        _mdiag_prev_ss = (int)screen_status;\n"
-        "      } }\n"
-        "    /* TEMPORARY DIAG (PDC2): periodic panel-entity dump (~every 120 ticks) */\n"
-        "    { static int _mdiag_fc = 0;\n"
-        "      if(++_mdiag_fc >= 120) { int _mi, _mn = 0; char _mb[256]; _mdiag_fc = 0; _mb[0] = 0;\n"
-        "        for(_mi = 0; _mi < ent_max; _mi++) { entity *_me = ent_list[_mi];\n"
-        "          if(_me && _me->exists && (_me->modeldata.type & TYPE_PANEL)) { _mn++;\n"
-        "            if(strlen(_mb) < 220) { strcat(_mb, _me->modeldata.name ? _me->modeldata.name : \"?\"); strcat(_mb, \" \"); } } }\n"
-        '        printf("[PDC2DIAG] TICK level=%d screen=0x%x panels=%d [%s]\\n", level ? 1 : 0, (int)screen_status, _mn, _mb); } }\n'
-        "    if(Script_IsInitialized(&update_script))",
-        'TEMPORARY DIAG: screen_status transition log + periodic panel dump')
-    ob = strict_replace(ob,
-        "            ent_default_init(acting_entity);\n"
-        "            return acting_entity;",
-        "            ent_default_init(acting_entity);\n"
-        "            /* TEMPORARY DIAG (PDC2): log panel/bgfx/cover spawns by entity model name */\n"
-        "            if(acting_entity && ((acting_entity->modeldata.type & TYPE_PANEL) || (acting_entity->modeldata.name && (strstr(acting_entity->modeldata.name, \"bgfx\") || strstr(acting_entity->modeldata.name, \"cover\")))))\n"
-        '                printf("[PDC2DIAG] SPAWN %s type=0x%x level=%d screen=0x%x ctx=%d\\n", acting_entity->modeldata.name ? acting_entity->modeldata.name : "?", (int)acting_entity->modeldata.type, level ? 1 : 0, (int)screen_status, _mister_exec_ctx);\n'
-        "            /* TEMPORARY DIAG (PDC2): backtrace at the ENGINE (ctx==0) in-level bgfx spawn; offsets from spawn() are load-base-independent -> symbolize vs OpenBOR.elf */\n"
-        "            if(_mister_exec_ctx == 0 && level && acting_entity && acting_entity->modeldata.name && strstr(acting_entity->modeldata.name, \"bgfx\")) {\n"
-        "                void *_bt[16]; int _btn = backtrace(_bt, 16); int _bi;\n"
-        '                for(_bi = 0; _bi < _btn; _bi++) printf("[PDC2DIAG] BT[%d] off=%ld\\n", _bi, (long)((char *)_bt[_bi] - (char *)spawn));\n'
-        "            }\n"
-        "            return acting_entity;",
-        'TEMPORARY DIAG: panel/bgfx/cover spawn log')
-    ob = strict_replace(ob,
-        "void kill_all()\n"
-        "{\n"
-        "    int i;\n"
-        "    entity *e = NULL;",
-        "void kill_all()\n"
-        "{\n"
-        "    int i;\n"
-        "    entity *e = NULL;\n"
-        '    printf("[PDC2DIAG] kill_all() screen=0x%x SELECT=%d ent_max=%d\\n", (int)screen_status, (screen_status & IN_SCREEN_SELECT) ? 1 : 0, ent_max);',
-        'TEMPORARY DIAG: kill_all log')
-    ob = strict_replace(ob,
-        "    /* Spawn item based on number of active players. */\n"
-        "    if(props->spawnplayer_count >= (playercount = MAX(1, count_ents(TYPE_PLAYER))))",
-        "    /* TEMPORARY DIAG (PDC2): log smartspawn entries that resolve to bgfx (name vs index vs cache[index]) */\n"
-        "    { s_model *_mc = (props->index >= 0) ? model_cache[props->index].model : 0;\n"
-        "      const char *_sn = (props->index >= 0) ? model_cache[props->index].name : 0;\n"
-        "      const char *_rn = props->model ? props->model->name : (_mc ? _mc->name : (props->name ? props->name : 0));\n"
-        "      if(_rn && strstr(_rn, \"bgfx\"))\n"
-        '        printf("[PDC2DIAG] SMARTSPAWN spname=%s index=%d hasptr=%d slot.name=%s slot.model=%s spawntype=%d models_cached=%d\\n", props->name ? props->name : "?", props->index, props->model ? 1 : 0, _sn ? _sn : "?", _mc ? _mc->name : "?", (int)props->spawntype, (int)models_cached); }\n'
-        "    /* Spawn item based on number of active players. */\n"
-        "    if(props->spawnplayer_count >= (playercount = MAX(1, count_ents(TYPE_PLAYER))))",
-        'TEMPORARY DIAG: smartspawn bgfx-resolution log')
-    ob = strict_replace(ob,
-        "void kill_entity(entity *victim, e_kill_entity_trigger trigger)\n"
-        "{",
-        "void kill_entity(entity *victim, e_kill_entity_trigger trigger)\n"
-        "{\n"
-        "    /* TEMPORARY DIAG (PDC2): log bgfx/cover kills */\n"
-        "    if(victim && victim->modeldata.name && (strstr(victim->modeldata.name, \"bgfx\") || strstr(victim->modeldata.name, \"cover\")))\n"
-        '        printf("[PDC2DIAG] KILL %s level=%d screen=0x%x\\n", victim->modeldata.name, level ? 1 : 0, (int)screen_status);',
-        'TEMPORARY DIAG: bgfx/cover kill_entity log')
 
     # ===================================================================
     # PDC2 FIX (2026-06-15): a no-model level "at" entry must not reference
