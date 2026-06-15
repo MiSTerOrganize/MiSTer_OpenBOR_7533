@@ -3936,6 +3936,236 @@ endif
 
     # (fps per-frame + SUB-PROFILE v8/v9/v10 + [BLD]/[BAL] diagnostics stripped for ship -- full version in tools/profiling/)
 
+    # ===================================================================
+    # COMMAND-SCRIPT DEDUP (2026-06-15) -- extends the animation_script dedup
+    # to the ~27 model command scripts (think/update/takedamage/ondeath/onspawn/
+    # key/onmovea/...), all of which compile through lcmHandleCommandScripts.
+    # Static analysis of local PAKs: JL Legacy 227 refs -> 4 distinct files (98%
+    # dup), TMNT-RP 343 -> 30 (91%). ZERO command-script models use 'unload'.
+    # DESIGN: cache-OWNED master interpreters. Each distinct command script is
+    # compiled once into a cache-owned Script (interpreterowner=1); every model
+    # (incl the first) gets an interpreterowner=0 alias via mister_script_alias_fresh
+    # (bit-exact: same compiled interpreter, execute_init_method iscopy=0). Since
+    # no MODEL owns the shared interpreter, mid-session unload_level frees can't
+    # dangle an alias; the cache is freed once at PAK teardown (free_models),
+    # AFTER every model alias is freed (safe ordering). Key: file-case = script
+    # path ('F'+path; same path==same content within a PAK -> skip file read AND
+    # compile on hit); inline @script case = inline text ('I'+text). Gate:
+    # (compile && !first) -> exactly the 27 model command-script callers; level
+    # scripts (first=1) + deferred-compile callers (compile=0) keep the original
+    # path. Separate cache from the animation dedup (untouched); LOCKED palette
+    # path untouched. RAM-only, no SD files.
+    # ===================================================================
+    print("  Command-script dedup: cache-owned masters for model command scripts (98%/91% dup on JLL/TMNT-RP)")
+    # (1) cache + helpers, inserted before free_models (visible to free_models'
+    #     clear hook AND to lcmHandleCommandScripts further down).
+    ob = strict_replace(ob,
+        "void free_models()\n"
+        "{\n"
+        "    s_model *temp;",
+        "/* MiSTer 2026-06-15 command-script dedup cache (cache-OWNED masters).\n"
+        "   See block comment in apply_patches.py. Separate from the animation\n"
+        "   dedup cache; reuses mister_script_alias_fresh (extern declared earlier). */\n"
+        "typedef struct {\n"
+        "    unsigned int hash;\n"
+        "    char *key;       /* prefix byte ('F' path / 'I' inline) + key text */\n"
+        "    Script *master;  /* cache-owned compiled interpreter (interpreterowner==1) */\n"
+        "} mister_ccache_entry;\n"
+        "static mister_ccache_entry *mister_ccache = NULL;\n"
+        "static int mister_ccache_n = 0, mister_ccache_cap = 0;\n"
+        "extern void mister_script_alias_fresh(Script *pdest, Script *psrc);\n"
+        "static unsigned int mister_ccache_hash(char pfx, const char *s)\n"
+        "{\n"
+        "    unsigned int h = 5381; h = ((h << 5) + h) + (unsigned char)pfx;\n"
+        "    if(s) while(*s) h = ((h << 5) + h) + (unsigned char)(*s++);\n"
+        "    return h;\n"
+        "}\n"
+        "static Script *mister_ccache_lookup(char pfx, const char *key)\n"
+        "{\n"
+        "    unsigned int h = mister_ccache_hash(pfx, key);\n"
+        "    int i;\n"
+        "    for(i = 0; i < mister_ccache_n; i++)\n"
+        "        if(mister_ccache[i].hash == h && mister_ccache[i].key\n"
+        "           && mister_ccache[i].key[0] == pfx && strcmp(mister_ccache[i].key + 1, key) == 0)\n"
+        "            return mister_ccache[i].master;\n"
+        "    return NULL;\n"
+        "}\n"
+        "static void mister_ccache_insert(char pfx, const char *key, Script *master)\n"
+        "{\n"
+        "    int len; char *copy; mister_ccache_entry *np;\n"
+        "    if(!key || !master) return;\n"
+        "    if(mister_ccache_n >= mister_ccache_cap)\n"
+        "    {\n"
+        "        int nc = mister_ccache_cap ? (mister_ccache_cap * 2) : 64;\n"
+        "        np = (mister_ccache_entry *)realloc(mister_ccache, nc * sizeof(mister_ccache_entry));\n"
+        "        if(!np) return;\n"
+        "        mister_ccache = np; mister_ccache_cap = nc;\n"
+        "    }\n"
+        "    len = (int)strlen(key);\n"
+        "    copy = (char *)malloc(len + 2);\n"
+        "    if(!copy) return;\n"
+        "    copy[0] = pfx; memcpy(copy + 1, key, len + 1);\n"
+        "    mister_ccache[mister_ccache_n].hash = mister_ccache_hash(pfx, key);\n"
+        "    mister_ccache[mister_ccache_n].key = copy;\n"
+        "    mister_ccache[mister_ccache_n].master = master;\n"
+        "    mister_ccache_n++;\n"
+        "}\n"
+        "/* Free all cache-owned masters. Called from free_models AFTER every model\n"
+        "   (and thus every interpreterowner=0 alias) has been freed, so the shared\n"
+        "   interpreters have no live aliases when freed here. */\n"
+        "static void mister_ccache_clear(void)\n"
+        "{\n"
+        "    int i;\n"
+        "    for(i = 0; i < mister_ccache_n; i++)\n"
+        "    {\n"
+        "        if(mister_ccache[i].master) { Script_Clear(mister_ccache[i].master, 2); free(mister_ccache[i].master); }\n"
+        "        if(mister_ccache[i].key) free(mister_ccache[i].key);\n"
+        "    }\n"
+        "    if(mister_ccache) free(mister_ccache);\n"
+        "    mister_ccache = NULL; mister_ccache_n = 0; mister_ccache_cap = 0;\n"
+        "}\n"
+        "void free_models()\n"
+        "{\n"
+        "    s_model *temp;",
+        'command-script dedup: cache + helpers before free_models')
+    # (2) clear the cache after free_models' model-free loop (all aliases gone).
+    ob = strict_replace(ob,
+        "    while((temp = getFirstModel()))\n"
+        "    {\n"
+        "        free_model(temp);\n"
+        "    }",
+        "    while((temp = getFirstModel()))\n"
+        "    {\n"
+        "        free_model(temp);\n"
+        "    }\n"
+        "    mister_ccache_clear(); /* MiSTer cmd-script dedup: free cache-owned masters (all model aliases now freed) */",
+        'command-script dedup: clear cache in free_models after model-free loop')
+    # (3) dedup restructure of lcmHandleCommandScripts. Gate on (compile && !first)
+    #     -> the 27 model command-script callers. Level scripts (first=1) and
+    #     deferred-compile callers (compile=0) fall to the unchanged original path.
+    ob = strict_replace(ob,
+        "size_t lcmHandleCommandScripts(ArgList *arglist, char *buf, Script *script, char *scriptname, char *filename, int compile, int first)\n"
+        "{\n"
+        "    ptrdiff_t pos = 0;\n"
+        "    size_t len = 0;\n"
+        "    int result = 0;\n"
+        "    char *scriptbuf = NULL;\n"
+        "    Script_Init(script, scriptname, filename, first);\n"
+        "    if(stricmp(GET_ARGP(1), \"@script\") == 0)\n"
+        "    {\n"
+        "        fetchInlineScript(buf, &scriptbuf, &pos, &len);\n"
+        "        if(scriptbuf)\n"
+        "        {\n"
+        "            result = Script_AppendText(script, scriptbuf, filename);\n"
+        "            free(scriptbuf);\n"
+        "        }\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        result = load_script(script, GET_ARGP(1));\n"
+        "    }\n"
+        "    if(result)\n"
+        "    {\n"
+        "        if(compile)\n"
+        "        {\n"
+        "            Script_Compile(script);\n"
+        "        }\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        borShutdown(1, \"Unable to load %s '%s' in file '%s'.\\n\", scriptname, GET_ARGP(1), filename);\n"
+        "    }\n"
+        "    return pos;\n"
+        "}",
+        "size_t lcmHandleCommandScripts(ArgList *arglist, char *buf, Script *script, char *scriptname, char *filename, int compile, int first)\n"
+        "{\n"
+        "    ptrdiff_t pos = 0;\n"
+        "    size_t len = 0;\n"
+        "    int result = 0;\n"
+        "    char *scriptbuf = NULL;\n"
+        "    /* MiSTer 2026-06-15 command-script dedup: for the model command-script\n"
+        "       callers (compile && !first), reuse a cache-owned compiled master and\n"
+        "       make THIS model's script an interpreterowner=0 alias (skips file read +\n"
+        "       lex + compile on a hit). Bit-exact (same compiled interpreter). Level\n"
+        "       scripts (first) + deferred-compile callers (!compile) use the original\n"
+        "       path below unchanged. */\n"
+        "    if(compile && !first)\n"
+        "    {\n"
+        "        char _cpfx; char *_ckey = NULL; char *_cinlinebuf = NULL; Script *_cm;\n"
+        "        if(stricmp(GET_ARGP(1), \"@script\") == 0)\n"
+        "        {\n"
+        "            fetchInlineScript(buf, &scriptbuf, &pos, &len); /* advances pos past the inline block */\n"
+        "            _cinlinebuf = scriptbuf; _ckey = scriptbuf; _cpfx = 'I';\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            _ckey = GET_ARGP(1); _cpfx = 'F';\n"
+        "        }\n"
+        "        if(_ckey && _ckey[0])\n"
+        "        {\n"
+        "            _cm = mister_ccache_lookup(_cpfx, _ckey);\n"
+        "            if(_cm)\n"
+        "            {\n"
+        "                /* HIT: alias this model's (varlist-only, un-Script_Init'd) script.\n"
+        "                   No Script_Init here -> no per-model interpreter to leak. */\n"
+        "                mister_script_alias_fresh(script, _cm);\n"
+        "                result = 1;\n"
+        "            }\n"
+        "            else\n"
+        "            {\n"
+        "                /* MISS: build a cache-OWNED master, then alias this model. */\n"
+        "                _cm = alloc_script();\n"
+        "                Script_Init(_cm, scriptname, filename, 0);\n"
+        "                if(_cinlinebuf) result = Script_AppendText(_cm, _cinlinebuf, filename);\n"
+        "                else            result = load_script(_cm, GET_ARGP(1));\n"
+        "                if(result)\n"
+        "                {\n"
+        "                    Script_Compile(_cm);\n"
+        "                    mister_ccache_insert(_cpfx, _ckey, _cm);\n"
+        "                    mister_script_alias_fresh(script, _cm);\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    Script_Clear(_cm, 2); free(_cm); _cm = NULL;\n"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "        if(_cinlinebuf) free(_cinlinebuf);\n"
+        "        if(!result)\n"
+        "        {\n"
+        "            borShutdown(1, \"Unable to load %s '%s' in file '%s'.\\n\", scriptname, GET_ARGP(1), filename);\n"
+        "        }\n"
+        "        return pos;\n"
+        "    }\n"
+        "    Script_Init(script, scriptname, filename, first);\n"
+        "    if(stricmp(GET_ARGP(1), \"@script\") == 0)\n"
+        "    {\n"
+        "        fetchInlineScript(buf, &scriptbuf, &pos, &len);\n"
+        "        if(scriptbuf)\n"
+        "        {\n"
+        "            result = Script_AppendText(script, scriptbuf, filename);\n"
+        "            free(scriptbuf);\n"
+        "        }\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        result = load_script(script, GET_ARGP(1));\n"
+        "    }\n"
+        "    if(result)\n"
+        "    {\n"
+        "        if(compile)\n"
+        "        {\n"
+        "            Script_Compile(script);\n"
+        "        }\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        borShutdown(1, \"Unable to load %s '%s' in file '%s'.\\n\", scriptname, GET_ARGP(1), filename);\n"
+        "    }\n"
+        "    return pos;\n"
+        "}",
+        'command-script dedup: lcmHandleCommandScripts cache-owned alias (gate compile && !first)')
+
     write(ob_path, ob)
     print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 — line-29499 fallback intact, no struct mods).")
 
