@@ -211,6 +211,73 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                     uint16x8_t out = vorrq_u16(vorrq_u16(r_shifted, g), b_shifted);
                     vst1q_u16((uint16_t*)(dst_row + x), out);
                 }
+            } else if (width == NV_FRAME_WIDTH * 3) {
+                /* MiSTer Tier-0 (2026-06-15): NEON 3x area-average box for the
+                 * 16bpp BGR565 squish (He-Man 960x480 -> 320x224, 3x X). hcnt==3
+                 * for every output column; vcnt varies per row. Byte-identical to
+                 * the scalar box below: expand each 5/6-bit tap to 8-bit
+                 * ((v<<3)|(v>>2) / (v<<2)|(v>>4)), sum, divide by 3*vcnt via the
+                 * same recip, pack RGB565. vld3q_u16 deinterleaves the 3 taps. */
+                int yy0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
+                int yy1 = (int)(((long)(y + 1) * height) / NV_FRAME_HEIGHT);
+                if (yy1 <= yy0) yy1 = yy0 + 1;
+                if (yy1 > height) yy1 = height;
+                if (yy0 >= height) yy0 = height - 1;
+                int vcnt = yy1 - yy0;
+                const uint8_t* sbase = src + (size_t)yy0 * pitch;
+                uint32_t rc = (uint32_t)((1u << 20) / ((uint32_t)3 * (uint32_t)vcnt));
+
+                uint16_t acc_r[NV_FRAME_WIDTH], acc_g[NV_FRAME_WIDTH], acc_b[NV_FRAME_WIDTH];
+                memset(acc_r, 0, sizeof(acc_r));
+                memset(acc_g, 0, sizeof(acc_g));
+                memset(acc_b, 0, sizeof(acc_b));
+
+                const uint16x8_t m5 = vdupq_n_u16(0x001F);
+                const uint16x8_t m6 = vdupq_n_u16(0x003F);
+                const uint8_t* rowp = sbase;
+                for (int syy = 0; syy < vcnt; syy++) {
+                    const uint16_t* sp = (const uint16_t*)rowp;
+                    for (int x = 0; x < NV_FRAME_WIDTH; x += 8) {
+                        uint16x8x3_t g3 = vld3q_u16(sp + (size_t)x * 3);
+                        uint16x8_t hr = vdupq_n_u16(0), hg = vdupq_n_u16(0), hb = vdupq_n_u16(0);
+                        for (int t = 0; t < 3; t++) {
+                            uint16x8_t p  = g3.val[t];
+                            uint16x8_t r5 = vandq_u16(p, m5);
+                            uint16x8_t g6 = vandq_u16(vshrq_n_u16(p, 5), m6);
+                            uint16x8_t b5 = vandq_u16(vshrq_n_u16(p, 11), m5);
+                            hr = vaddq_u16(hr, vorrq_u16(vshlq_n_u16(r5, 3), vshrq_n_u16(r5, 2)));
+                            hg = vaddq_u16(hg, vorrq_u16(vshlq_n_u16(g6, 2), vshrq_n_u16(g6, 4)));
+                            hb = vaddq_u16(hb, vorrq_u16(vshlq_n_u16(b5, 3), vshrq_n_u16(b5, 2)));
+                        }
+                        vst1q_u16(&acc_r[x], vaddq_u16(vld1q_u16(&acc_r[x]), hr));
+                        vst1q_u16(&acc_g[x], vaddq_u16(vld1q_u16(&acc_g[x]), hg));
+                        vst1q_u16(&acc_b[x], vaddq_u16(vld1q_u16(&acc_b[x]), hb));
+                    }
+                    rowp += pitch;
+                }
+
+                const uint32x4_t rc_v  = vdupq_n_u32(rc);
+                const uint32x4_t halfv = vdupq_n_u32(1u << 19);
+                volatile uint16_t* drow = dst + (size_t)y * NV_FRAME_WIDTH;
+                for (int x = 0; x < NV_FRAME_WIDTH; x += 8) {
+                    uint16x8_t ar = vld1q_u16(&acc_r[x]);
+                    uint16x8_t ag = vld1q_u16(&acc_g[x]);
+                    uint16x8_t ab = vld1q_u16(&acc_b[x]);
+                    uint32x4_t rl = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_low_u16(ar)),  rc_v), halfv), 20);
+                    uint32x4_t rh = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_high_u16(ar)), rc_v), halfv), 20);
+                    uint32x4_t gl = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_low_u16(ag)),  rc_v), halfv), 20);
+                    uint32x4_t gh = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_high_u16(ag)), rc_v), halfv), 20);
+                    uint32x4_t bl = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_low_u16(ab)),  rc_v), halfv), 20);
+                    uint32x4_t bh = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_high_u16(ab)), rc_v), halfv), 20);
+                    uint16x8_t r8 = vcombine_u16(vmovn_u32(rl), vmovn_u32(rh));
+                    uint16x8_t g8 = vcombine_u16(vmovn_u32(gl), vmovn_u32(gh));
+                    uint16x8_t b8 = vcombine_u16(vmovn_u32(bl), vmovn_u32(bh));
+                    uint16x8_t out = vorrq_u16(vorrq_u16(
+                                        vshlq_n_u16(vshrq_n_u16(r8, 3), 11),
+                                        vshlq_n_u16(vshrq_n_u16(g8, 2), 5)),
+                                        vshrq_n_u16(b8, 3));
+                    vst1q_u16((uint16_t*)(drow + x), out);
+                }
             } else {
                 /* MiSTer Path B Build 2: AREA-AVERAGE (box) 16-bit downscale,
                  * replacing nearest-neighbor for the squish case (He-Man
