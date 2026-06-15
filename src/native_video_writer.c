@@ -34,6 +34,15 @@
  * no-squish fast path of WriteFrame. Cortex-A9 + -mfpu=neon -mfloat-abi=hard
  * build flags (see CLAUDE.md OpenBOR build config) guarantee NEON support. */
 #include <arm_neon.h>
+#include <time.h>   /* TEMPORARY DIAG (REVERT AFTER MEASURED): [VCP] total-WriteFrame timer */
+
+/* TEMPORARY DIAG (REVERT AFTER MEASURED): monotonic-ns clock for the [VCP]
+ * total-WriteFrame timing (Tier-A FPGA-offload decision: WriteFrame ms/frame). */
+static inline uint64_t nv_now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+}
 
 #define NV_DDR_PHYS_BASE    0x3A000000u
 #define NV_DDR_REGION_SIZE  0x00100000u   /* 1MB covers buffers + control + cart data */
@@ -146,6 +155,8 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
      * conditional) is being eliminated; prints actual bpp/width at runtime. */
     { static int _wf_m = 0; if (!_wf_m) { _wf_m = 1;
         fprintf(stderr, "WFMARKER_TOPLEVEL bpp=%d w=%d h=%d\n", bpp, width, height); } }
+
+    uint64_t _vcp_t0 = nv_now_ns();  /* TEMPORARY DIAG (REVERT AFTER MEASURED): [VCP] start */
 
     /* Anisotropic nearest-neighbor squish: source W×H → NV_FRAME_WIDTH×HEIGHT.
      * Sega CD V28 NTSC active area = 320×224. 320×240 PAKs (ATOV, etc.)
@@ -546,6 +557,22 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
      * first lines of the new frame could read partially-written pixels.
      * __sync_synchronize() generates ARMv7 DMB SY (full memory barrier);
      * costs ~2 cycles, negligible. */
+    /* TEMPORARY DIAG (REVERT AFTER MEASURED): [VCP] total-WriteFrame timing.
+     * Reports avg ms/frame across ALL bpp paths every 300 frames -> WriteFrame's
+     * fraction of the frame budget = avg_ms * fps / 1000 (Tier-A offload decision). */
+    {
+        static uint64_t s_vcp_ns = 0; static int s_vcp_frames = 0;
+        static int s_vcp_bpp = 0, s_vcp_w = 0, s_vcp_h = 0;
+        s_vcp_ns += nv_now_ns() - _vcp_t0; s_vcp_frames++;
+        s_vcp_bpp = bpp; s_vcp_w = width; s_vcp_h = height;
+        if (s_vcp_frames >= 300) {
+            double avg_ms = (double)s_vcp_ns / (double)s_vcp_frames / 1e6;
+            fprintf(stderr, "[VCP] WriteFrame avg %.3f ms/frame over %d frames (src %dx%d bpp=%d -> 320x224)\n",
+                    avg_ms, s_vcp_frames, s_vcp_w, s_vcp_h, s_vcp_bpp);
+            s_vcp_ns = 0; s_vcp_frames = 0;
+        }
+    }
+
     __sync_synchronize();
 
     /* Flip control word */
