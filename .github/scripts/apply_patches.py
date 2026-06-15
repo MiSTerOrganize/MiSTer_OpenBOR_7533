@@ -3558,43 +3558,31 @@ endif
         'TEMPORARY DIAG: bgfx/cover kill_entity log')
 
     # ===================================================================
-    # PDC2 FIX (2026-06-15): level spawn entries must default to no-model.
-    # A settings-only "at" entry (light/shadowalpha/shadowcolor + at) is
-    # memcpy'd into level->spawnpoints[] with index left at the memset
-    # default of 0. update_scroller smartspawns it, and spawn() resolves
-    # model_index 0 -> model_cache[0]. On the 16-bit branch model_cache[0]
-    # happens to be bgfx (PDC2's select-screen background), so every such
-    # entry spawns a looping bgfx into the level (root-caused via backtrace:
-    # update_scroller->smartspawn->spawn, index=0, name/model NULL,
-    # spawntype=0). Engine intent (see CMD_LEVEL_SPAWN) is MODEL_INDEX_NONE
-    # (-1) for "no model"; the memset reset points just forget to set it.
-    # Default the index to MODEL_INDEX_NONE after both resets so settings
-    # entries don't accidentally reference model_cache[0]. Legit model
-    # spawns (CMD_LEVEL_SPAWN) set the index explicitly and are unaffected.
+    # PDC2 FIX (2026-06-15): a no-model level "at" entry must not reference
+    # model_cache[0]. PDC2's tutorial has settings-only entries
+    # (light/shadowalpha/shadowcolor + at). Each settings command does its
+    # own memset(&next,0,...) (zeroing index to 0) then sets its field, so at
+    # the single commit point (CMD_LEVEL_AT memcpy into level->spawnpoints[])
+    # the entry has name=NULL, model=NULL, index=0. update_scroller later
+    # smartspawns it and spawn() resolves model_index 0 -> model_cache[0];
+    # on the 16-bit branch model_cache[0] is bgfx (the select-screen
+    # background), so the settings entry spawns a looping bgfx into the level
+    # (root-caused via backtrace update_scroller->smartspawn->spawn + the
+    # SMARTSPAWN diag: index=0, no name/model, slot.model=bgfx). Engine intent
+    # is MODEL_INDEX_NONE (-1) for "no model" (CMD_LEVEL_SPAWN sets it). Fix at
+    # the COMMIT point (after all per-command memsets): if the entry has no
+    # name and no model pointer, force index/item/weapon to MODEL_INDEX_NONE
+    # so spawn() returns NULL instead of resolving model_cache[0]. Legit model
+    # spawns always have a name (CMD_LEVEL_SPAWN sets next.name) -> unaffected.
     # ===================================================================
-    print("  PDC2 fix: default level spawn-entry index to MODEL_INDEX_NONE (settings 'at' entries no longer spawn model_cache[0])")
+    print("  PDC2 fix: no-model 'at' entries get MODEL_INDEX_NONE at commit (no longer spawn model_cache[0])")
     ob = strict_replace(ob,
-        "    update_loading(&loadingbg[1], -1, 1); // initialize the update screen\n"
-        "\n"
-        "    memset(&next, 0, sizeof(next));",
-        "    update_loading(&loadingbg[1], -1, 1); // initialize the update screen\n"
-        "\n"
-        "    memset(&next, 0, sizeof(next));\n"
-        "    next.index = next.item_properties.index = next.weaponindex = MODEL_INDEX_NONE; /* MiSTer PDC2 fix: no-model default */",
-        'PDC2 fix: initial spawn-entry index default to MODEL_INDEX_NONE')
-    ob = strict_replace(ob,
-        "            level->numspawns++;\n"
-        "\n"
-        "            // And clear...\n"
-        "            memset(&next, 0, sizeof(next));\n"
-        "            break;",
-        "            level->numspawns++;\n"
-        "\n"
-        "            // And clear...\n"
-        "            memset(&next, 0, sizeof(next));\n"
-        "            next.index = next.item_properties.index = next.weaponindex = MODEL_INDEX_NONE; /* MiSTer PDC2 fix: no-model default */\n"
-        "            break;",
-        'PDC2 fix: per-at spawn-entry index default to MODEL_INDEX_NONE')
+        "            __realloc(level->spawnpoints, level->numspawns);\n"
+        "            memcpy(&level->spawnpoints[level->numspawns], &next, sizeof(next));",
+        "            __realloc(level->spawnpoints, level->numspawns);\n"
+        "            if((!next.name || !next.name[0]) && !next.model) { next.index = next.item_properties.index = next.weaponindex = MODEL_INDEX_NONE; } /* MiSTer PDC2 fix: settings-only 'at' entry has no model -> don't let spawn() resolve index 0 to model_cache[0] (bgfx) */\n"
+        "            memcpy(&level->spawnpoints[level->numspawns], &next, sizeof(next));",
+        'PDC2 fix: no-model at-entry gets MODEL_INDEX_NONE at CMD_LEVEL_AT commit')
 
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
     # 256 -> 4096. Reduces realloc count from ~195 to ~12 for a 50k-sprite
