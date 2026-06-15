@@ -3479,13 +3479,31 @@ endif
         "    }",
         "    if(Script_IsInitialized(&update_script))\n"
         "    {\n"
-        "        _mister_exec_ctx = 1; Script_Execute(&(update_script)); _mister_exec_ctx = 0; /* TEMPORARY DIAG */\n"
+        "        _mister_exec_ctx += 1; Script_Execute(&(update_script)); _mister_exec_ctx -= 1; /* TEMPORARY DIAG depth */\n"
         "    }\n"
         "    if(level && Script_IsInitialized(&(level->update_script)))\n"
         "    {\n"
-        "        _mister_exec_ctx = 2; Script_Execute(&(level->update_script)); _mister_exec_ctx = 0; /* TEMPORARY DIAG */\n"
+        "        _mister_exec_ctx += 1; Script_Execute(&(level->update_script)); _mister_exec_ctx -= 1; /* TEMPORARY DIAG depth */\n"
         "    }",
-        'TEMPORARY DIAG: bracket update-script execution with exec_ctx')
+        'TEMPORARY DIAG: bracket update-script execution with exec_ctx depth')
+    ob = strict_replace(ob,
+        "    if(Script_IsInitialized(&updated_script))\n"
+        "    {\n"
+        "        Script_Execute(&(updated_script));\n"
+        "    }\n"
+        "    if(level && Script_IsInitialized(&(level->updated_script)))\n"
+        "    {\n"
+        "        Script_Execute(&(level->updated_script));\n"
+        "    }",
+        "    if(Script_IsInitialized(&updated_script))\n"
+        "    {\n"
+        "        _mister_exec_ctx += 100; Script_Execute(&(updated_script)); _mister_exec_ctx -= 100; /* TEMPORARY DIAG */\n"
+        "    }\n"
+        "    if(level && Script_IsInitialized(&(level->updated_script)))\n"
+        "    {\n"
+        "        _mister_exec_ctx += 100; Script_Execute(&(level->updated_script)); _mister_exec_ctx -= 100; /* TEMPORARY DIAG */\n"
+        "    }",
+        'TEMPORARY DIAG: bracket updated-script execution (+100)')
     ob = strict_replace(ob,
         "void execute_updatescripts()\n"
         "{\n"
