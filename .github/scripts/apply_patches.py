@@ -3462,6 +3462,31 @@ endif
     # ===================================================================
     print("  TEMPORARY DIAG: PDC2 screen-state + panel-lifecycle trace")
     ob = strict_replace(ob,
+        "entity *spawn(const float pos_x, const float pos_z, const float pos_y, const e_direction direction, char *model_name, const int model_index, s_model* model_pointer)\n"
+        "{",
+        "int _mister_exec_ctx = 0; /* TEMPORARY DIAG (PDC2): spawn-caller context 1=update.c 2=level-update 0=other */\n"
+        "entity *spawn(const float pos_x, const float pos_z, const float pos_y, const e_direction direction, char *model_name, const int model_index, s_model* model_pointer)\n"
+        "{",
+        'TEMPORARY DIAG: declare _mister_exec_ctx before spawn')
+    ob = strict_replace(ob,
+        "    if(Script_IsInitialized(&update_script))\n"
+        "    {\n"
+        "        Script_Execute(&(update_script));\n"
+        "    }\n"
+        "    if(level && Script_IsInitialized(&(level->update_script)))\n"
+        "    {\n"
+        "        Script_Execute(&(level->update_script));\n"
+        "    }",
+        "    if(Script_IsInitialized(&update_script))\n"
+        "    {\n"
+        "        _mister_exec_ctx = 1; Script_Execute(&(update_script)); _mister_exec_ctx = 0; /* TEMPORARY DIAG */\n"
+        "    }\n"
+        "    if(level && Script_IsInitialized(&(level->update_script)))\n"
+        "    {\n"
+        "        _mister_exec_ctx = 2; Script_Execute(&(level->update_script)); _mister_exec_ctx = 0; /* TEMPORARY DIAG */\n"
+        "    }",
+        'TEMPORARY DIAG: bracket update-script execution with exec_ctx')
+    ob = strict_replace(ob,
         "void execute_updatescripts()\n"
         "{\n"
         "    if(Script_IsInitialized(&update_script))",
@@ -3488,7 +3513,7 @@ endif
         "            ent_default_init(acting_entity);\n"
         "            /* TEMPORARY DIAG (PDC2): log panel/bgfx/cover spawns by entity model name */\n"
         "            if(acting_entity && ((acting_entity->modeldata.type & TYPE_PANEL) || (acting_entity->modeldata.name && (strstr(acting_entity->modeldata.name, \"bgfx\") || strstr(acting_entity->modeldata.name, \"cover\")))))\n"
-        '                printf("[PDC2DIAG] SPAWN %s type=0x%x level=%d screen=0x%x\\n", acting_entity->modeldata.name ? acting_entity->modeldata.name : "?", (int)acting_entity->modeldata.type, level ? 1 : 0, (int)screen_status);\n'
+        '                printf("[PDC2DIAG] SPAWN %s type=0x%x level=%d screen=0x%x ctx=%d\\n", acting_entity->modeldata.name ? acting_entity->modeldata.name : "?", (int)acting_entity->modeldata.type, level ? 1 : 0, (int)screen_status, _mister_exec_ctx);\n'
         "            return acting_entity;",
         'TEMPORARY DIAG: panel/bgfx/cover spawn log')
     ob = strict_replace(ob,
