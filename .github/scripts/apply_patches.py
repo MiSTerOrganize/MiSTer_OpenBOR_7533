@@ -3551,6 +3551,18 @@ endif
         '    printf("[PDC2DIAG] kill_all() screen=0x%x SELECT=%d ent_max=%d\\n", (int)screen_status, (screen_status & IN_SCREEN_SELECT) ? 1 : 0, ent_max);',
         'TEMPORARY DIAG: kill_all log')
     ob = strict_replace(ob,
+        "    /* Spawn item based on number of active players. */\n"
+        "    if(props->spawnplayer_count >= (playercount = MAX(1, count_ents(TYPE_PLAYER))))",
+        "    /* TEMPORARY DIAG (PDC2): log smartspawn entries that resolve to bgfx (name vs index vs cache[index]) */\n"
+        "    { s_model *_mc = (props->index >= 0) ? model_cache[props->index].model : 0;\n"
+        "      const char *_sn = (props->index >= 0) ? model_cache[props->index].name : 0;\n"
+        "      const char *_rn = props->model ? props->model->name : (_mc ? _mc->name : (props->name ? props->name : 0));\n"
+        "      if(_rn && strstr(_rn, \"bgfx\"))\n"
+        '        printf("[PDC2DIAG] SMARTSPAWN spname=%s index=%d hasptr=%d slot.name=%s slot.model=%s spawntype=%d models_cached=%d\\n", props->name ? props->name : "?", props->index, props->model ? 1 : 0, _sn ? _sn : "?", _mc ? _mc->name : "?", (int)props->spawntype, (int)models_cached); }\n'
+        "    /* Spawn item based on number of active players. */\n"
+        "    if(props->spawnplayer_count >= (playercount = MAX(1, count_ents(TYPE_PLAYER))))",
+        'TEMPORARY DIAG: smartspawn bgfx-resolution log')
+    ob = strict_replace(ob,
         "void kill_entity(entity *victim, e_kill_entity_trigger trigger)\n"
         "{",
         "void kill_entity(entity *victim, e_kill_entity_trigger trigger)\n"
