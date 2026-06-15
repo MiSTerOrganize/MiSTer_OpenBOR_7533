@@ -3572,6 +3572,45 @@ endif
         '        printf("[PDC2DIAG] KILL %s level=%d screen=0x%x\\n", victim->modeldata.name, level ? 1 : 0, (int)screen_status);',
         'TEMPORARY DIAG: bgfx/cover kill_entity log')
 
+    # ===================================================================
+    # PDC2 FIX (2026-06-15): level spawn entries must default to no-model.
+    # A settings-only "at" entry (light/shadowalpha/shadowcolor + at) is
+    # memcpy'd into level->spawnpoints[] with index left at the memset
+    # default of 0. update_scroller smartspawns it, and spawn() resolves
+    # model_index 0 -> model_cache[0]. On the 16-bit branch model_cache[0]
+    # happens to be bgfx (PDC2's select-screen background), so every such
+    # entry spawns a looping bgfx into the level (root-caused via backtrace:
+    # update_scroller->smartspawn->spawn, index=0, name/model NULL,
+    # spawntype=0). Engine intent (see CMD_LEVEL_SPAWN) is MODEL_INDEX_NONE
+    # (-1) for "no model"; the memset reset points just forget to set it.
+    # Default the index to MODEL_INDEX_NONE after both resets so settings
+    # entries don't accidentally reference model_cache[0]. Legit model
+    # spawns (CMD_LEVEL_SPAWN) set the index explicitly and are unaffected.
+    # ===================================================================
+    print("  PDC2 fix: default level spawn-entry index to MODEL_INDEX_NONE (settings 'at' entries no longer spawn model_cache[0])")
+    ob = strict_replace(ob,
+        "    update_loading(&loadingbg[1], -1, 1); // initialize the update screen\n"
+        "\n"
+        "    memset(&next, 0, sizeof(next));",
+        "    update_loading(&loadingbg[1], -1, 1); // initialize the update screen\n"
+        "\n"
+        "    memset(&next, 0, sizeof(next));\n"
+        "    next.index = next.item_properties.index = next.weaponindex = MODEL_INDEX_NONE; /* MiSTer PDC2 fix: no-model default */",
+        'PDC2 fix: initial spawn-entry index default to MODEL_INDEX_NONE')
+    ob = strict_replace(ob,
+        "            level->numspawns++;\n"
+        "\n"
+        "            // And clear...\n"
+        "            memset(&next, 0, sizeof(next));\n"
+        "            break;",
+        "            level->numspawns++;\n"
+        "\n"
+        "            // And clear...\n"
+        "            memset(&next, 0, sizeof(next));\n"
+        "            next.index = next.item_properties.index = next.weaponindex = MODEL_INDEX_NONE; /* MiSTer PDC2 fix: no-model default */\n"
+        "            break;",
+        'PDC2 fix: per-at spawn-entry index default to MODEL_INDEX_NONE')
+
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
     # 256 -> 4096. Reduces realloc count from ~195 to ~12 for a 50k-sprite
     # PAK. Each realloc copies the entire previous array; fewer reallocs =
