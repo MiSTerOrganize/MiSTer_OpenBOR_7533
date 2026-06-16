@@ -474,57 +474,6 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                 }
             }
         }
-        /* TEMPORARY DIAG (#9 byte-identity, REVERT AFTER MEASURED): for the first
-         * 2 frames of a 2x or 3:2 NEON-box frame, recompute the scalar box and
-         * compare to what the NEON kernel wrote to dst. [DCV16] mismatch MUST be 0
-         * before this DIAG is removed and the kernels ship. */
-        if (width == NV_FRAME_WIDTH * 2 || width * 2 == NV_FRAME_WIDTH * 3) {
-            /* per-width counters so loading the 2x PAK and the 3:2 PAK in any
-             * order each get checked (a single counter would be exhausted by
-             * whichever PAK rendered first). */
-            static int _dcv640 = 0, _dcv480 = 0;
-            int* _pc = (width == NV_FRAME_WIDTH * 2) ? &_dcv640 : &_dcv480;
-            if (*_pc < 2) {
-                (*_pc)++;
-                long mism = 0;
-                for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
-                    int yy0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
-                    int yy1 = (int)(((long)(y + 1) * height) / NV_FRAME_HEIGHT);
-                    if (yy1 <= yy0) yy1 = yy0 + 1;
-                    if (yy1 > height) yy1 = height;
-                    if (yy0 >= height) yy0 = height - 1;
-                    int vcnt = yy1 - yy0;
-                    const uint8_t* sbase = src + (size_t)yy0 * pitch;
-                    uint32_t recip16[8];
-                    for (int h = 1; h < 8; h++) recip16[h] = (uint32_t)((1u << 20) / ((uint32_t)h * (uint32_t)vcnt));
-                    volatile uint16_t* drow = dst + (size_t)y * NV_FRAME_WIDTH;
-                    for (int x = 0; x < NV_FRAME_WIDTH; x++) {
-                        int x0 = (int)(((long)x * width) / NV_FRAME_WIDTH);
-                        int x1 = (int)(((long)(x + 1) * width) / NV_FRAME_WIDTH);
-                        if (x1 <= x0) x1 = x0 + 1;
-                        if (x1 > width) x1 = width;
-                        if (x0 >= width) x0 = width - 1;
-                        int hcnt = x1 - x0; if (hcnt > 7) hcnt = 7;
-                        uint32_t rs = 0, gs = 0, bs = 0;
-                        const uint8_t* rp = sbase;
-                        for (int syy = 0; syy < vcnt; syy++) {
-                            const uint16_t* sp = (const uint16_t*)rp + x0;
-                            for (int k = 0; k < hcnt; k++) {
-                                uint16_t pix = sp[k];
-                                uint32_t b5 = (pix >> 11) & 0x1F, g6 = (pix >> 5) & 0x3F, r5 = pix & 0x1F;
-                                rs += (r5 << 3) | (r5 >> 2); gs += (g6 << 2) | (g6 >> 4); bs += (b5 << 3) | (b5 >> 2);
-                            }
-                            rp += pitch;
-                        }
-                        uint32_t rc = recip16[hcnt];
-                        uint32_t r8 = (rs * rc + (1u << 19)) >> 20, g8 = (gs * rc + (1u << 19)) >> 20, b8 = (bs * rc + (1u << 19)) >> 20;
-                        uint16_t want = (uint16_t)(((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3));
-                        if (drow[x] != want) mism++;
-                    }
-                }
-                fprintf(stderr, "[DCV16] w=%d frame=%d mismatch=%ld (REVERT AFTER MEASURED)\n", width, *_pc, mism);
-            }
-        }
     }
     else if (bpp == 8 && palette) {
         /* 8bpp paletted — convert through palette to RGB565.
