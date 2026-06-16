@@ -2989,7 +2989,7 @@ endif
     ob = strict_replace(ob,
         "    unsigned int _mister_load_t0 = timer_gettick();",
         "    unsigned int _mister_load_t0 = timer_gettick();\n"
-        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; _mister_tok_us = 0; _mister_disp_us = 0; _mister_prescan_us = 0; _mister_hinc_us = 0; _mister_applex_us = 0; _mister_script_total = 0; _mister_script_distinct = 0; _mister_seen_n = 0; mister_sdedup_hits = 0; mister_sdedup_total = 0; _mister_anim_us = 0; _mister_scriptgen_us = 0; _mister_parseloop_us = 0; _mister_ccmd_paid_us = 0; _mister_ccmd_saved_us = 0; _mister_ccmd_hits = 0; _mister_ccmd_misses = 0; _mister_ccache_last_cost = 0; /* MiSTer [LOAD] phase reset */",
+        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; _mister_tok_us = 0; _mister_disp_us = 0; _mister_prescan_us = 0; _mister_hinc_us = 0; _mister_applex_us = 0; _mister_script_total = 0; _mister_script_distinct = 0; _mister_seen_n = 0; mister_sdedup_hits = 0; mister_sdedup_total = 0; _mister_anim_us = 0; _mister_scriptgen_us = 0; _mister_allocscr_us = 0; _mister_cachedtot_us = 0; _mister_parseloop_us = 0; _mister_ccmd_paid_us = 0; _mister_ccmd_saved_us = 0; _mister_ccmd_hits = 0; _mister_ccmd_misses = 0; _mister_ccache_last_cost = 0; /* MiSTer [LOAD] phase reset */",
         'LOAD-bd: reset phase accumulators at load start')
     ob = strict_replace(ob,
         "    bitmap = loadbitmap(filename, packfile, pixelformat);",
@@ -3153,9 +3153,10 @@ endif
         "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL), _mio = (unsigned int)(_mister_io_us / 1000UL), _mdio = (unsigned int)(_mister_decode_io_us / 1000UL), _mtok = (unsigned int)(_mister_tok_us / 1000UL), _mdsp = (unsigned int)(_mister_disp_us / 1000UL), _mpre = (unsigned int)(_mister_prescan_us / 1000UL), _mhinc = (unsigned int)(_mister_hinc_us / 1000UL), _mapl = (unsigned int)(_mister_applex_us / 1000UL);\n"
         "      unsigned int _manim = (unsigned int)(_mister_anim_us / 1000UL), _mccp = (unsigned int)(_mister_ccmd_paid_us / 1000UL), _mccs = (unsigned int)(_mister_ccmd_saved_us / 1000UL); /* TEMPORARY DIAG #10 + [CCMD] */\n"
         "      unsigned int _mpl = (unsigned int)(_mister_parseloop_us / 1000UL), _msg = (unsigned int)(_mister_scriptgen_us / 1000UL); /* TEMPORARY DIAG #10b/#10c */\n"
+        "      unsigned int _mas = (unsigned int)(_mister_allocscr_us / 1000UL), _mct = (unsigned int)(_mister_cachedtot_us / 1000UL); /* TEMPORARY DIAG #10d */\n"
         "      unsigned int _mout = (_mtot > _mspr) ? (_mtot - _mspr) : 0;\n"
         "      unsigned int _moth = (_mtot > _mdec + _msz + _menc) ? (_mtot - _mdec - _msz - _menc) : 0;\n"
-        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u, tokenize %u, dispatch %u, prescan %u, hinc %u, applex %u, anim %u, parseloop %u, scriptgen %u | [CCMD] cmd-paid %u cmd-saved %u %u/%u hit/miss | scripts %u/%u uniq, deduped %u/%u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio, _mtok, _mdsp, _mpre, _mhinc, _mapl, _manim, _mpl, _msg, _mccp, _mccs, _mister_ccmd_hits, _mister_ccmd_misses, _mister_script_distinct, _mister_script_total, mister_sdedup_hits, mister_sdedup_total); }',
+        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u, tokenize %u, dispatch %u, prescan %u, hinc %u, applex %u, anim %u, parseloop %u, scriptgen %u, allocscr %u, cachedtot %u | [CCMD] cmd-paid %u cmd-saved %u %u/%u hit/miss | scripts %u/%u uniq, deduped %u/%u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio, _mtok, _mdsp, _mpre, _mhinc, _mapl, _manim, _mpl, _msg, _mas, _mct, _mccp, _mccs, _mister_ccmd_hits, _mister_ccmd_misses, _mister_script_distinct, _mister_script_total, mister_sdedup_hits, mister_sdedup_total); }',
         'LOAD-bd: extend [LOAD] print with phase breakdown')
 
     # =====================================================================
@@ -4004,6 +4005,8 @@ endif
         "/* TEMPORARY DIAG (REVERT AFTER MEASURED) [CCMD]: exact command-script dedup saving + #10 anim-parse timer. */\n"
         "unsigned long _mister_anim_us = 0;\n"
         "unsigned long _mister_scriptgen_us = 0; /* TEMPORARY DIAG #10c: lcmScript* animation_script string-build */\n"
+        "unsigned long _mister_allocscr_us = 0; /* TEMPORARY DIAG #10d: alloc_all_scripts per-model 27-slot alloc */\n"
+        "unsigned long _mister_cachedtot_us = 0; /* TEMPORARY DIAG #10d: load_cached_model per-model total (models.txt loop) */\n"
         "unsigned long _mister_parseloop_us = 0; /* TEMPORARY DIAG #10b: whole model-parse-loop wall time */\n"
         "static unsigned long _mister_pl0 = 0; /* #10b parse-loop start stamp (load_cached_model not reentrant) */\n"
         "unsigned long _mister_ccmd_paid_us = 0, _mister_ccmd_saved_us = 0;\n"
@@ -4242,6 +4245,20 @@ endif
         "\n"
         "    tempInt = 1;",
         '[#10b] parse-loop timer stop')
+
+    # [#10d] TEMPORARY DIAG: crack the ~26% "load_models overhead". Time
+    # alloc_all_scripts (per-model 27-slot alloc, prime suspect) + the per-model
+    # load_cached_model total (models.txt loop). overhead-residual = cachedtot -
+    # parseloop - (applex+script+scriptgen) - allocscr; load_models-level =
+    # total - cachedtot.
+    ob = strict_replace(ob,
+        "    alloc_all_scripts(&newchar->scripts);",
+        "    { unsigned long _as0 = _mister_load_us(); alloc_all_scripts(&newchar->scripts); _mister_allocscr_us += _mister_load_us() - _as0; } /* TEMPORARY DIAG #10d */",
+        '[#10d] time alloc_all_scripts (per-model script-slot alloc)')
+    ob = strict_replace(ob,
+        "            load_cached_model(model_cache[i].name, \"models.txt\", 0);",
+        "            { unsigned long _ct0 = _mister_load_us(); load_cached_model(model_cache[i].name, \"models.txt\", 0); _mister_cachedtot_us += _mister_load_us() - _ct0; } /* TEMPORARY DIAG #10d */",
+        '[#10d] time per-model load_cached_model total (models.txt loop)')
 
     write(ob_path, ob)
     print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 — line-29499 fallback intact, no struct mods).")
