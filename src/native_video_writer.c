@@ -479,9 +479,13 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * compare to what the NEON kernel wrote to dst. [DCV16] mismatch MUST be 0
          * before this DIAG is removed and the kernels ship. */
         if (width == NV_FRAME_WIDTH * 2 || width * 2 == NV_FRAME_WIDTH * 3) {
-            static int _dcv = 0;
-            if (_dcv < 2) {
-                _dcv++;
+            /* per-width counters so loading the 2x PAK and the 3:2 PAK in any
+             * order each get checked (a single counter would be exhausted by
+             * whichever PAK rendered first). */
+            static int _dcv640 = 0, _dcv480 = 0;
+            int* _pc = (width == NV_FRAME_WIDTH * 2) ? &_dcv640 : &_dcv480;
+            if (*_pc < 2) {
+                (*_pc)++;
                 long mism = 0;
                 for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
                     int yy0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
@@ -518,7 +522,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                         if (drow[x] != want) mism++;
                     }
                 }
-                fprintf(stderr, "[DCV16] w=%d frame=%d mismatch=%ld (REVERT AFTER MEASURED)\n", width, _dcv, mism);
+                fprintf(stderr, "[DCV16] w=%d frame=%d mismatch=%ld (REVERT AFTER MEASURED)\n", width, *_pc, mism);
             }
         }
     }
