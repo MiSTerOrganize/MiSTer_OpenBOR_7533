@@ -258,32 +258,8 @@ endif
         '        pak_vfdreadahead[i] = -1;\n    }\n    pak_initialized = 0;',
         '        pak_vfdreadahead[i] = 65536; /* MiSTer 2026-05-24: 64KB default readahead (was -1=none); paired with bumped CACHEBLOCKS */\n    }\n    pak_initialized = 0;',
         'filecache: init pak_vfdreadahead = 64KB (was -1)')
-    # 2026-06-13: [LOAD] decode-io split. readpackfile (the bulk pak read) is the
-    # I/O inside loadbitmap (sprite GIF/PNG decode). _mister_decode_io_active is set
-    # ONLY around loadbitmap in openbor.c, so this times sprite-decode reads but NOT
-    # buffer_pakfile/other reads (flag=0 there -> wrapper is a single branch, ~free).
-    # decode-io is a subset of 'decode'; decode - decode-io = LZW/inflate CPU.
-    pf = strict_replace(pf,
-        '#include "packfile.h"',
-        '#include "packfile.h"\n'
-        '#include <sys/time.h>\n'
-        'extern unsigned long _mister_decode_io_us; /* defined in openbor.c */\n'
-        'extern int _mister_decode_io_active;\n'
-        'static unsigned long _mister_pf_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }',
-        'decode-io: packfile.c sys/time.h + extern accumulators + us helper')
-    pf = strict_replace(pf,
-        'int readpackfile(int handle, void *buf, int len)\n{',
-        'int readpackfile_impl(int handle, void *buf, int len);\n'
-        'int readpackfile(int handle, void *buf, int len)\n'
-        '{\n'
-        '    if (!_mister_decode_io_active) return readpackfile_impl(handle, buf, len);\n'
-        '    { unsigned long _pft0 = _mister_pf_us(); int _pfr = readpackfile_impl(handle, buf, len); _mister_decode_io_us += _mister_pf_us() - _pft0; return _pfr; }\n'
-        '}\n'
-        'int readpackfile_impl(int handle, void *buf, int len)\n{',
-        'decode-io: rename readpackfile -> _impl + flag-gated timing wrapper')
     write(pf_path, pf)
     print("  packfile.c: CACHEBLOCKS=255 + readahead=65536 (paired filecache speedup)")
-    print("  packfile.c: readpackfile decode-io timing wrapper (flag-gated)")
 
     # ## #2: inlined-LUT specialized blit in spritex8p16.c (the HOT 16-bit path)
     # The 16-bit blitter (spritex8p16.c) is what runs in our PIXEL_16 build:
@@ -487,6 +463,40 @@ endif
         '#1: putsprite_ 8x-unroll + NEON u16 store (ported from 32-bit)')
     write(s16_path, s16b)
     print("  spritex8p16.c: #1 NEON copy in putsprite_ (8x unroll + vst1q_u16 + prefetch).")
+
+    # ## Verification probe (TEMPORARY DIAG): prove the 16-bit blitter is the hot
+    # path. One-shot printf the first time EACH blitter runs. During He-Man
+    # gameplay we expect [X8P16] only; if [X8P32] appears, a 32-bit dest exists
+    # and the cold-path assumption is wrong. CI gate skips commit-back on DIAG.
+    print("Patching spritex8p16/32.c (TEMPORARY DIAG: blitter hot-path probe)...")
+    s16c = read(s16_path)
+    s16c = strict_replace(s16c,
+        "    int *linetab, *masklinetab = NULL;\n"
+        "    int w, h;\n"
+        "    unsigned short *dest;\n"
+        "    unsigned short *m;",
+        "    int *linetab, *masklinetab = NULL;\n"
+        "    int w, h;\n"
+        "    unsigned short *dest;\n"
+        "    unsigned short *m;\n"
+        "    { static int _m16 = 0; if(!_m16){ _m16 = 1; printf(\"[X8P16] 16-bit sprite blitter active (TEMPORARY DIAG)\\n\"); } }",
+        'DIAG: one-shot probe in putsprite_x8p16')
+    write(s16_path, s16c)
+    _sp32_diag_path = os.path.join(obor, 'source/gamelib/spritex8p32.c')
+    sp32c = read(_sp32_diag_path)
+    sp32c = strict_replace(sp32c,
+        "    int *linetab, *masklinetab = NULL;\n"
+        "    int w, h;\n"
+        "    unsigned *dest;\n"
+        "    unsigned *m;",
+        "    int *linetab, *masklinetab = NULL;\n"
+        "    int w, h;\n"
+        "    unsigned *dest;\n"
+        "    unsigned *m;\n"
+        "    { static int _m32 = 0; if(!_m32){ _m32 = 1; printf(\"[X8P32] 32-bit sprite blitter HIT -- NOT cold (TEMPORARY DIAG)\\n\"); } }",
+        'DIAG: one-shot probe in putsprite_x8p32')
+    write(_sp32_diag_path, sp32c)
+    print("  spritex8p16/32.c: TEMPORARY DIAG hot-path probes inserted.")
 
     # ── 2. Patch openbor.c — replace pausemenu() ─────────────────────
     print("Patching openbor.c (pausemenu)...")
@@ -2972,526 +2982,29 @@ endif
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};",
         "blend_table_function blending_table_functions32[MAX_BLENDINGS] = {create_screen32_tbl, create_multiply32_tbl, create_overlay32_tbl, create_hardlight32_tbl, create_dodge32_tbl, create_half32_tbl};\n"
         "/* MiSTer [LOAD] phase timers (microsecond accumulators) */\n"
-        "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0, _mister_size_us = 0, _mister_sprite_us = 0, _mister_script_us = 0, _mister_io_us = 0, _mister_tok_us = 0, _mister_disp_us = 0, _mister_prescan_us = 0;\n"
-        "static int _mister_bp_depth = 0; /* MiSTer [LOAD] io bucket re-entrancy guard */\n"
-        "unsigned long _mister_decode_io_us = 0; /* MiSTer [LOAD] decode-io: NON-static (shared w/ packfile.c readpackfile wrapper) */\n"
-        "int _mister_decode_io_active = 0; /* set around loadbitmap; packfile.c times readpackfile only when set */\n"
-        "unsigned long _mister_hinc_us = 0; /* MiSTer #2 re-drill: openbor.h re-include time (NON-static, shared w/ scriptlib Parser.c) */\n"
-        "static unsigned long _mister_load_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }\n"
-        "/* MiSTer final drill: script-lex (Script_AppendText) timer + distinct-script counter (sizes the dedup win) */\n"
-        "static unsigned long _mister_applex_us = 0;\n"
-        "static unsigned int _mister_script_total = 0, _mister_script_distinct = 0;\n"
-        "static unsigned int _mister_seen_hashes[4096]; static int _mister_seen_n = 0;\n"
-        "static unsigned int _mister_djb2(const char *s){ unsigned int h = 5381; if(s) while(*s) h = ((h << 5) + h) + (unsigned char)(*s++); return h; }\n"
-        "static void _mister_script_record(const char *txt){ unsigned int h = _mister_djb2(txt); int i; _mister_script_total++; for(i = 0; i < _mister_seen_n; i++) if(_mister_seen_hashes[i] == h) return; if(_mister_seen_n < 4096) _mister_seen_hashes[_mister_seen_n++] = h; _mister_script_distinct++; }\n"
-        "#define Script_AppendText(a, b, c) ({ unsigned long _at0 = _mister_load_us(); int _ar = (Script_AppendText)(a, b, c); _mister_applex_us += _mister_load_us() - _at0; _ar; })",
+        "static unsigned long _mister_decode_us = 0, _mister_encode_us = 0;\n"
+        "static unsigned long _mister_load_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }",
         'LOAD-bd: decode/encode us accumulators + us helper')
     ob = strict_replace(ob,
         "    unsigned int _mister_load_t0 = timer_gettick();",
         "    unsigned int _mister_load_t0 = timer_gettick();\n"
-        "    _mister_decode_us = 0; _mister_encode_us = 0; _mister_size_us = 0; _mister_sprite_us = 0; _mister_script_us = 0; _mister_io_us = 0; _mister_bp_depth = 0; _mister_decode_io_us = 0; _mister_decode_io_active = 0; _mister_tok_us = 0; _mister_disp_us = 0; _mister_prescan_us = 0; _mister_hinc_us = 0; _mister_applex_us = 0; _mister_script_total = 0; _mister_script_distinct = 0; _mister_seen_n = 0; mister_sdedup_hits = 0; mister_sdedup_total = 0; _mister_anim_us = 0; _mister_scriptgen_us = 0; _mister_allocscr_us = 0; _mister_cachedtot_us = 0; _mister_parseloop_us = 0; _mister_ccmd_paid_us = 0; _mister_ccmd_saved_us = 0; _mister_ccmd_hits = 0; _mister_ccmd_misses = 0; _mister_ccache_last_cost = 0; /* MiSTer [LOAD] phase reset */",
+        "    _mister_decode_us = 0; _mister_encode_us = 0; /* MiSTer [LOAD] phase reset */",
         'LOAD-bd: reset phase accumulators at load start')
     ob = strict_replace(ob,
         "    bitmap = loadbitmap(filename, packfile, pixelformat);",
-        "    { unsigned long _lt0 = _mister_load_us(); _mister_decode_io_active = 1; bitmap = loadbitmap(filename, packfile, pixelformat); _mister_decode_io_active = 0; _mister_decode_us += _mister_load_us() - _lt0; }",
-        'LOAD-bd: time loadbitmap (decode) in loadsprite2 + flag decode-io')
+        "    { unsigned long _lt0 = _mister_load_us(); bitmap = loadbitmap(filename, packfile, pixelformat); _mister_decode_us += _mister_load_us() - _lt0; }",
+        'LOAD-bd: time loadbitmap (decode) in loadsprite2')
     ob = strict_replace(ob,
         "    encodesprite(-clip_left, -clip_top, bitmap, sprite);",
         "    { unsigned long _et0 = _mister_load_us(); encodesprite(-clip_left, -clip_top, bitmap, sprite); _mister_encode_us += _mister_load_us() - _et0; }",
         'LOAD-bd: time encodesprite (RLE encode) in loadsprite2')
-    # 2026-06-13 FIX: the COMMON cache-miss path is loadsprite() (4387), NOT
-    # loadsprite2() (4172). loadsprite2's decode/encode were the only wrapped
-    # sites, so loadsprite's own loadbitmap(...,bmpformat) (4427), sizing pass
-    # (4436) and encodesprite(ofsx-clipl,...) (4447) ALL leaked into 'other' --
-    # making the decode/encode buckets read ~0 even on real loads (artifact, not
-    # evidence). Wrap loadsprite's three phases too, and add a dedicated 'size'
-    # bucket for the fakey_encodesprite sizing pass (both paths) -- a known
-    # single-pass-refactor candidate (rle_encode_bench: ~7-9 ns/px dead weight).
-    ob = strict_replace(ob,
-        "    bitmap = loadbitmap(filename, packfile, bmpformat);",
-        "    { unsigned long _lt0 = _mister_load_us(); _mister_decode_io_active = 1; bitmap = loadbitmap(filename, packfile, bmpformat); _mister_decode_io_active = 0; _mister_decode_us += _mister_load_us() - _lt0; }",
-        'LOAD-bd: time loadbitmap (decode) in loadsprite main path + flag decode-io')
-    ob = strict_replace(ob,
-        "    size = fakey_encodesprite(bitmap);",
-        "    { unsigned long _st0 = _mister_load_us(); size = fakey_encodesprite(bitmap); _mister_size_us += _mister_load_us() - _st0; }",
-        'LOAD-bd: time fakey_encodesprite (RLE sizing pass) in BOTH loadsprite paths',
-        count=2)
-    ob = strict_replace(ob,
-        "    encodesprite(ofsx - clipl, ofsy - clipt, bitmap, curr->sprite);",
-        "    { unsigned long _et0 = _mister_load_us(); encodesprite(ofsx - clipl, ofsy - clipt, bitmap, curr->sprite); _mister_encode_us += _mister_load_us() - _et0; }",
-        'LOAD-bd: time encodesprite (RLE fill) in loadsprite main path')
-    # 2026-06-13: split 'other' -> in-loadsprite vs outside. Rename loadsprite to
-    # loadsprite_impl and add a thin same-signature timing wrapper (all callers hit
-    # it) accumulating total loadsprite() wall-time into _mister_sprite_us.
-    # sprite-total includes loadsprite's own decode/size/encode; outside = load
-    # total - sprite-total = parse + model/anim setup + script compile + pak open +
-    # level layers. Tells us which half of the 53s 'other' (JL Legacy) to chase.
-    ob = strict_replace(ob,
-        "int loadsprite(char *filename, int ofsx, int ofsy, int bmpformat)\n{",
-        "int loadsprite_impl(char *filename, int ofsx, int ofsy, int bmpformat)\n{",
-        'LOAD-bd: rename loadsprite -> loadsprite_impl for total-time wrapper')
-    ob = strict_replace(ob,
-        "    ++sprites_loaded;\n"
-        "    mister_sprite_hash_insert(sprites_loaded - 1);  /* MiSTer 2026-05-24 hash-map insert (main path) */\n"
-        "    return sprites_loaded - 1;\n"
-        "}",
-        "    ++sprites_loaded;\n"
-        "    mister_sprite_hash_insert(sprites_loaded - 1);  /* MiSTer 2026-05-24 hash-map insert (main path) */\n"
-        "    return sprites_loaded - 1;\n"
-        "}\n"
-        "\n"
-        "/* MiSTer 2026-06-13 [LOAD] split: thin timing wrapper around loadsprite_impl.\n"
-        " * Same signature so all callers hit this; accumulates total loadsprite\n"
-        " * wall-time into _mister_sprite_us. outside = load total - this. */\n"
-        "int loadsprite(char *filename, int ofsx, int ofsy, int bmpformat)\n"
-        "{\n"
-        "    unsigned long _wt0 = _mister_load_us();\n"
-        "    int _wr = loadsprite_impl(filename, ofsx, ofsy, bmpformat);\n"
-        "    _mister_sprite_us += _mister_load_us() - _wt0;\n"
-        "    return _wr;\n"
-        "}",
-        'LOAD-bd: add loadsprite() timing wrapper around loadsprite_impl')
-    # 2026-06-13: split 'outside' -> script-compile vs parse. The level scripts
-    # (load_scripts) compile BEFORE load_models, outside the [LOAD] timer. The
-    # script compile INSIDE [LOAD] is per-model: animation_script (17378, inside
-    # load_cached_model) + spawnscript (21212). Time them into _mister_script_us.
-    # script is a subset of 'outside'; outside - script = parse + setup + pak I/O.
-    ob = strict_replace(ob,
-        "        Script_Compile(newchar->scripts->animation_script);",
-        "        { unsigned long _ct0 = _mister_load_us(); Script_Compile(newchar->scripts->animation_script); _mister_script_us += _mister_load_us() - _ct0; }",
-        'LOAD-bd: time per-model animation_script Script_Compile (script bucket)')
-    ob = strict_replace(ob,
-        "                Script_Compile(&next.spawnscript);",
-        "                { unsigned long _ct0 = _mister_load_us(); Script_Compile(&next.spawnscript); _mister_script_us += _mister_load_us() - _ct0; }",
-        'LOAD-bd: time spawnscript Script_Compile (script bucket)')
-    # 2026-06-14: split parse+setup -> tokenize / dispatch / setup. The model parse
-    # loop (load_cached_model) is: ParseArgs (tokenize a line) -> getModelCommand
-    # (string->enum dispatch -- the prime hash candidate) -> switch (execute/setup).
-    # Time ParseArgs (tok) + getModelCommand (disp); setup = (outside - script - io)
-    # - tok - disp. Anchored on the unique 5-line block. ParseArgs timed via a GCC
-    # statement-expression so it keeps its bool result for the if.
-    ob = strict_replace(ob,
-        "        line++;\n"
-        "        if(ParseArgs(&arglist, buf + pos, argbuf))\n"
-        "        {\n"
-        "            command = GET_ARG(0);\n"
-        "            cmd = getModelCommand(modelcmdlist, command);",
-        "        line++;\n"
-        "        if(({ unsigned long _pt0 = _mister_load_us(); int _par = ParseArgs(&arglist, buf + pos, argbuf); _mister_tok_us += _mister_load_us() - _pt0; _par; }))\n"
-        "        {\n"
-        "            command = GET_ARG(0);\n"
-        "            { unsigned long _dt0 = _mister_load_us(); cmd = getModelCommand(modelcmdlist, command); _mister_disp_us += _mister_load_us() - _dt0; }",
-        'LOAD-bd: time ParseArgs (tokenize) + getModelCommand (dispatch) in model parse loop')
-    # 2026-06-14 #1 re-drill: time the CMD_MODEL_FRAME look-ahead pre-scan (the
-    # `while(!frameset)` findarg loop that counts frames to the next anim). It's in
-    # the 'setup' bucket; if it's a big share, the fix is to cache the count instead
-    # of re-scanning. Wrap with a brace block (peek/frameset/framecount are function-
-    # scope, unaffected). Start before peek=0, stop after the pre-scan while.
-    ob = strict_replace(ob,
-        "                peek = 0;\n"
-        "                if(frameset && framecount >= 0)",
-        "                { unsigned long _ps0 = _mister_load_us(); /* MiSTer #1 re-drill: time pre-scan */\n"
-        "                peek = 0;\n"
-        "                if(frameset && framecount >= 0)",
-        '#1 re-drill: pre-scan timer start')
-    ob = strict_replace(ob,
-        "                    while(buf[pos + peek] == '\\n' || buf[pos + peek] == '\\r')\n"
-        "                    {\n"
-        "                        ++peek;\n"
-        "                    }\n"
-        "                }\n"
-        "                value = GET_ARG(1);",
-        "                    while(buf[pos + peek] == '\\n' || buf[pos + peek] == '\\r')\n"
-        "                    {\n"
-        "                        ++peek;\n"
-        "                    }\n"
-        "                }\n"
-        "                _mister_prescan_us += _mister_load_us() - _ps0; }\n"
-        "                value = GET_ARG(1);",
-        '#1 re-drill: pre-scan timer stop')
-    # 2026-06-14 final drill: count distinct vs total model scripts (sizes the
-    # within-load dedup win). Hash the per-model script text (animscriptbuf, else
-    # scriptbuf) right before Script_Compile. distinct == total -> no dedup win;
-    # distinct << total -> dedup kills both the lex (setup) + resolve (script) for
-    # every duplicate.
-    ob = strict_replace(ob,
-        "    if(!newchar->isSubclassed)\n"
-        "    {\n"
-        "        { unsigned long _ct0 = _mister_load_us(); Script_Compile(newchar->scripts->animation_script); _mister_script_us += _mister_load_us() - _ct0; }",
-        "    if(!newchar->isSubclassed)\n"
-        "    {\n"
-        "        _mister_script_record(animscriptbuf && animscriptbuf[0] ? animscriptbuf : scriptbuf); /* MiSTer final drill: count distinct scripts */\n"
-        "        { unsigned long _ct0 = _mister_load_us(); Script_Compile(newchar->scripts->animation_script); _mister_script_us += _mister_load_us() - _ct0; }",
-        'final drill: record distinct-script count before Script_Compile')
-    # 2026-06-13: split 'parse+setup+IO' -> pak-I/O vs CPU. buffer_pakfile is the
-    # text/data whole-file pak reader (character.txt, anim scripts, models.txt) --
-    # it does NOT overlap 'decode' (sprite GIFs stream via openpackfile/readpackfile,
-    # not buffer_pakfile). Rename -> buffer_pakfile_impl + a thin wrapper with a
-    # re-entrancy depth guard (so any indirect #include recursion is counted once)
-    # accumulating into _mister_io_us. io is a subset of 'outside'; outside - script
-    # - io = CPU parse + setup. (_mister_load_us + accumulators are declared at the
-    # blending_table_functions32 block ~line 297, before buffer_pakfile ~942.)
-    ob = strict_replace(ob,
-        "int buffer_pakfile(char *filename, char **pbuffer, size_t *psize)\n{",
-        "int buffer_pakfile_impl(char *filename, char **pbuffer, size_t *psize);\n"
-        "int buffer_pakfile(char *filename, char **pbuffer, size_t *psize)\n"
-        "{\n"
-        "    unsigned long _iot0 = 0; int _ior;\n"
-        "    if (_mister_bp_depth == 0) _iot0 = _mister_load_us();\n"
-        "    _mister_bp_depth++;\n"
-        "    _ior = buffer_pakfile_impl(filename, pbuffer, psize);\n"
-        "    _mister_bp_depth--;\n"
-        "    if (_mister_bp_depth == 0) _mister_io_us += _mister_load_us() - _iot0;\n"
-        "    return _ior;\n"
-        "}\n"
-        "int buffer_pakfile_impl(char *filename, char **pbuffer, size_t *psize)\n{",
-        'LOAD-bd: rename buffer_pakfile -> _impl + io-timing wrapper (io bucket)')
     ob = strict_replace(ob,
         '    printf("[LOAD] PAK loaded in %u ms\\n", (unsigned int)(timer_gettick() - _mister_load_t0));',
         "    { unsigned int _mtot = (unsigned int)(timer_gettick() - _mister_load_t0);\n"
-        "      unsigned int _mdec = (unsigned int)(_mister_decode_us / 1000UL), _msz = (unsigned int)(_mister_size_us / 1000UL), _menc = (unsigned int)(_mister_encode_us / 1000UL);\n"
-        "      unsigned int _mspr = (unsigned int)(_mister_sprite_us / 1000UL), _mscr = (unsigned int)(_mister_script_us / 1000UL), _mio = (unsigned int)(_mister_io_us / 1000UL), _mdio = (unsigned int)(_mister_decode_io_us / 1000UL), _mtok = (unsigned int)(_mister_tok_us / 1000UL), _mdsp = (unsigned int)(_mister_disp_us / 1000UL), _mpre = (unsigned int)(_mister_prescan_us / 1000UL), _mhinc = (unsigned int)(_mister_hinc_us / 1000UL), _mapl = (unsigned int)(_mister_applex_us / 1000UL);\n"
-        "      unsigned int _manim = (unsigned int)(_mister_anim_us / 1000UL), _mccp = (unsigned int)(_mister_ccmd_paid_us / 1000UL), _mccs = (unsigned int)(_mister_ccmd_saved_us / 1000UL); /* TEMPORARY DIAG #10 + [CCMD] */\n"
-        "      unsigned int _mpl = (unsigned int)(_mister_parseloop_us / 1000UL), _msg = (unsigned int)(_mister_scriptgen_us / 1000UL); /* TEMPORARY DIAG #10b/#10c */\n"
-        "      unsigned int _mas = (unsigned int)(_mister_allocscr_us / 1000UL), _mct = (unsigned int)(_mister_cachedtot_us / 1000UL); /* TEMPORARY DIAG #10d */\n"
-        "      unsigned int _mout = (_mtot > _mspr) ? (_mtot - _mspr) : 0;\n"
-        "      unsigned int _moth = (_mtot > _mdec + _msz + _menc) ? (_mtot - _mdec - _msz - _menc) : 0;\n"
-        '      printf("[LOAD] PAK loaded in %u ms (decode %u, size %u, encode %u, other %u | sprite-total %u, outside %u, script %u, io %u, decode-io %u, tokenize %u, dispatch %u, prescan %u, hinc %u, applex %u, anim %u, parseloop %u, scriptgen %u, allocscr %u, cachedtot %u | [CCMD] cmd-paid %u cmd-saved %u %u/%u hit/miss | scripts %u/%u uniq, deduped %u/%u)\\n", _mtot, _mdec, _msz, _menc, _moth, _mspr, _mout, _mscr, _mio, _mdio, _mtok, _mdsp, _mpre, _mhinc, _mapl, _manim, _mpl, _msg, _mas, _mct, _mccp, _mccs, _mister_ccmd_hits, _mister_ccmd_misses, _mister_script_distinct, _mister_script_total, mister_sdedup_hits, mister_sdedup_total); }',
+        "      unsigned int _mdec = (unsigned int)(_mister_decode_us / 1000UL), _menc = (unsigned int)(_mister_encode_us / 1000UL);\n"
+        "      unsigned int _moth = (_mtot > _mdec + _menc) ? (_mtot - _mdec - _menc) : 0;\n"
+        '      printf("[LOAD] PAK loaded in %u ms (decode %u, encode %u, other %u)\\n", _mtot, _mdec, _menc, _moth); }',
         'LOAD-bd: extend [LOAD] print with phase breakdown')
-
-    # =====================================================================
-    # SCRIPT DEDUP (2026-06-14) -- the big remaining load-time lever.
-    # Roster-heavy PAKs compile many byte-identical animation scripts (JL
-    # Legacy: 364/629 = 58% duplicates -> ~30s of wasted lex+resolve). Cache
-    # the FIRST model's compiled animation_script (interpreterowner=1) keyed by
-    # source text; duplicate models with the same (unload&1) class get
-    # Script_Copy -- the engine's own per-frame primitive, which ALIASES the
-    # compiled interpreter and sets interpreterowner=0, so no double-free.
-    # Variant 1 (first-model-owns): first occurrence keeps today's exact path
-    # (Script_Init + AppendText + Compile, iscopy=0); only duplicates alias.
-    # Safety: (a) gate on (unload&1) so owner + aliases are always freed in the
-    # same teardown batch (unload_level frees unload&1 models together;
-    # free_models frees all) -> no live-alias-after-owner-free; (b) drop the
-    # cache entry in free_model BEFORE the interpreter is freed so a freed owner
-    # can't serve a post-free duplicate. Full-text compare guards hash
-    # collisions. RAM-only, no SD files. Doesn't touch the LOCKED palette path.
-    # (Investigated against pristine v7533: Script_Copy openborscript.c:484
-    # sets interpreterowner=0; Script_Clear:548 frees interpreter only if owner;
-    # free_model->clear_all_scripts(model->scripts,2) is the single model-script
-    # free site; unload_level:20001 frees individual models mid-session.)
-    print("  Script dedup: cache compiled animation_script by source text (skip lex+compile for duplicate roster models)")
-    # (1) cache + helpers, inserted before execute_animation_script (Script type
-    #     + Script_Copy are in scope there; site/free_model uses come after).
-    ob = strict_replace(ob,
-        "void execute_animation_script(entity *ent)\n{",
-        "/* MiSTer 2026-06-14 within-load animation_script dedup cache. See block\n"
-        "   comment in apply_patches.py. RAM-only; first-model-owns + (unload&1)\n"
-        "   gate + free_model invalidation. */\n"
-        "typedef struct {\n"
-        "    unsigned int hash;\n"
-        "    char *text;          /* owned copy of source (full-compare vs hash collision) */\n"
-        "    int unloadclass;     /* owner's (unload & 1) */\n"
-        "    Script *master;      /* owner model's animation_script (interpreterowner==1) */\n"
-        "} mister_scache_entry;\n"
-        "static mister_scache_entry *mister_scache = NULL;\n"
-        "static int mister_scache_n = 0, mister_scache_cap = 0;\n"
-        "static unsigned int mister_sdedup_hits = 0, mister_sdedup_total = 0; /* [LOAD] diagnostic */\n"
-        "/* bit-exact alias (openborscript.c): aliases the compiled interpreter like\n"
-        "   Script_Copy but runs init with iscopy=0 -> matches a fresh Script_Compile. */\n"
-        "extern void mister_script_alias_fresh(Script *pdest, Script *psrc);\n"
-        "static unsigned int mister_scache_hash(const char *s)\n"
-        "{\n"
-        "    unsigned int h = 5381;\n"
-        "    if(s) while(*s) h = ((h << 5) + h) + (unsigned char)(*s++);\n"
-        "    return h;\n"
-        "}\n"
-        "static Script *mister_scache_lookup(const char *txt, int unloadclass)\n"
-        "{\n"
-        "    unsigned int h = mister_scache_hash(txt);\n"
-        "    int i;\n"
-        "    for(i = 0; i < mister_scache_n; i++)\n"
-        "        if(mister_scache[i].hash == h && mister_scache[i].unloadclass == unloadclass\n"
-        "           && mister_scache[i].text && strcmp(mister_scache[i].text, txt) == 0)\n"
-        "            return mister_scache[i].master;\n"
-        "    return NULL;\n"
-        "}\n"
-        "static void mister_scache_insert(const char *txt, int unloadclass, Script *master)\n"
-        "{\n"
-        "    int len; char *copy; mister_scache_entry *np;\n"
-        "    if(!txt || !master) return;\n"
-        "    if(mister_scache_n >= mister_scache_cap)\n"
-        "    {\n"
-        "        int nc = mister_scache_cap ? (mister_scache_cap * 2) : 256;\n"
-        "        np = (mister_scache_entry *)realloc(mister_scache, nc * sizeof(mister_scache_entry));\n"
-        "        if(!np) return; /* OOM: skip caching, model still works (recompiles) */\n"
-        "        mister_scache = np; mister_scache_cap = nc;\n"
-        "    }\n"
-        "    len = (int)strlen(txt);\n"
-        "    copy = (char *)malloc(len + 1);\n"
-        "    if(!copy) return;\n"
-        "    memcpy(copy, txt, len + 1);\n"
-        "    mister_scache[mister_scache_n].hash = mister_scache_hash(txt);\n"
-        "    mister_scache[mister_scache_n].text = copy;\n"
-        "    mister_scache[mister_scache_n].unloadclass = unloadclass;\n"
-        "    mister_scache[mister_scache_n].master = master;\n"
-        "    mister_scache_n++;\n"
-        "}\n"
-        "/* Drop any cache entry owned by this model; called from free_model BEFORE\n"
-        "   its scripts/interpreter are freed, so a freed owner never leaves a live\n"
-        "   alias pointing at a freed interpreter. */\n"
-        "static void mister_scache_drop_master(Script *master)\n"
-        "{\n"
-        "    int i;\n"
-        "    if(!master) return;\n"
-        "    for(i = 0; i < mister_scache_n; i++)\n"
-        "        if(mister_scache[i].master == master)\n"
-        "        {\n"
-        "            if(mister_scache[i].text) free(mister_scache[i].text);\n"
-        "            mister_scache[i] = mister_scache[mister_scache_n - 1];\n"
-        "            mister_scache_n--; i--;\n"
-        "        }\n"
-        "}\n"
-        "void execute_animation_script(entity *ent)\n{",
-        'script dedup: cache + helpers before execute_animation_script')
-    # (2) restructure the animation_script assembly: finalize text -> dedup
-    #     decision. Matches the measurement-modified compile block (the dedup
-    #     patch runs AFTER the [LOAD] phase patches, so the compile block here
-    #     already carries _mister_script_record + the _mister_script_us timer).
-    ob = strict_replace(ob,
-        "    if(scriptbuf && animscriptbuf && scriptbuf[0] && animscriptbuf[0])\n"
-        "    {\n"
-        "        writeToScriptLog(\"\\n#### animationscript function main #####\\n# \");\n"
-        "        writeToScriptLog(filename);\n"
-        "        writeToScriptLog(\"\\n########################################\\n\");\n"
-        "        writeToScriptLog(scriptbuf);\n"
-        "\n"
-        "        lcmScriptDeleteMain(&scriptbuf);\n"
-        "        lcmScriptAddMain(&animscriptbuf);\n"
-        "        lcmScriptJoinMain(&animscriptbuf,scriptbuf);\n"
-        "\n"
-        "        if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
-        "        {\n"
-        "            Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
-        "        }\n"
-        "        tempInt = Script_AppendText(newchar->scripts->animation_script, animscriptbuf, filename);\n"
-        "    }\n"
-        "    else if(animscriptbuf && animscriptbuf[0])\n"
-        "    {\n"
-        "        lcmScriptAddMain(&animscriptbuf);\n"
-        "\n"
-        "        if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
-        "        {\n"
-        "            Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
-        "        }\n"
-        "        tempInt = Script_AppendText(newchar->scripts->animation_script, animscriptbuf, filename);\n"
-        "    }\n"
-        "    else if(scriptbuf && scriptbuf[0])\n"
-        "    {\n"
-        "        //printf(\"\\n%s\\n\", scriptbuf);\n"
-        "        if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
-        "        {\n"
-        "            Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
-        "        }\n"
-        "        tempInt = Script_AppendText(newchar->scripts->animation_script, scriptbuf, filename);\n"
-        "        //Interpreter_OutputPCode(newchar->scripts->animation_script.pinterpreter, \"code\");\n"
-        "        writeToScriptLog(\"\\n#### animationscript function main #####\\n# \");\n"
-        "        writeToScriptLog(filename);\n"
-        "        writeToScriptLog(\"\\n########################################\\n\");\n"
-        "        writeToScriptLog(scriptbuf);\n"
-        "    }\n"
-        "\n"
-        "    if(!newchar->isSubclassed)\n"
-        "    {\n"
-        "        _mister_script_record(animscriptbuf && animscriptbuf[0] ? animscriptbuf : scriptbuf); /* MiSTer final drill: count distinct scripts */\n"
-        "        { unsigned long _ct0 = _mister_load_us(); Script_Compile(newchar->scripts->animation_script); _mister_script_us += _mister_load_us() - _ct0; }\n"
-        "    }",
-        "    {\n"
-        "        /* MiSTer 2026-06-14 animation_script dedup: finalize the text via the\n"
-        "           lcmScript* transforms, then for non-subclassed models reuse a cached\n"
-        "           identical compile (Script_Copy aliases the compiled interpreter ->\n"
-        "           skips BOTH lex and resolve) or build fresh as the cache owner. */\n"
-        "        char *_mfinal = 0;\n"
-        "\n"
-        "        if(scriptbuf && animscriptbuf && scriptbuf[0] && animscriptbuf[0])\n"
-        "        {\n"
-        "            writeToScriptLog(\"\\n#### animationscript function main #####\\n# \");\n"
-        "            writeToScriptLog(filename);\n"
-        "            writeToScriptLog(\"\\n########################################\\n\");\n"
-        "            writeToScriptLog(scriptbuf);\n"
-        "\n"
-        "            { unsigned long _sg0 = _mister_load_us(); /* TEMPORARY DIAG #10c scriptgen */\n"
-        "            lcmScriptDeleteMain(&scriptbuf);\n"
-        "            lcmScriptAddMain(&animscriptbuf);\n"
-        "            lcmScriptJoinMain(&animscriptbuf,scriptbuf);\n"
-        "            _mister_scriptgen_us += _mister_load_us() - _sg0; }\n"
-        "            _mfinal = animscriptbuf;\n"
-        "        }\n"
-        "        else if(animscriptbuf && animscriptbuf[0])\n"
-        "        {\n"
-        "            { unsigned long _sg0 = _mister_load_us(); lcmScriptAddMain(&animscriptbuf); _mister_scriptgen_us += _mister_load_us() - _sg0; } /* TEMPORARY DIAG #10c scriptgen */\n"
-        "            _mfinal = animscriptbuf;\n"
-        "        }\n"
-        "        else if(scriptbuf && scriptbuf[0])\n"
-        "        {\n"
-        "            _mfinal = scriptbuf;\n"
-        "            writeToScriptLog(\"\\n#### animationscript function main #####\\n# \");\n"
-        "            writeToScriptLog(filename);\n"
-        "            writeToScriptLog(\"\\n########################################\\n\");\n"
-        "            writeToScriptLog(scriptbuf);\n"
-        "        }\n"
-        "\n"
-        "        if(_mfinal && _mfinal[0] && !newchar->isSubclassed)\n"
-        "        {\n"
-        "            int _muc = (newchar->unload & 1);\n"
-        "            Script *_mmaster;\n"
-        "            _mister_script_record(_mfinal); /* distinct-count cross-check */\n"
-        "            mister_sdedup_total++;\n"
-        "            _mmaster = mister_scache_lookup(_mfinal, _muc);\n"
-        "            if(_mmaster)\n"
-        "            {\n"
-        "                /* DEDUP HIT: bit-exact alias (iscopy=0), skip lex + compile */\n"
-        "                mister_script_alias_fresh(newchar->scripts->animation_script, _mmaster);\n"
-        "                mister_sdedup_hits++;\n"
-        "            }\n"
-        "            else\n"
-        "            {\n"
-        "                /* miss: build fresh (unchanged path), register as cache owner */\n"
-        "                if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
-        "                {\n"
-        "                    Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
-        "                }\n"
-        "                tempInt = Script_AppendText(newchar->scripts->animation_script, _mfinal, filename);\n"
-        "                { unsigned long _ct0 = _mister_load_us(); Script_Compile(newchar->scripts->animation_script); _mister_script_us += _mister_load_us() - _ct0; }\n"
-        "                if(tempInt)\n"
-        "                {\n"
-        "                    mister_scache_insert(_mfinal, _muc, newchar->scripts->animation_script);\n"
-        "                }\n"
-        "            }\n"
-        "        }\n"
-        "        else if(_mfinal && _mfinal[0])\n"
-        "        {\n"
-        "            /* subclassed: original behavior -- Init (if needed) + AppendText, NO compile */\n"
-        "            if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
-        "            {\n"
-        "                Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
-        "            }\n"
-        "            tempInt = Script_AppendText(newchar->scripts->animation_script, _mfinal, filename);\n"
-        "        }\n"
-        "    }",
-        'script dedup: restructure animation_script assembly -> dedup decision')
-    # (3) invalidate cache entry when its owner model is freed (before the
-    #     interpreter is freed by clear_all_scripts). Unique to free_model.
-    ob = strict_replace(ob,
-        "    if(hasFreetype(model, MF_SCRIPTS))\n"
-        "    {\n"
-        "        clear_all_scripts(model->scripts, 2);\n"
-        "        free_all_scripts(&model->scripts);\n"
-        "    }",
-        "    if(hasFreetype(model, MF_SCRIPTS))\n"
-        "    {\n"
-        "        mister_scache_drop_master(model->scripts->animation_script); /* MiSTer dedup: drop owner entry before its interpreter is freed */\n"
-        "        clear_all_scripts(model->scripts, 2);\n"
-        "        free_all_scripts(&model->scripts);\n"
-        "    }",
-        'script dedup: invalidate cache entry in free_model')
-    # (4) bit-exact alias helper in openborscript.c (where the file-static
-    #     execute_init_method is reachable). Identical to Script_Copy EXCEPT it
-    #     runs init with iscopy=0,localclear=1 -- byte-for-byte matching a fresh
-    #     Script_Compile (execute_init_method(pscript,0,1)). So a deduped model
-    #     ends in EXACTLY the fresh-compile end state (no iscopy divergence); the
-    #     only residue is the shared interpreter's symbol-table name/comment (the
-    #     first owner's), used solely in fatal error messages. Read fresh so it
-    #     picks up prior openborscript.c patches (Steps 32/35/61/...).
-    obs_alias_path = os.path.join(obor, 'openborscript.c')
-    obs_alias = read(obs_alias_path)
-    obs_alias = strict_replace(obs_alias,
-        "    pdest->pinterpreter = psrc->pinterpreter;\n"
-        "    pdest->comment = psrc->comment;\n"
-        "    pdest->interpreterowner = 0; // dont own it\n"
-        "    pdest->initialized = psrc->initialized; //just copy, it should be 1\n"
-        "    execute_init_method(pdest, 1, localclear);\n"
-        "}",
-        "    pdest->pinterpreter = psrc->pinterpreter;\n"
-        "    pdest->comment = psrc->comment;\n"
-        "    pdest->interpreterowner = 0; // dont own it\n"
-        "    pdest->initialized = psrc->initialized; //just copy, it should be 1\n"
-        "    execute_init_method(pdest, 1, localclear);\n"
-        "}\n"
-        "\n"
-        "/* MiSTer 2026-06-14 bit-exact dedup alias. Identical to Script_Copy above\n"
-        "   (aliases the compiled interpreter, interpreterowner=0 -> no double-free)\n"
-        "   EXCEPT it runs the init method with iscopy=0,localclear=1 -- byte-for-byte\n"
-        "   matching a fresh Script_Compile (execute_init_method(pscript,0,1) below).\n"
-        "   Used by the load-time animation_script dedup so a deduped duplicate model\n"
-        "   ends in EXACTLY the fresh-compile end state (no iscopy divergence). */\n"
-        "void mister_script_alias_fresh(Script *pdest, Script *psrc)\n"
-        "{\n"
-        "    if(!psrc->initialized)\n"
-        "    {\n"
-        "        return;\n"
-        "    }\n"
-        "    if(pdest->initialized)\n"
-        "    {\n"
-        "        Script_Clear(pdest, 1);\n"
-        "    }\n"
-        "    pdest->pinterpreter = psrc->pinterpreter;\n"
-        "    pdest->comment = psrc->comment;\n"
-        "    pdest->interpreterowner = 0; // don't own it (shared with the cache owner)\n"
-        "    pdest->initialized = psrc->initialized;\n"
-        "    execute_init_method(pdest, 0, 1); // iscopy=0,localclear=1 -> matches fresh Script_Compile\n"
-        "}\n"
-        "\n"
-        "/* MiSTer 2026-06-15 compile-WITHOUT-init, for command-script dedup cache\n"
-        "   masters. Identical to Script_Compile EXCEPT it does NOT run\n"
-        "   execute_init_method: the cache master is a code-only holder, and each\n"
-        "   model's alias runs init() exactly once via mister_script_alias_fresh. So\n"
-        "   init() executes once per model (matching the original per-model\n"
-        "   Script_Compile) with NO extra master-init side effect -> bit-exact for\n"
-        "   non-idempotent init() scripts too. */\n"
-        "int mister_script_compile_noinit(Script *pscript)\n"
-        "{\n"
-        "    int result;\n"
-        "    if(!pscript || !pscript->pinterpreter)\n"
-        "    {\n"
-        "        return 1;\n"
-        "    }\n"
-        "    result = SUCCEEDED(Interpreter_CompileInstructions(pscript->pinterpreter));\n"
-        "    if(!result)\n"
-        "    {\n"
-        "        borShutdown(1, \"Can't compile script '%s' %s\\n\", pscript->pinterpreter->theSymbolTable.name, pscript->comment ? pscript->comment : \"\");\n"
-        "    }\n"
-        "    pscript->pinterpreter->bReset = FALSE;\n"
-        "    return result;\n"
-        "}",
-        'script dedup: bit-exact alias helper + compile-noinit helper in openborscript.c')
-    write(obs_alias_path, obs_alias)
-
-    # ===================================================================
-    # PDC2 FIX (2026-06-15): a no-model level "at" entry must not reference
-    # model_cache[0]. PDC2's tutorial has settings-only entries
-    # (light/shadowalpha/shadowcolor + at). Each settings command does its
-    # own memset(&next,0,...) (zeroing index to 0) then sets its field, so at
-    # the single commit point (CMD_LEVEL_AT memcpy into level->spawnpoints[])
-    # the entry has name=NULL, model=NULL, index=0. update_scroller later
-    # smartspawns it and spawn() resolves model_index 0 -> model_cache[0];
-    # on the 16-bit branch model_cache[0] is bgfx (the select-screen
-    # background), so the settings entry spawns a looping bgfx into the level
-    # (root-caused via backtrace update_scroller->smartspawn->spawn + the
-    # SMARTSPAWN diag: index=0, no name/model, slot.model=bgfx). Engine intent
-    # is MODEL_INDEX_NONE (-1) for "no model" (CMD_LEVEL_SPAWN sets it). Fix at
-    # the COMMIT point (after all per-command memsets): if the entry has no
-    # name and no model pointer, force index/item/weapon to MODEL_INDEX_NONE
-    # so spawn() returns NULL instead of resolving model_cache[0]. Legit model
-    # spawns always have a name (CMD_LEVEL_SPAWN sets next.name) -> unaffected.
-    # ===================================================================
-    print("  PDC2 fix: no-model 'at' entries get MODEL_INDEX_NONE at commit (no longer spawn model_cache[0])")
-    ob = strict_replace(ob,
-        "            __realloc(level->spawnpoints, level->numspawns);\n"
-        "            memcpy(&level->spawnpoints[level->numspawns], &next, sizeof(next));",
-        "            __realloc(level->spawnpoints, level->numspawns);\n"
-        "            if((!next.name || !next.name[0]) && !next.model) { next.index = next.item_properties.index = next.weaponindex = MODEL_INDEX_NONE; } /* MiSTer PDC2 fix: settings-only 'at' entry has no model -> don't let spawn() resolve index 0 to model_cache[0] (bgfx) */\n"
-        "            memcpy(&level->spawnpoints[level->numspawns], &next, sizeof(next));",
-        'PDC2 fix: no-model at-entry gets MODEL_INDEX_NONE at CMD_LEVEL_AT commit')
 
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
     # 256 -> 4096. Reduces realloc count from ~195 to ~12 for a 50k-sprite
@@ -3962,308 +3475,666 @@ endif
     print("  Step 16b: block_find_target short-circuit reorder cheap-first")
     print("  Step 16c: find_ent_here grab-distance invariant hoist")
 
-    # (fps per-frame + SUB-PROFILE v8/v9/v10 + [BLD]/[BAL] diagnostics stripped for ship -- full version in tools/profiling/)
+    # -- Step 17 (2026-05-26): RE-INTRODUCED FPS profile + SUB-PROFILE v8.
+    # Goal: measure post-Step 14/15/16 fps lift across the 7-PAK regression set
+    # against pre-optimization baseline. SUB-PROFILE v8 retained to verify the
+    # arrange bucket actually dropped to ~5% (was 28-42% pre-Step 14).
+    #
+    # Same 8 patches as previously (5 FPS + 3 SUB). Markers present -> CI gate
+    # fires -> binary stays off main as workflow artifact for manual deploy.
+    # REVERT after measurement cycle completes.
 
-    # ===================================================================
-    # COMMAND-SCRIPT DEDUP (2026-06-15) -- extends the animation_script dedup
-    # to the ~27 model command scripts (think/update/takedamage/ondeath/onspawn/
-    # key/onmovea/...), all of which compile through lcmHandleCommandScripts.
-    # Static analysis of local PAKs: JL Legacy 227 refs -> 4 distinct files (98%
-    # dup), TMNT-RP 343 -> 30 (91%). ZERO command-script models use 'unload'.
-    # DESIGN: cache-OWNED master interpreters. Each distinct command script is
-    # compiled once into a cache-owned Script (interpreterowner=1); every model
-    # (incl the first) gets an interpreterowner=0 alias via mister_script_alias_fresh
-    # (bit-exact: same compiled interpreter, execute_init_method iscopy=0). Since
-    # no MODEL owns the shared interpreter, mid-session unload_level frees can't
-    # dangle an alias; the cache is freed once at PAK teardown (free_models),
-    # AFTER every model alias is freed (safe ordering). Key: file-case = script
-    # path ('F'+path; same path==same content within a PAK -> skip file read AND
-    # compile on hit); inline @script case = inline text ('I'+text). Gate:
-    # (compile && !first) -> exactly the 27 model command-script callers; level
-    # scripts (first=1) + deferred-compile callers (compile=0) keep the original
-    # path. Separate cache from the animation dedup (untouched); LOCKED palette
-    # path untouched. RAM-only, no SD files.
-    # ===================================================================
-    print("  Command-script dedup: cache-owned masters for model command scripts (98%/91% dup on JLL/TMNT-RP)")
-    # (1) cache + helpers, inserted before free_models (visible to free_models'
-    #     clear hook AND to lcmHandleCommandScripts further down).
-    ob = strict_replace(ob,
-        "void free_models()\n"
+    # -- TEMPORARY PER-FRAME PROFILE 2026-05-25 (DIAG -- REVERT AFTER MEASURED).
+    # Same approach as load-time SUB-PROFILE v2-v7 but for per-FRAME work.
+    # Goal: identify which engine subsystem dominates per-frame CPU time on
+    # CPU-bound PAKs (Avengers UBF ~30 fps, He-Man ~33 fps at stock 800 MHz).
+    #
+    # 5 patches:
+    #   13i: file-scope globals (frame counter, cumulative subsystem timers)
+    #   13j: entity timer wrapping while(_time < newtime) tick loop
+    #   13k: render timer wrapping display_ents() call
+    #   13l: script timer wrapping execute_updatedscripts() call
+    #   13m: FPS counter + periodic printf at top of if(ingame==1 && !_pause) block
+    #
+    # Output: [FPS] N.N avg (frames=N entity=Nms render=Nms script=Nms other=Nms
+    # interval=Nms) every ~5 sec during actual gameplay. Diagnostic auto-skips
+    # title screens / menus / pause (gated on ingame==1 && !_pause).
+    #
+    # REVERT after one measurement cycle, same as load-time profile work.
+
+    # Patch 13i: file-scope globals before update() definition.
+    # NOTE: previous attempt put globals before playlevel() but the FPS code
+    # (while loop, display_ents call, etc.) is actually in update() which
+    # is defined EARLIER in the file than playlevel. C requires declaration
+    # before use. Globals now placed before update() (line 45669 pristine).
+    fps_globals_old = (
+        "void update(int ingame, int usevwait)\n"
         "{\n"
-        "    s_model *temp;",
-        "/* MiSTer 2026-06-15 command-script dedup cache (cache-OWNED masters).\n"
-        "   See block comment in apply_patches.py. Separate from the animation\n"
-        "   dedup cache; reuses mister_script_alias_fresh (extern declared earlier). */\n"
-        "typedef struct {\n"
-        "    unsigned int hash;\n"
-        "    char *key;       /* prefix byte ('F' path / 'I' inline) + key text */\n"
-        "    Script *master;  /* cache-owned compiled interpreter (interpreterowner==1) */\n"
-        "    unsigned long cost_us; /* TEMPORARY DIAG [CCMD]: this script's miss compile+lex+io cost */\n"
-        "} mister_ccache_entry;\n"
-        "static mister_ccache_entry *mister_ccache = NULL;\n"
-        "static int mister_ccache_n = 0, mister_ccache_cap = 0;\n"
-        "/* TEMPORARY DIAG (REVERT AFTER MEASURED) [CCMD]: exact command-script dedup saving + #10 anim-parse timer. */\n"
-        "unsigned long _mister_anim_us = 0;\n"
-        "unsigned long _mister_scriptgen_us = 0; /* TEMPORARY DIAG #10c: lcmScript* animation_script string-build */\n"
-        "unsigned long _mister_allocscr_us = 0; /* TEMPORARY DIAG #10d: alloc_all_scripts per-model 27-slot alloc */\n"
-        "unsigned long _mister_cachedtot_us = 0; /* TEMPORARY DIAG #10d: load_cached_model per-model total (models.txt loop) */\n"
-        "unsigned long _mister_parseloop_us = 0; /* TEMPORARY DIAG #10b: whole model-parse-loop wall time */\n"
-        "static unsigned long _mister_pl0 = 0; /* #10b parse-loop start stamp (load_cached_model not reentrant) */\n"
-        "unsigned long _mister_ccmd_paid_us = 0, _mister_ccmd_saved_us = 0;\n"
-        "unsigned int _mister_ccmd_hits = 0, _mister_ccmd_misses = 0;\n"
-        "static unsigned long _mister_ccache_last_cost = 0; /* set by lookup on hit */\n"
-        "extern void mister_script_alias_fresh(Script *pdest, Script *psrc);\n"
-        "extern int mister_script_compile_noinit(Script *pscript);\n"
-        "static unsigned int mister_ccache_hash(char pfx, const char *s)\n"
+        "    int i = 0;\n"
+        "    int p_keys = 0;"
+    )
+    fps_globals_new = (
+        "/* MiSTer 2026-05-25 TEMPORARY per-frame profile diagnostic. */\n"
+        "static unsigned int _mister_fps_frames = 0;\n"
+        "static unsigned int _mister_fps_t_last_print = 0;\n"
+        "static unsigned int _mister_fps_entity_ms = 0;\n"
+        "static unsigned int _mister_fps_render_ms = 0;\n"
+        "static unsigned int _mister_fps_script_ms = 0;\n"
+        "/* SUB-PROFILE v8 globals are declared earlier (before update_ents) -- */\n"
+        "/* see TEMPORARY SUB-PROFILE v8 patch (REVERT AFTER MEASURED). */\n"
+        "/* MiSTer 2026-05-27 TEMPORARY SUB-PROFILE v9 (REVERT AFTER MEASURED): */\n"
+        "/* outer-loop instrumentation for the 'other' bucket on JL Legacy. */\n"
+        "static unsigned int _mister_o9_input_ms = 0;\n"
+        "static unsigned int _mister_o9_keysc_ms = 0;\n"
+        "static unsigned int _mister_o9_vwait_ms = 0;\n"
+        "static unsigned int _mister_o9_vcopy_ms = 0;\n"
+        "static unsigned int _mister_o9_audio_ms = 0;\n"
+        "/* MiSTer 2026-05-27 TEMPORARY SUB-PROFILE v10 (REVERT AFTER MEASURED): */\n"
+        "/* spriteq_draw timer to confirm the ~6 ms/frame unmeasured rem. */\n"
+        "static unsigned int _mister_o10_spriteq_ms = 0;\n"
+        "/* MiSTer 2026-05-27 TEMPORARY SUB-PROFILE v11 (REVERT AFTER MEASURED): */\n"
+        "/* spriteq_draw internal breakdown: identify which putsprite variant */\n"
+        "/* dominates on wide-source PAKs. Non-static so spriteq.c can extern. */\n"
+        "unsigned int _mister_o11_sort_ms = 0;\n"
+        "unsigned int _mister_o11_putsprite_ms = 0;\n"
+        "unsigned int _mister_o11_putsprite_count = 0;\n"
+        "unsigned int _mister_o11_putother_ms = 0;\n"
+        "/* MiSTer 2026-05-27 TEMPORARY SUB-PROFILE v12 (REVERT AFTER MEASURED): */\n"
+        "/* Split putother into putscreen / putpixel / putline / putbox to find */\n"
+        "/* which dispatch dominates on Avengers (putother is 49% of spriteq). */\n"
+        "unsigned int _mister_o12_putscreen_ms = 0;\n"
+        "unsigned int _mister_o12_putscreen_count = 0;\n"
+        "unsigned int _mister_o12_putpixel_ms = 0;\n"
+        "unsigned int _mister_o12_putline_ms = 0;\n"
+        "unsigned int _mister_o12_putbox_ms = 0;\n"
+        "unsigned int _mister_o12_putbox_count = 0;\n"
+        "/* MiSTer 2026-06-07 TEMPORARY BLEND-SPLIT (REVERT AFTER MEASURED): */\n"
+        "/* putsprite time/count split by drawmethod.alpha (blend vs opaque) to */\n"
+        "/* size the only remaining putsprite lever (blend func-ptr inlining). */\n"
+        "unsigned int _mister_bld_blend_ms = 0;\n"
+        "unsigned int _mister_bld_blend_count = 0;\n"
+        "unsigned int _mister_bld_opaque_ms = 0;\n"
+        "unsigned int _mister_bld_opaque_count = 0;\n"
+        "unsigned int _mister_bld_alpha_hist[16] = {0};  /* TEMP: blend-mode histogram by drawmethod.alpha */\n"
+        "\n"
+        "void update(int ingame, int usevwait)\n"
         "{\n"
-        "    unsigned int h = 5381; h = ((h << 5) + h) + (unsigned char)pfx;\n"
-        "    if(s) while(*s) h = ((h << 5) + h) + (unsigned char)(*s++);\n"
-        "    return h;\n"
-        "}\n"
-        "static Script *mister_ccache_lookup(char pfx, const char *key)\n"
-        "{\n"
-        "    unsigned int h = mister_ccache_hash(pfx, key);\n"
-        "    int i;\n"
-        "    for(i = 0; i < mister_ccache_n; i++)\n"
-        "        if(mister_ccache[i].hash == h && mister_ccache[i].key\n"
-        "           && mister_ccache[i].key[0] == pfx && strcmp(mister_ccache[i].key + 1, key) == 0)\n"
-        "            { _mister_ccache_last_cost = mister_ccache[i].cost_us; return mister_ccache[i].master; }\n"
-        "    return NULL;\n"
-        "}\n"
-        "static void mister_ccache_insert(char pfx, const char *key, Script *master, unsigned long cost_us)\n"
-        "{\n"
-        "    int len; char *copy; mister_ccache_entry *np;\n"
-        "    if(!key || !master) return;\n"
-        "    if(mister_ccache_n >= mister_ccache_cap)\n"
-        "    {\n"
-        "        int nc = mister_ccache_cap ? (mister_ccache_cap * 2) : 64;\n"
-        "        np = (mister_ccache_entry *)realloc(mister_ccache, nc * sizeof(mister_ccache_entry));\n"
-        "        if(!np) return;\n"
-        "        mister_ccache = np; mister_ccache_cap = nc;\n"
-        "    }\n"
-        "    len = (int)strlen(key);\n"
-        "    copy = (char *)malloc(len + 2);\n"
-        "    if(!copy) return;\n"
-        "    copy[0] = pfx; memcpy(copy + 1, key, len + 1);\n"
-        "    mister_ccache[mister_ccache_n].hash = mister_ccache_hash(pfx, key);\n"
-        "    mister_ccache[mister_ccache_n].key = copy;\n"
-        "    mister_ccache[mister_ccache_n].master = master;\n"
-        "    mister_ccache[mister_ccache_n].cost_us = cost_us;\n"
-        "    mister_ccache_n++;\n"
-        "}\n"
-        "/* Free all cache-owned masters. Called from free_models AFTER every model\n"
-        "   (and thus every interpreterowner=0 alias) has been freed, so the shared\n"
-        "   interpreters have no live aliases when freed here. */\n"
-        "static void mister_ccache_clear(void)\n"
-        "{\n"
-        "    int i;\n"
-        "    for(i = 0; i < mister_ccache_n; i++)\n"
-        "    {\n"
-        "        if(mister_ccache[i].master) { Script_Clear(mister_ccache[i].master, 2); free(mister_ccache[i].master); }\n"
-        "        if(mister_ccache[i].key) free(mister_ccache[i].key);\n"
-        "    }\n"
-        "    if(mister_ccache) free(mister_ccache);\n"
-        "    mister_ccache = NULL; mister_ccache_n = 0; mister_ccache_cap = 0;\n"
-        "}\n"
-        "void free_models()\n"
-        "{\n"
-        "    s_model *temp;",
-        'command-script dedup: cache + helpers before free_models')
-    # (2) clear the cache after free_models' model-free loop (all aliases gone).
-    ob = strict_replace(ob,
-        "    while((temp = getFirstModel()))\n"
-        "    {\n"
-        "        free_model(temp);\n"
-        "    }",
-        "    while((temp = getFirstModel()))\n"
-        "    {\n"
-        "        free_model(temp);\n"
-        "    }\n"
-        "    mister_ccache_clear(); /* MiSTer cmd-script dedup: free cache-owned masters (all model aliases now freed) */",
-        'command-script dedup: clear cache in free_models after model-free loop')
-    # (3) dedup restructure of lcmHandleCommandScripts. Gate on (compile && !first)
-    #     -> the 27 model command-script callers. Level scripts (first=1) and
-    #     deferred-compile callers (compile=0) fall to the unchanged original path.
-    ob = strict_replace(ob,
-        "size_t lcmHandleCommandScripts(ArgList *arglist, char *buf, Script *script, char *scriptname, char *filename, int compile, int first)\n"
-        "{\n"
-        "    ptrdiff_t pos = 0;\n"
-        "    size_t len = 0;\n"
-        "    int result = 0;\n"
-        "    char *scriptbuf = NULL;\n"
-        "    Script_Init(script, scriptname, filename, first);\n"
-        "    if(stricmp(GET_ARGP(1), \"@script\") == 0)\n"
-        "    {\n"
-        "        fetchInlineScript(buf, &scriptbuf, &pos, &len);\n"
-        "        if(scriptbuf)\n"
-        "        {\n"
-        "            result = Script_AppendText(script, scriptbuf, filename);\n"
-        "            free(scriptbuf);\n"
+        "    int i = 0;\n"
+        "    int p_keys = 0;"
+    )
+    ob = strict_replace(ob, fps_globals_old, fps_globals_new,
+                        'Step 13i: per-frame profile globals before update()')
+
+    # Patch 13j: entity timer start (before while(_time < newtime)).
+    fps_entity_start_old = "        while(_time < newtime)"
+    fps_entity_start_new = (
+        "        unsigned int _mister_ent_t0 = timer_gettick();  /* TEMP profile */\n"
+        "        while(_time < newtime)"
+    )
+    ob = strict_replace(ob, fps_entity_start_old, fps_entity_start_new,
+                        'Step 13j: entity timer start before tick loop')
+
+    # Patch 13k: entity timer end (after ++_time; }) -- same scope as start.
+    fps_entity_end_old = (
+        "            ++_time;\n"
+        "        }"
+    )
+    fps_entity_end_new = (
+        "            ++_time;\n"
         "        }\n"
-        "    }\n"
-        "    else\n"
-        "    {\n"
-        "        result = load_script(script, GET_ARGP(1));\n"
-        "    }\n"
-        "    if(result)\n"
-        "    {\n"
-        "        if(compile)\n"
+        "        _mister_fps_entity_ms += timer_gettick() - _mister_ent_t0;  /* TEMP profile */"
+    )
+    ob = strict_replace(ob, fps_entity_end_old, fps_entity_end_new,
+                        'Step 13k: entity timer end after tick loop')
+
+    # Patch 13l: render timer wrapping display_ents() call.
+    fps_render_old = (
+        "    if(ingame == 1 || check_in_screen())\n"
+        "        if(!_pause)\n"
         "        {\n"
-        "            Script_Compile(script);\n"
-        "        }\n"
-        "    }\n"
-        "    else\n"
+        "            display_ents();\n"
+        "        }"
+    )
+    fps_render_new = (
+        "    if(ingame == 1 || check_in_screen())\n"
+        "        if(!_pause)\n"
+        "        {\n"
+        "            unsigned int _mister_rnd_t0 = timer_gettick();  /* TEMP profile */\n"
+        "            display_ents();\n"
+        "            _mister_fps_render_ms += timer_gettick() - _mister_rnd_t0;  /* TEMP profile */\n"
+        "        }"
+    )
+    ob = strict_replace(ob, fps_render_old, fps_render_new,
+                        'Step 13l: render timer around display_ents()')
+
+    # Patch 13m: script timer wrapping execute_updatedscripts() call.
+    fps_script_old = (
+        "    if(ingame == 1 || alwaysupdate)\n"
         "    {\n"
-        "        borShutdown(1, \"Unable to load %s '%s' in file '%s'.\\n\", scriptname, GET_ARGP(1), filename);\n"
-        "    }\n"
-        "    return pos;\n"
-        "}",
-        "size_t lcmHandleCommandScripts(ArgList *arglist, char *buf, Script *script, char *scriptname, char *filename, int compile, int first)\n"
-        "{\n"
-        "    ptrdiff_t pos = 0;\n"
-        "    size_t len = 0;\n"
-        "    int result = 0;\n"
-        "    char *scriptbuf = NULL;\n"
-        "    /* MiSTer 2026-06-15 command-script dedup: for the model command-script\n"
-        "       callers (compile && !first), reuse a cache-owned compiled master and\n"
-        "       make THIS model's script an interpreterowner=0 alias (skips file read +\n"
-        "       lex + compile on a hit). Bit-exact (same compiled interpreter). Level\n"
-        "       scripts (first) + deferred-compile callers (!compile) use the original\n"
-        "       path below unchanged. */\n"
-        "    if(compile && !first)\n"
+        "        execute_updatedscripts();\n"
+        "    }"
+    )
+    fps_script_new = (
+        "    if(ingame == 1 || alwaysupdate)\n"
         "    {\n"
-        "        char _cpfx; char *_ckey = NULL; char *_cinlinebuf = NULL; Script *_cm;\n"
-        "        if(stricmp(GET_ARGP(1), \"@script\") == 0)\n"
+        "        unsigned int _mister_scr_t0 = timer_gettick();  /* TEMP profile */\n"
+        "        execute_updatedscripts();\n"
+        "        _mister_fps_script_ms += timer_gettick() - _mister_scr_t0;  /* TEMP profile */\n"
+        "    }"
+    )
+    ob = strict_replace(ob, fps_script_old, fps_script_new,
+                        'Step 13m: script timer around execute_updatedscripts()')
+
+    # Patch 13n: FPS counter + periodic printf at top of if(ingame==1 && !_pause).
+    # Block fires once per render frame ONLY when in gameplay AND not paused --
+    # title/intro/menus/pause are auto-skipped. Logs once per ~5 sec.
+    fps_print_old = (
+        "    if(ingame == 1 && !_pause)\n"
+        "    {\n"
+        "        draw_scrolled_bg();"
+    )
+    fps_print_new = (
+        "    if(ingame == 1 && !_pause)\n"
+        "    {\n"
+        "        /* MiSTer 2026-05-25 TEMP per-frame profile: log [FPS] N.N every ~5 sec */\n"
         "        {\n"
-        "            fetchInlineScript(buf, &scriptbuf, &pos, &len); /* advances pos past the inline block */\n"
-        "            _cinlinebuf = scriptbuf; _ckey = scriptbuf; _cpfx = 'I';\n"
-        "        }\n"
-        "        else\n"
-        "        {\n"
-        "            _ckey = GET_ARGP(1); _cpfx = 'F';\n"
-        "        }\n"
-        "        if(_ckey && _ckey[0])\n"
-        "        {\n"
-        "            _cm = mister_ccache_lookup(_cpfx, _ckey);\n"
-        "            if(_cm)\n"
-        "            {\n"
-        "                /* HIT: alias this model's (varlist-only, un-Script_Init'd) script.\n"
-        "                   No Script_Init here -> no per-model interpreter to leak. */\n"
-        "                mister_script_alias_fresh(script, _cm);\n"
-        "                _mister_ccmd_saved_us += _mister_ccache_last_cost; _mister_ccmd_hits++; /* TEMPORARY DIAG [CCMD] */\n"
-        "                result = 1;\n"
+        "            unsigned int _now_ms = timer_gettick();\n"
+        "            if (_mister_fps_t_last_print == 0) _mister_fps_t_last_print = _now_ms;\n"
+        "            _mister_fps_frames++;\n"
+        "            if (_now_ms - _mister_fps_t_last_print >= 5000) {\n"
+        "                unsigned int interval = _now_ms - _mister_fps_t_last_print;\n"
+        "                unsigned int fps_x10 = (_mister_fps_frames * 10000u) / interval;\n"
+        "                unsigned int sub_sum = _mister_fps_entity_ms + _mister_fps_render_ms + _mister_fps_script_ms;\n"
+        "                unsigned int other_ms = (interval > sub_sum) ? (interval - sub_sum) : 0u;\n"
+        "                printf(\"[FPS] %u.%u avg (frames=%u entity=%ums render=%ums script=%ums other=%ums interval=%ums)\\n\",\n"
+        "                       fps_x10 / 10u, fps_x10 % 10u,\n"
+        "                       _mister_fps_frames,\n"
+        "                       _mister_fps_entity_ms,\n"
+        "                       _mister_fps_render_ms,\n"
+        "                       _mister_fps_script_ms,\n"
+        "                       other_ms,\n"
+        "                       interval);\n"
+        "                /* SUB-PROFILE v8 — REVERT AFTER MEASURED — entity-internal breakdown. */\n"
+        "                printf(\"[SUB] entity=%ums = script=%ums + ai=%ums + anim=%ums + coll=%ums + arrange=%ums\\n\",\n"
+        "                       _mister_fps_entity_ms,\n"
+        "                       _mister_se_script_ms,\n"
+        "                       _mister_se_ai_ms,\n"
+        "                       _mister_se_anim_ms,\n"
+        "                       _mister_se_coll_ms,\n"
+        "                       _mister_se_arr_ms);\n"
+        "                /* SUB-PROFILE v9+v10 — REVERT AFTER MEASURED — outer-loop breakdown. */\n"
+        "                printf(\"[OTH] input=%ums keysc=%ums vwait=%ums vcopy=%ums audio=%ums spriteq=%ums\\n\",\n"
+        "                       _mister_o9_input_ms,\n"
+        "                       _mister_o9_keysc_ms,\n"
+        "                       _mister_o9_vwait_ms,\n"
+        "                       _mister_o9_vcopy_ms,\n"
+        "                       _mister_o9_audio_ms,\n"
+        "                       _mister_o10_spriteq_ms);\n"
+        "                /* SUB-PROFILE v11 — REVERT AFTER MEASURED — spriteq internal. */\n"
+        "                printf(\"[SPQ] sort=%ums putsprite=%ums (%u calls) putother=%ums\\n\",\n"
+        "                       _mister_o11_sort_ms,\n"
+        "                       _mister_o11_putsprite_ms,\n"
+        "                       _mister_o11_putsprite_count,\n"
+        "                       _mister_o11_putother_ms);\n"
+        "                /* SUB-PROFILE v12 — REVERT AFTER MEASURED — putother breakdown. */\n"
+        "                printf(\"[SP2] putscreen=%ums (%u calls) putpixel=%ums putline=%ums putbox=%ums (%u calls)\\n\",\n"
+        "                       _mister_o12_putscreen_ms,\n"
+        "                       _mister_o12_putscreen_count,\n"
+        "                       _mister_o12_putpixel_ms,\n"
+        "                       _mister_o12_putline_ms,\n"
+        "                       _mister_o12_putbox_ms,\n"
+        "                       _mister_o12_putbox_count);\n"
+        "                /* TEMP BLEND-SPLIT (REVERT AFTER MEASURED) -- putsprite alpha split. */\n"
+        "                printf(\"[BLD] blend=%ums (%u sprites) opaque=%ums (%u sprites)\\n\",\n"
+        "                       _mister_bld_blend_ms,\n"
+        "                       _mister_bld_blend_count,\n"
+        "                       _mister_bld_opaque_ms,\n"
+        "                       _mister_bld_opaque_count);\n"
+        "                printf(\"[BAL] a0=%u a1=%u a2=%u a3=%u a4=%u a5=%u a6=%u a7=%u a8=%u a9=%u a10=%u a11=%u a12=%u a13=%u a14=%u a15=%u\\n\",\n"
+        "                       _mister_bld_alpha_hist[0],_mister_bld_alpha_hist[1],_mister_bld_alpha_hist[2],_mister_bld_alpha_hist[3],\n"
+        "                       _mister_bld_alpha_hist[4],_mister_bld_alpha_hist[5],_mister_bld_alpha_hist[6],_mister_bld_alpha_hist[7],\n"
+        "                       _mister_bld_alpha_hist[8],_mister_bld_alpha_hist[9],_mister_bld_alpha_hist[10],_mister_bld_alpha_hist[11],\n"
+        "                       _mister_bld_alpha_hist[12],_mister_bld_alpha_hist[13],_mister_bld_alpha_hist[14],_mister_bld_alpha_hist[15]);\n"
+        "                _mister_fps_frames = 0;\n"
+        "                _mister_fps_entity_ms = 0;\n"
+        "                _mister_fps_render_ms = 0;\n"
+        "                _mister_fps_script_ms = 0;\n"
+        "                _mister_se_script_ms = 0;\n"
+        "                _mister_se_ai_ms = 0;\n"
+        "                _mister_se_anim_ms = 0;\n"
+        "                _mister_se_coll_ms = 0;\n"
+        "                _mister_se_arr_ms = 0;\n"
+        "                _mister_o9_input_ms = 0;\n"
+        "                _mister_o9_keysc_ms = 0;\n"
+        "                _mister_o9_vwait_ms = 0;\n"
+        "                _mister_o9_vcopy_ms = 0;\n"
+        "                _mister_o9_audio_ms = 0;\n"
+        "                _mister_o10_spriteq_ms = 0;\n"
+        "                _mister_o11_sort_ms = 0;\n"
+        "                _mister_o11_putsprite_ms = 0;\n"
+        "                _mister_o11_putsprite_count = 0;\n"
+        "                _mister_o11_putother_ms = 0;\n"
+        "                _mister_o12_putscreen_ms = 0;\n"
+        "                _mister_o12_putscreen_count = 0;\n"
+        "                _mister_o12_putpixel_ms = 0;\n"
+        "                _mister_o12_putline_ms = 0;\n"
+        "                _mister_o12_putbox_ms = 0;\n"
+        "                _mister_o12_putbox_count = 0;\n"
+        "                _mister_bld_blend_ms = 0;\n"
+        "                _mister_bld_blend_count = 0;\n"
+        "                _mister_bld_opaque_ms = 0;\n"
+        "                _mister_bld_opaque_count = 0;\n"
+        "                { int _bai; for(_bai=0;_bai<16;_bai++) _mister_bld_alpha_hist[_bai]=0; }\n"
+        "                _mister_fps_t_last_print = _now_ms;\n"
         "            }\n"
-        "            else\n"
-        "            {\n"
-        "                /* MISS: build a cache-OWNED master, then alias this model. */\n"
-        "                unsigned long _cm0 = _mister_load_us(); /* TEMPORARY DIAG [CCMD]: time the miss */\n"
-        "                _cm = alloc_script();\n"
-        "                Script_Init(_cm, scriptname, filename, 0);\n"
-        "                if(_cinlinebuf) result = Script_AppendText(_cm, _cinlinebuf, filename);\n"
-        "                else            result = load_script(_cm, GET_ARGP(1));\n"
-        "                if(result)\n"
+        "        }\n"
+        "        draw_scrolled_bg();"
+    )
+    ob = strict_replace(ob, fps_print_old, fps_print_new,
+                        'Step 13n: per-frame profile counter + periodic [FPS] printf')
+
+    # -- TEMPORARY SUB-PROFILE v8 2026-05-26 (REVERT AFTER MEASURED).
+    # Break down the entity bucket (which dominates per-frame CPU on Avengers
+    # at ~482 ms per 5-sec window in the 30-35 fps band) into the 5 sub-system
+    # calls inside update_ents(): execute_updateentity_script / check_ai /
+    # update_animation / check_attack / arrange_ents. Goal: identify which
+    # sub-system to optimize.
+    #
+    # 6 patches (13n2 + 13o-13s).
+    # Output line: [SUB] entity=Nms = script=N + ai=N + anim=N + coll=N + arrange=N
+
+    # Patch 13n2: SUB-PROFILE v8 globals BEFORE update_ents().
+    # NOTE: update_ents() is defined at ~line 29247 pristine, update() at ~45669.
+    # Globals MUST be declared before the FIRST consumer = before update_ents().
+    # The FPS-profile globals (patch 13i) sit before update() and only feed update()
+    # itself; SUB-PROFILE v8 globals are read by update_ents() (the [SUB] timers)
+    # AND written by the printf inside update() (the reset block after [SUB] printf),
+    # so the SUB-PROFILE v8 globals are placed earlier in the file.
+    se_globals_old = "void update_ents()\n{\n    int i;"
+    se_globals_new = (
+        "/* MiSTer 2026-05-26 TEMPORARY SUB-PROFILE v8 (REVERT AFTER MEASURED). */\n"
+        "/* Per-frame breakdown INSIDE update_ents() -- script/ai/anim/coll/arrange. */\n"
+        "unsigned int _mister_se_script_ms = 0;\n"
+        "unsigned int _mister_se_ai_ms = 0;\n"
+        "unsigned int _mister_se_anim_ms = 0;\n"
+        "unsigned int _mister_se_coll_ms = 0;\n"
+        "unsigned int _mister_se_arr_ms = 0;\n"
+        "\n"
+        "void update_ents()\n"
+        "{\n"
+        "    int i;"
+    )
+    ob = strict_replace(ob, se_globals_old, se_globals_new,
+                        'Step 13n2: SUB-PROFILE v8 globals before update_ents()')
+
+    # Patch 13o: time execute_updateentity_script(self) per entity.
+    se_script_old = (
+        "                execute_updateentity_script(self);// execute a script\n"
+        "                if(!self->exists)\n"
         "                {\n"
-        "                    unsigned long _cmcost;\n"
-        "                    mister_script_compile_noinit(_cm); /* master = code-only; init runs once per alias */\n"
-        "                    _cmcost = _mister_load_us() - _cm0; /* [CCMD] compile+lex+io for this distinct script */\n"
-        "                    mister_ccache_insert(_cpfx, _ckey, _cm, _cmcost);\n"
-        "                    mister_script_alias_fresh(script, _cm);\n"
-        "                    _mister_ccmd_paid_us += _cmcost; _mister_ccmd_misses++; /* TEMPORARY DIAG [CCMD] */\n"
+        "                    continue;\n"
         "                }\n"
-        "                else\n"
+        "                check_ai();// check ai"
+    )
+    se_script_new = (
         "                {\n"
-        "                    Script_Clear(_cm, 2); free(_cm); _cm = NULL;\n"
+        "                    unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
+        "                    execute_updateentity_script(self);// execute a script\n"
+        "                    _mister_se_script_ms += timer_gettick() - _se_t0;\n"
         "                }\n"
-        "            }\n"
-        "        }\n"
-        "        if(_cinlinebuf) free(_cinlinebuf);\n"
-        "        if(!result)\n"
-        "        {\n"
-        "            borShutdown(1, \"Unable to load %s '%s' in file '%s'.\\n\", scriptname, GET_ARGP(1), filename);\n"
-        "        }\n"
-        "        return pos;\n"
-        "    }\n"
-        "    Script_Init(script, scriptname, filename, first);\n"
-        "    if(stricmp(GET_ARGP(1), \"@script\") == 0)\n"
-        "    {\n"
-        "        fetchInlineScript(buf, &scriptbuf, &pos, &len);\n"
-        "        if(scriptbuf)\n"
-        "        {\n"
-        "            result = Script_AppendText(script, scriptbuf, filename);\n"
-        "            free(scriptbuf);\n"
-        "        }\n"
-        "    }\n"
-        "    else\n"
-        "    {\n"
-        "        result = load_script(script, GET_ARGP(1));\n"
-        "    }\n"
-        "    if(result)\n"
-        "    {\n"
-        "        if(compile)\n"
-        "        {\n"
-        "            Script_Compile(script);\n"
-        "        }\n"
-        "    }\n"
-        "    else\n"
-        "    {\n"
-        "        borShutdown(1, \"Unable to load %s '%s' in file '%s'.\\n\", scriptname, GET_ARGP(1), filename);\n"
-        "    }\n"
-        "    return pos;\n"
-        "}",
-        'command-script dedup: lcmHandleCommandScripts cache-owned alias (gate compile && !first)')
+        "                if(!self->exists)\n"
+        "                {\n"
+        "                    continue;\n"
+        "                }\n"
+        "                {\n"
+        "                    unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
+        "                    check_ai();// check ai\n"
+        "                    _mister_se_ai_ms += timer_gettick() - _se_t0;\n"
+        "                }"
+    )
+    ob = strict_replace(ob, se_script_old, se_script_new,
+                        'Step 13o/13p: SUB-PROFILE v8 timers around execute_updateentity_script + check_ai')
 
-    # [#10] TEMPORARY DIAG (REVERT AFTER MEASURED): time per-frame parse (addframe)
-    # -- the prime suspect for the ~18.8s unaccounted "outside" bucket. One call
-    # site (load_cached_model). _mister_anim_us declared in the cmd-dedup cache block.
-    ob = strict_replace(ob,
-        "                curframe = addframe(&add_frame_data);",
-        "                { unsigned long _af0 = _mister_load_us(); curframe = addframe(&add_frame_data); _mister_anim_us += _mister_load_us() - _af0; } /* TEMPORARY DIAG #10: per-frame parse timer */",
-        '[#10] time addframe (per-frame parse) into _mister_anim_us')
+    # Patch 13q: time update_animation() per entity.
+    se_anim_old = (
+        "                update_animation(); // if not frozen, update animation\n"
+        "                if(!self->exists)\n"
+        "                {\n"
+        "                    continue;\n"
+        "                }\n"
+        "                check_attack();// Collission detection"
+    )
+    se_anim_new = (
+        "                {\n"
+        "                    unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
+        "                    update_animation(); // if not frozen, update animation\n"
+        "                    _mister_se_anim_ms += timer_gettick() - _se_t0;\n"
+        "                }\n"
+        "                if(!self->exists)\n"
+        "                {\n"
+        "                    continue;\n"
+        "                }\n"
+        "                {\n"
+        "                    unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
+        "                    check_attack();// Collission detection\n"
+        "                    _mister_se_coll_ms += timer_gettick() - _se_t0;\n"
+        "                }"
+    )
+    ob = strict_replace(ob, se_anim_old, se_anim_new,
+                        'Step 13q/13r: SUB-PROFILE v8 timers around update_animation + check_attack')
 
-    # [#10b] TEMPORARY DIAG: wrap the WHOLE model-command parse loop. Disambiguates
-    # the ~18.3s unaccounted 'outside': big parseloop -> per-frame case-body parsing;
-    # small parseloop -> post-loop animation_script generation (lcmScript* string build).
-    ob = strict_replace(ob,
-        "    // Now interpret the contents of buf line by line\n"
-        "    while(pos < size)\n"
-        "    {",
-        "    // Now interpret the contents of buf line by line\n"
-        "    _mister_pl0 = _mister_load_us(); /* TEMPORARY DIAG #10b: parse-loop start */\n"
-        "    while(pos < size)\n"
-        "    {",
-        '[#10b] parse-loop timer start')
-    ob = strict_replace(ob,
-        "        pos += getNewLineStart(buf + pos);\n"
-        "    }\n"
-        "\n"
-        "\n"
-        "    tempInt = 1;",
-        "        pos += getNewLineStart(buf + pos);\n"
-        "    }\n"
-        "    _mister_parseloop_us += _mister_load_us() - _mister_pl0; /* TEMPORARY DIAG #10b: parse-loop stop */\n"
-        "\n"
-        "\n"
-        "    tempInt = 1;",
-        '[#10b] parse-loop timer stop')
+    # Patch 13s: time arrange_ents() called once per tick (post-loop).
+    se_arrange_old = (
+        "    }//end of for\n"
+        "    arrange_ents();"
+    )
+    se_arrange_new = (
+        "    }//end of for\n"
+        "    {\n"
+        "        unsigned int _se_t0 = timer_gettick();  /* TEMP SUB-PROFILE v8 */\n"
+        "        arrange_ents();\n"
+        "        _mister_se_arr_ms += timer_gettick() - _se_t0;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, se_arrange_old, se_arrange_new,
+                        'Step 13s: SUB-PROFILE v8 timer around arrange_ents() (per-tick, post-loop)')
 
-    # [#10d] TEMPORARY DIAG: crack the ~26% "load_models overhead". Time
-    # alloc_all_scripts (per-model 27-slot alloc, prime suspect) + the per-model
-    # load_cached_model total (models.txt loop). overhead-residual = cachedtot -
-    # parseloop - (applex+script+scriptgen) - allocscr; load_models-level =
-    # total - cachedtot.
-    ob = strict_replace(ob,
-        "    alloc_all_scripts(&newchar->scripts);",
-        "    { unsigned long _as0 = _mister_load_us(); alloc_all_scripts(&newchar->scripts); _mister_allocscr_us += _mister_load_us() - _as0; } /* TEMPORARY DIAG #10d */",
-        '[#10d] time alloc_all_scripts (per-model script-slot alloc)')
-    ob = strict_replace(ob,
-        "            load_cached_model(model_cache[i].name, \"models.txt\", 0);",
-        "            { unsigned long _ct0 = _mister_load_us(); load_cached_model(model_cache[i].name, \"models.txt\", 0); _mister_cachedtot_us += _mister_load_us() - _ct0; } /* TEMPORARY DIAG #10d */",
-        '[#10d] time per-model load_cached_model total (models.txt loop)')
+    # -- TEMPORARY SUB-PROFILE v9 2026-05-27 (REVERT AFTER MEASURED).
+    # Times the unmeasured 'other' bucket: inputrefresh, execute_keyscripts,
+    # vga_vwait, video_copy_screen, sound_update_music. Goal: identify what
+    # in the outer update() loop caused JL Legacy to drop from 86 to 70 fps
+    # despite entity-bucket work being unchanged.
+    #
+    # 5 patches (13t-13x): one per function call in update() outside the
+    # existing entity/render/script timers.
+
+    # Patch 13t: time inputrefresh(playrecstatus->status) inside update().
+    o9_input_old = (
+        "    inputrefresh(playrecstatus->status);\n"
+        "    if(playrecstatus->status == A_REC_REC && !_pause && level) if ( !recordInputs() ) stopRecordInputs();"
+    )
+    o9_input_new = (
+        "    {\n"
+        "        unsigned int _o9_t0 = timer_gettick();  /* TEMP SUB-PROFILE v9 */\n"
+        "        inputrefresh(playrecstatus->status);\n"
+        "        _mister_o9_input_ms += timer_gettick() - _o9_t0;\n"
+        "    }\n"
+        "    if(playrecstatus->status == A_REC_REC && !_pause && level) if ( !recordInputs() ) stopRecordInputs();"
+    )
+    ob = strict_replace(ob, o9_input_old, o9_input_new,
+                        'Step 13t: SUB-PROFILE v9 timer around inputrefresh()')
+
+    # Patch 13u: time execute_keyscripts() inside update().
+    o9_keysc_old = (
+        "        if(ingame == 1 || check_in_screen())\n"
+        "        {\n"
+        "            execute_keyscripts();\n"
+        "        }"
+    )
+    o9_keysc_new = (
+        "        if(ingame == 1 || check_in_screen())\n"
+        "        {\n"
+        "            unsigned int _o9_t0 = timer_gettick();  /* TEMP SUB-PROFILE v9 */\n"
+        "            execute_keyscripts();\n"
+        "            _mister_o9_keysc_ms += timer_gettick() - _o9_t0;\n"
+        "        }"
+    )
+    ob = strict_replace(ob, o9_keysc_old, o9_keysc_new,
+                        'Step 13u: SUB-PROFILE v9 timer around execute_keyscripts()')
+
+    # Patch 13v: time vga_vwait() inside update() (the vsync wait — main suspect).
+    o9_vwait_old = (
+        "    if(usevwait)\n"
+        "    {\n"
+        "        vga_vwait();\n"
+        "    }\n"
+        "    video_copy_screen(vscreen);"
+    )
+    o9_vwait_new = (
+        "    if(usevwait)\n"
+        "    {\n"
+        "        unsigned int _o9_t0 = timer_gettick();  /* TEMP SUB-PROFILE v9 */\n"
+        "        vga_vwait();\n"
+        "        _mister_o9_vwait_ms += timer_gettick() - _o9_t0;\n"
+        "    }\n"
+        "    {\n"
+        "        unsigned int _o9_t0 = timer_gettick();  /* TEMP SUB-PROFILE v9 */\n"
+        "        video_copy_screen(vscreen);\n"
+        "        _mister_o9_vcopy_ms += timer_gettick() - _o9_t0;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, o9_vwait_old, o9_vwait_new,
+                        'Step 13v/13w: SUB-PROFILE v9 timers around vga_vwait + video_copy_screen')
+
+    # Patch 13x: time sound_update_music() at end of update().
+    o9_audio_old = (
+        "    check_music();\n"
+        "    sound_update_music();\n"
+        "}"
+    )
+    o9_audio_new = (
+        "    check_music();\n"
+        "    {\n"
+        "        unsigned int _o9_t0 = timer_gettick();  /* TEMP SUB-PROFILE v9 */\n"
+        "        sound_update_music();\n"
+        "        _mister_o9_audio_ms += timer_gettick() - _o9_t0;\n"
+        "    }\n"
+        "}"
+    )
+    ob = strict_replace(ob, o9_audio_old, o9_audio_new,
+                        'Step 13x: SUB-PROFILE v9 timer around sound_update_music()')
+
+    # -- TEMPORARY SUB-PROFILE v10 2026-05-27 (REVERT AFTER MEASURED).
+    # Times spriteq_draw() — the post-tick sprite-rasterization-to-vscreen call
+    # that we infer is responsible for the ~6 ms/frame unmeasured remainder in
+    # the [FPS] 'other' bucket on JL Legacy. If v10 measurement confirms it,
+    # spriteq_draw becomes the next optimization target. If it's smaller than
+    # expected, something else in update() (post-while-loop scaffolding) is
+    # eating frame budget that we haven't identified.
+    o10_spriteq_old = (
+        "    spriteq_draw(vscreen, 0, MIN_INT, MAX_INT, 0, 0); // notice, always draw sprites at the very end of other methods"
+    )
+    o10_spriteq_new = (
+        "    {\n"
+        "        unsigned int _o10_t0 = timer_gettick();  /* TEMP SUB-PROFILE v10 */\n"
+        "        spriteq_draw(vscreen, 0, MIN_INT, MAX_INT, 0, 0); // notice, always draw sprites at the very end of other methods\n"
+        "        _mister_o10_spriteq_ms += timer_gettick() - _o10_t0;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, o10_spriteq_old, o10_spriteq_new,
+                        'Step 13y: SUB-PROFILE v10 timer around spriteq_draw() inside update()')
+
+    print("  TEMPORARY per-frame profile inserted (5 patches: globals + entity/render/script timers + [FPS] printf gated on ingame==1 && !_pause)")
+    print("  TEMPORARY SUB-PROFILE v8 inserted (3 strict_replace patches inside update_ents() — adds [SUB] entity-internal breakdown line)")
+    print("  TEMPORARY SUB-PROFILE v9 inserted (5 patches in outer update() loop — adds [OTH] outer-loop breakdown line)")
+
+    # ----- BELOW: original diagnostic patches removed 2026-05-26 ------
+    # (FPS profile + SUB-PROFILE v8 served their purpose; reverted now that
+    #  B+E ships as the permanent fix.)
+    # Removed: fps_globals_new, fps_entity_start, fps_entity_end, fps_render,
+    # fps_script, fps_print, se_globals, se_script (+ai), se_anim (+coll), se_arrange.
 
     write(ob_path, ob)
     print("  openbor.c: 4 palette patches written (steps 1, 2, 3, 12 — line-29499 fallback intact, no struct mods).")
 
-    # (fps SUB-PROFILE v11 spriteq diagnostics stripped for ship -- full version in tools/profiling/)
+    # -- TEMPORARY SUB-PROFILE v11 2026-05-27 (REVERT AFTER MEASURED) on spriteq.c.
+    # Times the inner calls of spriteq_draw() to identify which dispatch
+    # (putsprite vs putscreen vs putpixel/line/box) dominates on Avengers
+    # (20 ms/frame spriteq) and He-Man (68 ms/frame spriteq). Globals are
+    # DEFINED in openbor.c (extended v9/v10 block above); spriteq.c just
+    # extern-references and increments them. Output: [SPQ] line alongside
+    # existing [FPS]/[SUB]/[OTH].
+    spq_path = os.path.join(obor, 'source/gamelib/spriteq.c')
+    spq = read(spq_path)
+
+    # Patch v11.1: add timer.h include + extern decls of v11 globals.
+    spq_includes_old = (
+        "#include <stdio.h>\n"
+        "#include \"types.h\"\n"
+        "#include \"screen.h\"\n"
+        "#include \"sprite.h\"\n"
+        "#include \"draw.h\"\n"
+        "#include \"globals.h\"\n"
+    )
+    spq_includes_new = (
+        "#include <stdio.h>\n"
+        "#include \"types.h\"\n"
+        "#include \"screen.h\"\n"
+        "#include \"sprite.h\"\n"
+        "#include \"draw.h\"\n"
+        "#include \"globals.h\"\n"
+        "#include \"timer.h\"  /* TEMP SUB-PROFILE v11 — timer_gettick() */\n"
+        "\n"
+        "/* TEMPORARY SUB-PROFILE v11 (REVERT AFTER MEASURED). */\n"
+        "/* Globals DEFINED in openbor.c v9/v10 globals block. */\n"
+        "extern unsigned int _mister_o11_sort_ms;\n"
+        "extern unsigned int _mister_o11_putsprite_ms;\n"
+        "extern unsigned int _mister_o11_putsprite_count;\n"
+        "extern unsigned int _mister_o11_putother_ms;\n"
+        "/* TEMPORARY SUB-PROFILE v12 (REVERT AFTER MEASURED). */\n"
+        "extern unsigned int _mister_o12_putscreen_ms;\n"
+        "extern unsigned int _mister_o12_putscreen_count;\n"
+        "extern unsigned int _mister_o12_putpixel_ms;\n"
+        "extern unsigned int _mister_o12_putline_ms;\n"
+        "extern unsigned int _mister_o12_putbox_ms;\n"
+        "extern unsigned int _mister_o12_putbox_count;\n"
+        "/* TEMP BLEND-SPLIT externs (REVERT AFTER MEASURED). */\n"
+        "extern unsigned int _mister_bld_blend_ms;\n"
+        "extern unsigned int _mister_bld_blend_count;\n"
+        "extern unsigned int _mister_bld_opaque_ms;\n"
+        "extern unsigned int _mister_bld_opaque_count;\n"
+        "extern unsigned int _mister_bld_alpha_hist[16];\n"
+    )
+    spq = strict_replace(spq, spq_includes_old, spq_includes_new,
+                        'v11.1: spriteq.c add timer.h + extern v11 globals')
+
+    # Patch v11.2: wrap the body of spriteq_draw with timer pairs around
+    # spriteq_sort + putsprite + putscreen/dot/line/box (grouped as
+    # 'putother' since they're rare).
+    spq_body_old = (
+        "void spriteq_draw(s_screen *screen, int newonly, int minz, int maxz, int dx, int dy)\n"
+        "{\n"
+        "    int i, x, y;\n"
+        "\n"
+        "    spriteq_sort();\n"
+        "\n"
+        "    for(i = 0; i < spritequeue_len; i++)\n"
+        "    {\n"
+        "        if((newonly && spriteq_locked && order[i] < queue + spriteq_old_len) || order[i]->z < minz || order[i]->z > maxz)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        x = order[i]->x + dx;\n"
+        "        y = order[i]->y + dy;\n"
+        "\n"
+        "        switch(order[i]->type)\n"
+        "        {\n"
+        "        case SQT_SPRITE: // sprite\n"
+        "\n"
+        "            if(order[i]->params[0])// determin if the sprite's center should be readjusted;\n"
+        "            {\n"
+        "                ((s_sprite *)(order[i]->frame))->centerx = order[i]->params[1];\n"
+        "                ((s_sprite *)(order[i]->frame))->centery = order[i]->params[2];\n"
+        "            }\n"
+        "            putsprite(x, y, order[i]->frame, screen, &(order[i]->drawmethod));\n"
+        "            break;\n"
+        "        case SQT_SCREEN: // draw a screen instead of sprite\n"
+        "            putscreen(screen, (s_screen *)(order[i]->frame), x, y, &(order[i]->drawmethod));\n"
+        "            break;\n"
+        "        case SQT_DOT:\n"
+        "            putpixel(x, y, order[i]->params[0], screen, &(order[i]->drawmethod));\n"
+        "            break;\n"
+        "        case SQT_LINE:\n"
+        "            putline(x, y, order[i]->params[1] + dx, order[i]->params[2] + dy, order[i]->params[0], screen, &(order[i]->drawmethod));\n"
+        "            break;\n"
+        "        case SQT_BOX:\n"
+        "            putbox(x, y, order[i]->params[1], order[i]->params[2], order[i]->params[0], screen, &(order[i]->drawmethod));\n"
+        "            break;\n"
+        "        default:\n"
+        "            continue;\n"
+        "        }\n"
+        "    }\n"
+        "}"
+    )
+    spq_body_new = (
+        "void spriteq_draw(s_screen *screen, int newonly, int minz, int maxz, int dx, int dy)\n"
+        "{\n"
+        "    int i, x, y;\n"
+        "    unsigned int _o11_t0;  /* TEMP SUB-PROFILE v11 */\n"
+        "\n"
+        "    _o11_t0 = timer_gettick();\n"
+        "    spriteq_sort();\n"
+        "    _mister_o11_sort_ms += timer_gettick() - _o11_t0;\n"
+        "\n"
+        "    for(i = 0; i < spritequeue_len; i++)\n"
+        "    {\n"
+        "        if((newonly && spriteq_locked && order[i] < queue + spriteq_old_len) || order[i]->z < minz || order[i]->z > maxz)\n"
+        "        {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        x = order[i]->x + dx;\n"
+        "        y = order[i]->y + dy;\n"
+        "\n"
+        "        switch(order[i]->type)\n"
+        "        {\n"
+        "        case SQT_SPRITE: // sprite\n"
+        "\n"
+        "            if(order[i]->params[0])// determin if the sprite's center should be readjusted;\n"
+        "            {\n"
+        "                ((s_sprite *)(order[i]->frame))->centerx = order[i]->params[1];\n"
+        "                ((s_sprite *)(order[i]->frame))->centery = order[i]->params[2];\n"
+        "            }\n"
+        "            _o11_t0 = timer_gettick();\n"
+        "            putsprite(x, y, order[i]->frame, screen, &(order[i]->drawmethod));\n"
+        "            { unsigned int _dt = timer_gettick() - _o11_t0;\n"
+        "              _mister_o11_putsprite_ms += _dt;\n"
+        "              _mister_o11_putsprite_count++;\n"
+        "              if(order[i]->drawmethod.alpha) { _mister_bld_blend_ms += _dt; _mister_bld_blend_count++; _mister_bld_alpha_hist[order[i]->drawmethod.alpha & 15]++; }\n"
+        "              else { _mister_bld_opaque_ms += _dt; _mister_bld_opaque_count++; } }\n"
+        "            break;\n"
+        "        case SQT_SCREEN: // draw a screen instead of sprite\n"
+        "            _o11_t0 = timer_gettick();\n"
+        "            putscreen(screen, (s_screen *)(order[i]->frame), x, y, &(order[i]->drawmethod));\n"
+        "            { unsigned int _dt = timer_gettick() - _o11_t0;\n"
+        "              _mister_o11_putother_ms += _dt;\n"
+        "              _mister_o12_putscreen_ms += _dt;\n"
+        "              _mister_o12_putscreen_count++; }\n"
+        "            break;\n"
+        "        case SQT_DOT:\n"
+        "            _o11_t0 = timer_gettick();\n"
+        "            putpixel(x, y, order[i]->params[0], screen, &(order[i]->drawmethod));\n"
+        "            { unsigned int _dt = timer_gettick() - _o11_t0;\n"
+        "              _mister_o11_putother_ms += _dt;\n"
+        "              _mister_o12_putpixel_ms += _dt; }\n"
+        "            break;\n"
+        "        case SQT_LINE:\n"
+        "            _o11_t0 = timer_gettick();\n"
+        "            putline(x, y, order[i]->params[1] + dx, order[i]->params[2] + dy, order[i]->params[0], screen, &(order[i]->drawmethod));\n"
+        "            { unsigned int _dt = timer_gettick() - _o11_t0;\n"
+        "              _mister_o11_putother_ms += _dt;\n"
+        "              _mister_o12_putline_ms += _dt; }\n"
+        "            break;\n"
+        "        case SQT_BOX:\n"
+        "            _o11_t0 = timer_gettick();\n"
+        "            putbox(x, y, order[i]->params[1], order[i]->params[2], order[i]->params[0], screen, &(order[i]->drawmethod));\n"
+        "            { unsigned int _dt = timer_gettick() - _o11_t0;\n"
+        "              _mister_o11_putother_ms += _dt;\n"
+        "              _mister_o12_putbox_ms += _dt;\n"
+        "              _mister_o12_putbox_count++; }\n"
+        "            break;\n"
+        "        default:\n"
+        "            continue;\n"
+        "        }\n"
+        "    }\n"
+        "}"
+    )
+    spq = strict_replace(spq, spq_body_old, spq_body_new,
+                        'v11.2: spriteq_draw inner timer pairs around sort + putsprite + putother')
+
+    write(spq_path, spq)
+    print("  TEMPORARY SUB-PROFILE v11 inserted (2 patches in spriteq.c — adds [SPQ] sort/putsprite/putother breakdown)")
 
     # ── Step 22 (2026-05-27): scalar tightening of palette-LUT inner loops ─────────
     #
@@ -4900,10 +4771,14 @@ endif
         "             * falls back to frame->palette). Palettes are NATIVE 565\n"
         "             * (PAL_BYTES=512), so putsprite_x8p16 reads them directly. */\n"
         "            unsigned *table_arg16 = (frame && frame->palette && drawmethod->has_remap_directive && !drawmethod->has_palette_directive) ? NULL : (unsigned *)drawmethod->table;\n"
+        "            { static unsigned char _a15s[256] = {0}; int _av = drawmethod->alpha & 0xFF;\n"
+        "              if(!_a15s[_av]){ _a15s[_av] = 1; blend16fp _bf = getblendfunction16(drawmethod->alpha);\n"
+        "                const char *_nm = \"OOB/tint/channel\"; int _k; if(!_bf) _nm = \"NONE(opaque)\"; else for(_k=0;_k<6;_k++) if(_bf==blendfunctions16[_k]){ _nm=(_k==0?\"screen\":_k==1?\"multiply\":_k==2?\"overlay\":_k==3?\"hardlight\":_k==4?\"dodge\":\"half\"); break; }\n"
+        "                printf(\"[A15] alpha=%d idx=%d %s in_range=%d fp=%p (TEMPORARY DIAG)\\n\", drawmethod->alpha, drawmethod->alpha-1, _nm, (drawmethod->alpha>=1 && drawmethod->alpha<=6), (void*)_bf); } }\n"
         "            putsprite_x8p16(x, y, drawmethod->flipx, frame, screen, (unsigned short *)table_arg16, getblendfunction16(drawmethod->alpha));\n"
         "            break;\n"
         "        }",
-        'Path B B4: PIXEL_16 dispatch v3.10 discriminator')
+        'Path B B4: PIXEL_16 dispatch v3.10 discriminator + [A15] alpha/fp probe')
     write(sppb_path, sppb)
 
     # ── Full-16-bit (Path A): flip the palette pipeline to NATIVE RGB565 ──
@@ -5014,56 +4889,8 @@ endif
         "                png_data_ptr += 3;\n"
         "            }",
         'Path A P11: PNG PLTE palette gate on PAL_BYTES')
-    # 2026-06-14 #3 (decode-CPU): hoist the per-output-pixel loop invariants in
-    # decodegifblock. `height - gb->top` and `gb->left + gb->width` are loop-
-    # invariant, but -O2 re-loads gb->* every pixel (it can't prove gb doesn't
-    # alias the linebuffer[] store). Precompute to const locals. BIT-EXACT: every
-    # hoisted term is read-only inside the loop; only `line` mutates and stays in
-    # the compare. Targets the hottest loop (runs once per decoded pixel).
-    li = strict_replace(li,
-        "    int line = 0;\n"
-        "    int byte = gb->left;\n"
-        "    int pass = 0;",
-        "    int line = 0;\n"
-        "    int byte = gb->left;\n"
-        "    int pass = 0;\n"
-        "    const int row_end = gb->left + gb->width; /* MiSTer #3: hoist per-pixel invariant */\n"
-        "    const int max_line = height - gb->top;    /* MiSTer #3: hoist per-pixel invariant */",
-        '#3 decode-CPU: precompute per-pixel loop invariants in decodegifblock')
-    li = strict_replace(li,
-        "            if(byte < width && line < (height - gb->top))",
-        "            if(byte < width && line < max_line)",
-        '#3 decode-CPU: use hoisted max_line in bounds check')
-    li = strict_replace(li,
-        "            if(byte >= gb->left + gb->width)",
-        "            if(byte >= row_end)",
-        '#3 decode-CPU: use hoisted row_end in row-end test')
     write(li_path, li)
     print("  Path A: PAL_BYTES=512 native 565; load_palette/convert_map/neon/HUD/PNG-PLTE -> colour16; anigif+script+truecolor-bg 16-bit; convert-at-blit removed.")
-    print("  #3 decode-CPU: decodegifblock per-pixel invariant hoist (bit-exact).")
-
-    # 2026-06-14 #2 re-drill: time the per-model openbor.h re-include (scriptlib
-    # Parser.c). openbor.h is force-#included + re-lexed + re-#defined for every
-    # script-bearing model (pp_context destroyed per compile -> no sharing). This is
-    # lex/parse time (Script_AppendText path), so it lands in the [LOAD] 'setup'
-    # bucket. Timing it sizes the macro-cache target. _mister_hinc_us is the NON-
-    # static global defined in openbor.c; extern it here + a local us-helper.
-    print("Patching Parser.c (#2 re-drill: time openbor.h re-include)...")
-    parser_path = os.path.join(obor, 'source/scriptlib/Parser.c')
-    pa = read(parser_path)
-    pa = strict_replace(pa,
-        '#include "Parser.h"',
-        '#include "Parser.h"\n'
-        '#include <sys/time.h>\n'
-        'extern unsigned long _mister_hinc_us; /* defined in openbor.c */\n'
-        'static unsigned long _mister_pp_us(void){ struct timeval _t; gettimeofday(&_t, 0); return (unsigned long)_t.tv_sec * 1000000UL + (unsigned long)_t.tv_usec; }',
-        '#2 re-drill: Parser.c sys/time.h + extern _mister_hinc_us + us helper')
-    pa = strict_replace(pa,
-        '        pp_parser_include(&pparser->theLexer.preprocessor, "data/scripts/openbor.h");',
-        '        { unsigned long _hp0 = _mister_pp_us(); pp_parser_include(&pparser->theLexer.preprocessor, "data/scripts/openbor.h"); _mister_hinc_us += _mister_pp_us() - _hp0; }',
-        '#2 re-drill: time openbor.h pp_parser_include')
-    write(parser_path, pa)
-    print("  Parser.c: openbor.h re-include timer (#2 re-drill).")
 
     print("\nAll patches applied successfully.")
 

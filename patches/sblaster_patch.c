@@ -70,16 +70,18 @@ static void *audio_thread_fn(void *arg) {
     static int16_t in_buf[IN_FRAMES_PER_TICK * 2];   /* stereo S16 @ 44.1 kHz from engine */
     static int16_t out_buf[MISTER_AUDIO_CHUNK * 2];  /* stereo S16 @ 48 kHz for DDR3      */
 
-    /* 2026-06-13 affinity: pin the audio thread to CORE 1. The render/engine
-     * thread is pinned to the memory-fast CORE 0 (native_video_writer.c) because
-     * the sprite render is memory-bound and core 0 has ~1.85x core 1's DDR3
-     * bandwidth (mem_bench). Audio is light (~6.7 ticks/sec, ~3ms each), so it
-     * sits on core 1 out of the render's way. Handler launches taskset 0x03
-     * (both cores) so this pin can take. */
+    /* Step J (v3.1 perf, re-added 2026-05-28 after audio A/B cleared it): */
+    /* pin audio thread to core 0. Engine + keepalive run on core 1 via */
+    /* taskset 0x02 in _handler.sh (Step 29). Without this, audio thread */
+    /* inherits core 1 affinity and competes with the render thread. */
+    /* Pinning to core 0 separates the workloads. Audio thread is light */
+    /* (~6.7 ticks/sec, each ~3ms) so it shares core 0 happily with */
+    /* kernel + Master_Daemon. NOTE: process taskset is 0x02 (core 1 only) */
+    /* so pthread_setaffinity_np with CPU 0 may EINVAL silently; expected. */
     {
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
-        CPU_SET(1, &cpuset); /* audio -> core 1 (render is on the memory-fast core 0) */
+        CPU_SET(1, &cpuset); /* EXPERIMENT 2026-06-13 (REVERT AFTER MEASURED): audio -> core 1 (render moved to core 0). Keeps render+audio on separate cores. Was CPU_SET(0). */
         pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
     }
 
