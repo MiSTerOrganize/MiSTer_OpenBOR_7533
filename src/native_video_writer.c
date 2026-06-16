@@ -278,6 +278,149 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                         vshrq_n_u16(b8, 3));
                     vst1q_u16((uint16_t*)(drow + x), out);
                 }
+            } else if (width == NV_FRAME_WIDTH * 2) {
+                /* MiSTer #9 (2026-06-16): NEON 2x area-average box (16bpp BGR565,
+                 * 640x.. -> 320x224, 2x X). hcnt==2 for every output column;
+                 * byte-identical to the scalar box (same expand / recip / round).
+                 * vld2q_u16 deinterleaves the 2 taps per dest pixel. */
+                int yy0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
+                int yy1 = (int)(((long)(y + 1) * height) / NV_FRAME_HEIGHT);
+                if (yy1 <= yy0) yy1 = yy0 + 1;
+                if (yy1 > height) yy1 = height;
+                if (yy0 >= height) yy0 = height - 1;
+                int vcnt = yy1 - yy0;
+                const uint8_t* sbase = src + (size_t)yy0 * pitch;
+                uint32_t rc = (uint32_t)((1u << 20) / ((uint32_t)2 * (uint32_t)vcnt));
+
+                uint16_t acc_r[NV_FRAME_WIDTH], acc_g[NV_FRAME_WIDTH], acc_b[NV_FRAME_WIDTH];
+                memset(acc_r, 0, sizeof(acc_r));
+                memset(acc_g, 0, sizeof(acc_g));
+                memset(acc_b, 0, sizeof(acc_b));
+                const uint16x8_t m5 = vdupq_n_u16(0x001F);
+                const uint16x8_t m6 = vdupq_n_u16(0x003F);
+                const uint8_t* rowp = sbase;
+                for (int syy = 0; syy < vcnt; syy++) {
+                    const uint16_t* sp = (const uint16_t*)rowp;
+                    for (int x = 0; x < NV_FRAME_WIDTH; x += 8) {
+                        uint16x8x2_t g2 = vld2q_u16(sp + (size_t)x * 2);
+                        uint16x8_t hr = vdupq_n_u16(0), hg = vdupq_n_u16(0), hb = vdupq_n_u16(0);
+                        for (int t = 0; t < 2; t++) {
+                            uint16x8_t p  = g2.val[t];
+                            uint16x8_t r5 = vandq_u16(p, m5);
+                            uint16x8_t g6 = vandq_u16(vshrq_n_u16(p, 5), m6);
+                            uint16x8_t b5 = vandq_u16(vshrq_n_u16(p, 11), m5);
+                            hr = vaddq_u16(hr, vorrq_u16(vshlq_n_u16(r5, 3), vshrq_n_u16(r5, 2)));
+                            hg = vaddq_u16(hg, vorrq_u16(vshlq_n_u16(g6, 2), vshrq_n_u16(g6, 4)));
+                            hb = vaddq_u16(hb, vorrq_u16(vshlq_n_u16(b5, 3), vshrq_n_u16(b5, 2)));
+                        }
+                        vst1q_u16(&acc_r[x], vaddq_u16(vld1q_u16(&acc_r[x]), hr));
+                        vst1q_u16(&acc_g[x], vaddq_u16(vld1q_u16(&acc_g[x]), hg));
+                        vst1q_u16(&acc_b[x], vaddq_u16(vld1q_u16(&acc_b[x]), hb));
+                    }
+                    rowp += pitch;
+                }
+                const uint32x4_t rc_v  = vdupq_n_u32(rc);
+                const uint32x4_t halfv = vdupq_n_u32(1u << 19);
+                volatile uint16_t* drow = dst + (size_t)y * NV_FRAME_WIDTH;
+                for (int x = 0; x < NV_FRAME_WIDTH; x += 8) {
+                    uint16x8_t ar = vld1q_u16(&acc_r[x]);
+                    uint16x8_t ag = vld1q_u16(&acc_g[x]);
+                    uint16x8_t ab = vld1q_u16(&acc_b[x]);
+                    uint32x4_t rl = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_low_u16(ar)),  rc_v), halfv), 20);
+                    uint32x4_t rh = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_high_u16(ar)), rc_v), halfv), 20);
+                    uint32x4_t gl = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_low_u16(ag)),  rc_v), halfv), 20);
+                    uint32x4_t gh = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_high_u16(ag)), rc_v), halfv), 20);
+                    uint32x4_t bl = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_low_u16(ab)),  rc_v), halfv), 20);
+                    uint32x4_t bh = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_high_u16(ab)), rc_v), halfv), 20);
+                    uint16x8_t r8 = vcombine_u16(vmovn_u32(rl), vmovn_u32(rh));
+                    uint16x8_t g8 = vcombine_u16(vmovn_u32(gl), vmovn_u32(gh));
+                    uint16x8_t b8 = vcombine_u16(vmovn_u32(bl), vmovn_u32(bh));
+                    uint16x8_t out = vorrq_u16(vorrq_u16(
+                                        vshlq_n_u16(vshrq_n_u16(r8, 3), 11),
+                                        vshlq_n_u16(vshrq_n_u16(g8, 2), 5)),
+                                        vshrq_n_u16(b8, 3));
+                    vst1q_u16((uint16_t*)(drow + x), out);
+                }
+            } else if (width * 2 == NV_FRAME_WIDTH * 3) {
+                /* MiSTer #9 (2026-06-16): NEON 3:2 area-average box (16bpp BGR565,
+                 * 480x.. -> 320x224, 1.5x X). Each dest PAIR (2p,2p+1) spans 3 src
+                 * px: dest 2p = src 3p (hcnt=1), dest 2p+1 = src 3p+1 + 3p+2
+                 * (hcnt=2) -- exactly the scalar box's x0/x1 for width=480.
+                 * vld3q_u16 gives the 3 taps; even/odd accumulate separately (they
+                 * have different divisors), vst2q_u16 re-interleaves the pair.
+                 * Byte-identical to the scalar box. Processes 16 dest (8 pairs)/iter. */
+                int yy0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
+                int yy1 = (int)(((long)(y + 1) * height) / NV_FRAME_HEIGHT);
+                if (yy1 <= yy0) yy1 = yy0 + 1;
+                if (yy1 > height) yy1 = height;
+                if (yy0 >= height) yy0 = height - 1;
+                int vcnt = yy1 - yy0;
+                const uint8_t* sbase = src + (size_t)yy0 * pitch;
+                uint32_t rc_e = (uint32_t)((1u << 20) / ((uint32_t)1 * (uint32_t)vcnt)); /* hcnt=1 */
+                uint32_t rc_o = (uint32_t)((1u << 20) / ((uint32_t)2 * (uint32_t)vcnt)); /* hcnt=2 */
+
+                /* 160 pairs = NV_FRAME_WIDTH/2; even/odd dest accumulated apart. */
+                uint16_t er[NV_FRAME_WIDTH/2], eg[NV_FRAME_WIDTH/2], eb[NV_FRAME_WIDTH/2];
+                uint16_t orr[NV_FRAME_WIDTH/2], og[NV_FRAME_WIDTH/2], ob[NV_FRAME_WIDTH/2];
+                memset(er,0,sizeof(er)); memset(eg,0,sizeof(eg)); memset(eb,0,sizeof(eb));
+                memset(orr,0,sizeof(orr)); memset(og,0,sizeof(og)); memset(ob,0,sizeof(ob));
+                const uint16x8_t m5 = vdupq_n_u16(0x001F);
+                const uint16x8_t m6 = vdupq_n_u16(0x003F);
+                const uint8_t* rowp = sbase;
+                for (int syy = 0; syy < vcnt; syy++) {
+                    const uint16_t* sp = (const uint16_t*)rowp;
+                    for (int x = 0; x < NV_FRAME_WIDTH; x += 16) {
+                        int p = x >> 1;                       /* pair base index */
+                        uint16x8x3_t g3 = vld3q_u16(sp + (size_t)(x * 3) / 2);
+                        /* even tap = val[0]; odd taps = val[1] + val[2] */
+                        uint16x8_t e_r5 = vandq_u16(g3.val[0], m5);
+                        uint16x8_t e_g6 = vandq_u16(vshrq_n_u16(g3.val[0], 5), m6);
+                        uint16x8_t e_b5 = vandq_u16(vshrq_n_u16(g3.val[0], 11), m5);
+                        uint16x8_t hr_e = vorrq_u16(vshlq_n_u16(e_r5,3), vshrq_n_u16(e_r5,2));
+                        uint16x8_t hg_e = vorrq_u16(vshlq_n_u16(e_g6,2), vshrq_n_u16(e_g6,4));
+                        uint16x8_t hb_e = vorrq_u16(vshlq_n_u16(e_b5,3), vshrq_n_u16(e_b5,2));
+                        uint16x8_t hr_o = vdupq_n_u16(0), hg_o = vdupq_n_u16(0), hb_o = vdupq_n_u16(0);
+                        for (int t = 1; t < 3; t++) {
+                            uint16x8_t pp = g3.val[t];
+                            uint16x8_t r5 = vandq_u16(pp, m5);
+                            uint16x8_t g6 = vandq_u16(vshrq_n_u16(pp,5), m6);
+                            uint16x8_t b5 = vandq_u16(vshrq_n_u16(pp,11), m5);
+                            hr_o = vaddq_u16(hr_o, vorrq_u16(vshlq_n_u16(r5,3), vshrq_n_u16(r5,2)));
+                            hg_o = vaddq_u16(hg_o, vorrq_u16(vshlq_n_u16(g6,2), vshrq_n_u16(g6,4)));
+                            hb_o = vaddq_u16(hb_o, vorrq_u16(vshlq_n_u16(b5,3), vshrq_n_u16(b5,2)));
+                        }
+                        vst1q_u16(&er[p], vaddq_u16(vld1q_u16(&er[p]), hr_e));
+                        vst1q_u16(&eg[p], vaddq_u16(vld1q_u16(&eg[p]), hg_e));
+                        vst1q_u16(&eb[p], vaddq_u16(vld1q_u16(&eb[p]), hb_e));
+                        vst1q_u16(&orr[p], vaddq_u16(vld1q_u16(&orr[p]), hr_o));
+                        vst1q_u16(&og[p], vaddq_u16(vld1q_u16(&og[p]), hg_o));
+                        vst1q_u16(&ob[p], vaddq_u16(vld1q_u16(&ob[p]), hb_o));
+                    }
+                    rowp += pitch;
+                }
+                const uint32x4_t halfv = vdupq_n_u32(1u << 19);
+                const uint32x4_t rce = vdupq_n_u32(rc_e), rco = vdupq_n_u32(rc_o);
+                volatile uint16_t* drow = dst + (size_t)y * NV_FRAME_WIDTH;
+                for (int x = 0; x < NV_FRAME_WIDTH; x += 16) {
+                    int p = x >> 1;
+                    /* helper: divide one acc-vector by rc and pack the 5/6-bit field shift */
+                    #define DIV8(acc, rcv) ({ \
+                        uint16x8_t _a = vld1q_u16(acc); \
+                        uint32x4_t _l = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_low_u16(_a)),  rcv), halfv), 20); \
+                        uint32x4_t _h = vshrq_n_u32(vaddq_u32(vmulq_u32(vmovl_u16(vget_high_u16(_a)), rcv), halfv), 20); \
+                        vcombine_u16(vmovn_u32(_l), vmovn_u32(_h)); })
+                    uint16x8_t er8 = DIV8(&er[p], rce), eg8 = DIV8(&eg[p], rce), eb8 = DIV8(&eb[p], rce);
+                    uint16x8_t or8 = DIV8(&orr[p], rco), og8 = DIV8(&og[p], rco), ob8 = DIV8(&ob[p], rco);
+                    #undef DIV8
+                    uint16x8x2_t out;
+                    out.val[0] = vorrq_u16(vorrq_u16(vshlq_n_u16(vshrq_n_u16(er8,3),11),
+                                                     vshlq_n_u16(vshrq_n_u16(eg8,2),5)),
+                                                     vshrq_n_u16(eb8,3));
+                    out.val[1] = vorrq_u16(vorrq_u16(vshlq_n_u16(vshrq_n_u16(or8,3),11),
+                                                     vshlq_n_u16(vshrq_n_u16(og8,2),5)),
+                                                     vshrq_n_u16(ob8,3));
+                    vst2q_u16((uint16_t*)(drow + x), out);
+                }
             } else {
                 /* MiSTer Path B Build 2: AREA-AVERAGE (box) 16-bit downscale,
                  * replacing nearest-neighbor for the squish case (He-Man
@@ -329,6 +472,53 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                     uint32_t b8 = (bs * rc + (1u << 19)) >> 20;
                     dst_row[x] = (uint16_t)(((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3));
                 }
+            }
+        }
+        /* TEMPORARY DIAG (#9 byte-identity, REVERT AFTER MEASURED): for the first
+         * 2 frames of a 2x or 3:2 NEON-box frame, recompute the scalar box and
+         * compare to what the NEON kernel wrote to dst. [DCV16] mismatch MUST be 0
+         * before this DIAG is removed and the kernels ship. */
+        if (width == NV_FRAME_WIDTH * 2 || width * 2 == NV_FRAME_WIDTH * 3) {
+            static int _dcv = 0;
+            if (_dcv < 2) {
+                _dcv++;
+                long mism = 0;
+                for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+                    int yy0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
+                    int yy1 = (int)(((long)(y + 1) * height) / NV_FRAME_HEIGHT);
+                    if (yy1 <= yy0) yy1 = yy0 + 1;
+                    if (yy1 > height) yy1 = height;
+                    if (yy0 >= height) yy0 = height - 1;
+                    int vcnt = yy1 - yy0;
+                    const uint8_t* sbase = src + (size_t)yy0 * pitch;
+                    uint32_t recip16[8];
+                    for (int h = 1; h < 8; h++) recip16[h] = (uint32_t)((1u << 20) / ((uint32_t)h * (uint32_t)vcnt));
+                    volatile uint16_t* drow = dst + (size_t)y * NV_FRAME_WIDTH;
+                    for (int x = 0; x < NV_FRAME_WIDTH; x++) {
+                        int x0 = (int)(((long)x * width) / NV_FRAME_WIDTH);
+                        int x1 = (int)(((long)(x + 1) * width) / NV_FRAME_WIDTH);
+                        if (x1 <= x0) x1 = x0 + 1;
+                        if (x1 > width) x1 = width;
+                        if (x0 >= width) x0 = width - 1;
+                        int hcnt = x1 - x0; if (hcnt > 7) hcnt = 7;
+                        uint32_t rs = 0, gs = 0, bs = 0;
+                        const uint8_t* rp = sbase;
+                        for (int syy = 0; syy < vcnt; syy++) {
+                            const uint16_t* sp = (const uint16_t*)rp + x0;
+                            for (int k = 0; k < hcnt; k++) {
+                                uint16_t pix = sp[k];
+                                uint32_t b5 = (pix >> 11) & 0x1F, g6 = (pix >> 5) & 0x3F, r5 = pix & 0x1F;
+                                rs += (r5 << 3) | (r5 >> 2); gs += (g6 << 2) | (g6 >> 4); bs += (b5 << 3) | (b5 >> 2);
+                            }
+                            rp += pitch;
+                        }
+                        uint32_t rc = recip16[hcnt];
+                        uint32_t r8 = (rs * rc + (1u << 19)) >> 20, g8 = (gs * rc + (1u << 19)) >> 20, b8 = (bs * rc + (1u << 19)) >> 20;
+                        uint16_t want = (uint16_t)(((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3));
+                        if (drow[x] != want) mism++;
+                    }
+                }
+                fprintf(stderr, "[DCV16] w=%d frame=%d mismatch=%ld (REVERT AFTER MEASURED)\n", width, _dcv, mism);
             }
         }
     }
