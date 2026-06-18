@@ -98,6 +98,48 @@ the gated control/sblaster code) are the high-confidence findings.
 - Street Fighter Vs. The King of Fighters.pak
 - Streets of Rage X2 Megamix.pak
 
+## PC reference confirmation (stock OpenBOR.exe v4.0 Build 7530, commit 9695908)
+
+Ran each of the 7 on the **stock** Windows PC build (`_pc_test/OpenBOR.v4.0.Build.7533/`,
+single-PAK auto-load, crash = NT exception exit code). Stock = NO our patches.
+
+| PAK | Sig | Headless patched (Linux, fortify) | Stock PC v7530 | Interpretation |
+|---|---|---|---|---|
+| Moscow RE-Action | B | SIGSEGV | **0xC0000005 CRASH** | Real — reproduces on pure-stock reference. `load_cached_model` bug reachable without our patches. |
+| Monster Girl Dimensions | B | SIGSEGV | exit 1 (bail `'heart'`) | Stock bails at script-compile; crash reached only after our script-constant patches compile it deeper. |
+| Rescue Command - Against the Amazon Girls | B | SIGSEGV | exit 1 (bail `'tuto1'`) | Same — patched-only reach. |
+| Memory Loss | A | SIGABRT `__strcpy_chk` | exit 1 (bail `'Ryan'`) | Stock bails at compile; Sig-A overflow reached only on patched build. |
+| Ogres Mayhem | A | SIGABRT `__strcpy_chk` | exit 1 (bail `'toadSmoke'`) | Same. |
+| Heaven's Anime Girls | A | SIGABRT `__strcpy_chk` | **loads fully, runs clean (exit 0)** | Sig-A is a **fortify-detected latent overflow** — silent on the non-fortified MSVC build (loaded sprites/models/level, 1647 sprites, clean shutdown). |
+| Hiryu No Ken [Demo] | A | SIGABRT `__strcpy_chk` | clean exit 0 (loads, same shutdown pattern) | Same as Heaven's — latent overflow silent on stock. |
+
+**Two honest conclusions:**
+1. **Signature B (`load_cached_model` @cmd/@script `sprintf`) is a real engine NULL/OOB bug.**
+   Moscow crashes pure-stock → confirmed. MGD + Rescue reach it only on our patched build
+   (we register the script constants their scripts need → they compile → load proceeds to
+   the crashing model). The underlying code is unbounded upstream.
+2. **Signature A (`pp_token_Init` string-literal `strcpy`, pp_lexer.c:63) is a real LATENT
+   buffer overflow that the fortified Linux headless build CATCHES (`__strcpy_chk` → abort)
+   but the non-fortified stock Windows build TOLERATES silently** (Heaven's/Hiryu load fine;
+   Memory Loss/Ogres bail earlier at script-compile for unrelated reasons). This is the
+   fortified harness doing its job — surfacing UB that "works by luck" on other builds.
+   Whether it crashes the shipped **ARM** build depends on ARM hardening: Debian/bullseye
+   gcc defaults to `-fstack-protector-strong`, so if the token buffer is stack-allocated the
+   canary catches the smash → abort on ARM; otherwise silent corruption. Either way it's a
+   real bug to fix (bound the string-literal token length).
+
+**Net for hardware:** Moscow is confirmed real on the reference. The other Sig-B PAKs (MGD,
+Rescue) need the **patched** build → confirm on the **MiSTer** (the only patched runtime).
+The Sig-A PAKs are latent overflows; the cleanest proof is the fix, not a hardware repro.
+
+**Recommended engine-robustness fixes (apply_patches.py system layer, NOT cart edits):**
+- **Sig A:** bound the string-literal token copy in `pp_token_Init` (pp_lexer.c) — truncate +
+  graceful error instead of unbounded `strcpy`.
+- **Sig B:** guard `load_cached_model` @cmd/@script translation — NULL-check `newanim` and
+  bounds-check `scriptlen` before the negative-index writes / `sprintf`.
+- Both are outside the LOCKED palette path; still require the standard 7533 regression ritual
+  (ATOV + TMNT-RP + a modern PAK) + 4086 parity audit before ship.
+
 ## How to reproduce
 ```
 # build: GitHub Actions -> "Diff Harness" workflow (diff_harness.yml) -> download
@@ -110,6 +152,19 @@ docker run --rm -e OB_FRAMES=90 -e OB_ALARM=20 \
   ubuntu:24.04 bash /binsrc/pak_run_scan.sh
 # results: /work/scan_results.txt (idx|exitcode|relpath) + /work/logs/<pak>.log
 # resolve a crash: addr2line -f -C -e OpenBOR_headless <+0x... addrs from the log>
+#
+# WHEN addr2line IS INCONCLUSIVE (stack smash = wild addrs, or -O2/-flto inlining
+# hides the callee) -> PIN IT WITH GDB (this is how Signatures A + B above were
+# pinned). In the glibc container, binary built -g:
+docker run --rm -e OB_PAK=/paks/<crashing>.pak -e OB_FRAMES=90 -e OB_ALARM=20 \
+  -v "<PAKS>:/paks:ro" -v "<DIR with OpenBOR_headless>:/binsrc:ro" \
+  ubuntu:24.04 bash -c "apt-get update -qq && apt-get install -y -qq gdb libsdl2-2.0-0 libvpx9 >/dev/null 2>&1; \
+    cp /binsrc/OpenBOR_headless /tmp/ob && cd /tmp && \
+    gdb -batch -ex 'handle SIGSEGV stop nopass' -ex run -ex 'bt 16' -ex 'info args' -ex 'info locals' --args ./ob"
+# 'handle SIGSEGV stop nopass' makes gdb catch the signal BEFORE the binary's own
+# crash handler. gdb resolves inlines + shows the faulting frame's args (the
+# format string + dest buffer) that addr2line cannot. For same-length corruption,
+# add a -O0/ASan build or gdb 'watch' on the overflowing buffer.
 ```
 
 ## Corpus-class scope (why this is a 7533 deliverable, not 4086)
@@ -124,8 +179,25 @@ mass-scan). See `MiSTer_OpenBOR_4086/tools/harness/README.md` +
 ## Status / next
 - [x] Pinned Signature A (pp_lexer.c:63 string-literal overflow) + Signature B
       (load_cached_model @cmd/@script translation, openbor.c~17197) via gdb.
-- [ ] PC OpenBOR.exe / real-MiSTer confirm the 7 crashes. Hardware step. (Avengers
-      ec=1 already shown to be PAK-identical to the MiSTer install -> contaminated
-      signal, not a clean bug; ec=1 is lower-confidence than crashes.)
+- [x] PC OpenBOR.exe (stock v7530) confirm — DONE (see table above). Moscow = real
+      crash on pure stock (0xC0000005). Sig-B MGD/Rescue + all Sig-A bail/load on stock
+      (crash is patched-build-reachable / fortify-detected latent overflow). Avengers
+      ec=1 already shown PAK-identical to the MiSTer install -> contaminated signal.
+- [x] MiSTer real-ARM confirm (2026-06-18) — all 3 Sig-B crash on the shipped patched
+      ARM build, each dying mid-`load_cached_model` at the exact predicted model:
+      Moscow → `'cum'`, Monster Girl Dimensions → `'Luciferpkvored'`, Rescue Command →
+      `'w8monstermpfull'` (logs `/media/fat/logs/OpenBOR_7533/OpenBorLog.*.txt`, crash =
+      black screen + Master_Daemon respawn). Heaven's Anime Girls (Sig A) LOADS & PLAYS
+      on ARM (Level Loaded, 1647 sprites) — the overflow is silent on the non-fortified
+      ARM build, confirming Sig A is a latent overflow not a hardware crash today.
+- [x] Wrote the 2 engine-robustness fixes in apply_patches.py (step 12a Sig A pp_lexer
+      bound + bounded copy; step 12b Sig B load_cached_model newanim NULL-safe + 6
+      size_t cut guards). Local dry-run from fresh v7533 clone: EXIT_CODE=0 + all patches
+      applied. Outside the LOCKED palette path; apply in BOTH ship + headless builds.
+- [ ] Validate: headless harness re-run on the 3 crashers (no crash) → ship ARM artifact
+      → hardware-verify 3 crashers load + palette regression (ATOV/TMNT-RP/modern) → ship.
+      NOTE: ship blocked until the TEMPORARY fps PROFILE patches are removed (CI gate
+      skips commit-back while diagnostic markers present); test via workflow_dispatch
+      artifact + manual WinSCP deploy in the meantime.
 - 4086 = ad-hoc only (see corpus-class note above) — NOT mass-scanned.
 - Render-correctness remains a gap (no open ground-truth; PC OpenBOR.exe is the reference). See `feedback_hybrid_core_diff_harness_required.md`.

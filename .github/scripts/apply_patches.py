@@ -4400,6 +4400,93 @@ endif
     # Modern PAKs: untouched (has_legacy_remaps=0, all gates skip).
     # (no patches in this step — step 11 was removed; see comment block above)
 
+    # -- 12. Engine-robustness crash fixes (2026-06-18) ---------------
+    # Found by the OpenBOR_7533 diff harness (tools/harness/FINDINGS.md).
+    # Signature B confirmed crashing on real MiSTer ARM hardware (Moscow
+    # RE-Action, Monster Girl Dimensions, Rescue Command -- all SIGSEGV in
+    # load_cached_model while loading a model). Signature A is a latent
+    # preprocessor-lexer buffer overflow (silent on the shipped ARM/PC
+    # builds, caught only by the fortified headless build -- still real UB).
+    # Both fixed here in the SYSTEM layer (apply_patches.py), never cart
+    # edits, and applied in BOTH the ship build AND the headless build (NOT
+    # gated under HEADLESS) so the diff harness re-verifies the fix.
+    # These sites are outside the LOCKED palette path.
+
+    # -- 12a. Sig A: bound the preprocessor lexer token accumulation.
+    # CONSUMECHARACTER appends to theTokenSource[MAX_TOKEN_LENGTH+1] with no
+    # bound; a string literal longer than MAX_TOKEN_LENGTH overflows it (and
+    # then pp_token_Init's strcpy overflows ptoken->theSource too). Bound the
+    # append (truncate the token, keep consuming the stream so positions stay
+    # correct) and make pp_token_Init's copy bounded.
+    print("Patching pp_lexer.c (Sig A -- bound token buffer overflow)...")
+    ppl_path = os.path.join(obor, 'source/preprocessorlib/pp_lexer.c')
+    ppl = read(ppl_path)
+    ppl = strict_replace(
+        ppl,
+        "#define CONSUMECHARACTER \\\n"
+        "   plexer->theTokenSource[plexer->theTokenLen++] = *(plexer->pcurChar);\\\n"
+        "   plexer->theTokenSource[plexer->theTokenLen] = '\\0';\\\n",
+        "#define CONSUMECHARACTER \\\n"
+        "   if (plexer->theTokenLen < MAX_TOKEN_LENGTH) { \\\n"
+        "   plexer->theTokenSource[plexer->theTokenLen++] = *(plexer->pcurChar);\\\n"
+        "   plexer->theTokenSource[plexer->theTokenLen] = '\\0'; }\\\n",
+        "pp_lexer CONSUMECHARACTER length bound",
+    )
+    ppl = strict_replace(
+        ppl,
+        "    strcpy(ptoken->theSource, theSource );\n",
+        "    strncpy(ptoken->theSource, theSource, MAX_TOKEN_LENGTH);\n"
+        "    ptoken->theSource[MAX_TOKEN_LENGTH] = '\\0';\n",
+        "pp_token_Init bounded copy",
+    )
+    write(ppl_path, ppl)
+    print("  pp_lexer.c patched (token-length bound + bounded copy).")
+
+    # -- 12b. Sig B: guard load_cached_model @cmd/@script translation.
+    # Two crash mechanisms (FINDINGS candidates a + b), both guarded:
+    #  (a) sprintf(namebuf, ifid_text, newanim->index) NULL-derefs newanim
+    #      when ani_id>=0 but no current animation object exists. Use a
+    #      NULL-safe index so a malformed PAK fails compile gracefully
+    #      instead of segfaulting.
+    #  (b) scriptbuf[scriptlen - strclen(X)] = 0 -- scriptlen is size_t, so
+    #      when scriptlen < strclen(X) the unsigned subtraction wraps to a
+    #      huge index = massive out-of-bounds write. Guard each of the cuts.
+    print("Patching openbor.c (Sig B -- guard load_cached_model translation)...")
+    obc_path = os.path.join(obor, 'openbor.c')
+    obc = read(obc_path)
+    obc = strict_replace(
+        obc,
+        "sprintf(namebuf, ifid_text, newanim->index);",
+        "sprintf(namebuf, ifid_text, newanim ? newanim->index : 0);",
+        "load_cached_model ifid_text NULL-safe", count=2,
+    )
+    obc = strict_replace(
+        obc,
+        "scriptbuf[scriptlen - strclen(sur_text)] = 0;",
+        "if (scriptlen >= strclen(sur_text)) scriptbuf[scriptlen - strclen(sur_text)] = 0;",
+        "load_cached_model sur_text cut guard", count=2,
+    )
+    obc = strict_replace(
+        obc,
+        "scriptbuf[scriptlen - strclen(endifid_text)] = 0;",
+        "if (scriptlen >= strclen(endifid_text)) scriptbuf[scriptlen - strclen(endifid_text)] = 0;",
+        "load_cached_model endifid_text cut guard", count=2,
+    )
+    obc = strict_replace(
+        obc,
+        "scriptbuf[scriptlen - strclen(endif_text)] = 0;",
+        "if (scriptlen >= strclen(endif_text)) scriptbuf[scriptlen - strclen(endif_text)] = 0;",
+        "load_cached_model endif_text cut guard", count=1,
+    )
+    obc = strict_replace(
+        obc,
+        "scriptbuf[scriptlen - strclen(endif_return_text)] = 0;",
+        "if (scriptlen >= strclen(endif_return_text)) scriptbuf[scriptlen - strclen(endif_return_text)] = 0;",
+        "load_cached_model endif_return_text cut guard", count=1,
+    )
+    write(obc_path, obc)
+    print("  openbor.c patched (load_cached_model script-translation guards).")
+
     print("\nAll patches applied successfully.")
 
 if __name__ == '__main__':
