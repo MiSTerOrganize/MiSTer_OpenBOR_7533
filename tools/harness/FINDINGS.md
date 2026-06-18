@@ -112,8 +112,20 @@ docker run --rm -e OB_FRAMES=90 -e OB_ALARM=20 \
 # resolve a crash: addr2line -f -C -e OpenBOR_headless <+0x... addrs from the log>
 ```
 
+## Corpus-class scope (why this is a 7533 deliverable, not 4086)
+🛑 Mass-scan only against the engine's SUPPORTED PAK class. **7533 is the modern
+engine meant to run this modern corpus → its crashes are real (the 2 bugs above).**
+**4086 is legacy-compat — modern PAKs crash it by design-incompatibility**, so a
+full-corpus crash scan on 4086 = expected, never-fixable noise. 4086 is therefore
+**ad-hoc only** (run a specific legacy PAK headless when debugging a 4086 bug; no
+mass-scan). See `MiSTer_OpenBOR_4086/tools/harness/README.md` +
+`feedback_hybrid_core_diff_harness_required.md` (corpus-class principle).
+
 ## Status / next
-- [ ] PC OpenBOR.exe / real-MiSTer confirm the 7 crashes + spot-check the 12 ec=1 (esp. Avengers PAK-version). Hardware step.
-- [ ] Pin Signature B sprintf overflow (extract the offending PAK's model/path) and Signature A memory smash.
-- [ ] Adapt the headless build to OpenBOR_4086 (v4086 upstream) — closes 4086's diff-harness gap.
+- [x] Pinned Signature A (pp_lexer.c:63 string-literal overflow) + Signature B
+      (load_cached_model @cmd/@script translation, openbor.c~17197) via gdb.
+- [ ] PC OpenBOR.exe / real-MiSTer confirm the 7 crashes. Hardware step. (Avengers
+      ec=1 already shown to be PAK-identical to the MiSTer install -> contaminated
+      signal, not a clean bug; ec=1 is lower-confidence than crashes.)
+- 4086 = ad-hoc only (see corpus-class note above) — NOT mass-scanned.
 - Render-correctness remains a gap (no open ground-truth; PC OpenBOR.exe is the reference). See `feedback_hybrid_core_diff_harness_required.md`.
