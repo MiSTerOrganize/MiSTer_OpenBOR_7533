@@ -1,0 +1,38 @@
+name: Diff Harness
+
+# Headless OpenBOR diff/debug harness build (native x86-64, no QEMU). Builds the
+# engine WITHOUT MiSTer/DDR3 so PAKs can be run off-device in CI/WSL and
+# classified (crashes / hangs / preprocess / render). NOT the ship build
+# (build_mister_arm.sh) and NOT committed to the ARM binary. Fast (~2 min).
+#
+# MILESTONE 1a: prove the engine compiles headless on x86. Iterates from there
+# (harness driver, --alarm/crash handlers, engine-logic patches, PAK mass-scan).
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Run label'
+        required: false
+        type: string
+
+run-name: ${{ inputs.reason || 'openbor-diff-harness' }}
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build OpenBOR headless (x86-64)
+        run: bash .github/scripts/build_headless.sh
+      - name: Stage binary
+        if: success()
+        run: |
+          mkdir -p bundle
+          cp /tmp/OpenBOR_headless bundle/OpenBOR_headless 2>/dev/null || true
+          ls -lh bundle || true
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: openbor-headless-linux
+          path: bundle/*
