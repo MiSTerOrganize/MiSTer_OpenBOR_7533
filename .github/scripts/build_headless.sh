@@ -53,7 +53,29 @@ sed -i 's/stricmp/strcasecmp/g' openbor.h
 # a HEADLESS-only diagnostic build; the ship build's warning posture is unchanged.
 sed -i 's/-Werror/-Wno-error/g' Makefile
 
-# ── Apply headless harness patches (main + video frame-counter) ────
+# ── Native writer headers (header resolution for apply_patches.py; the .o is
+#    BUILD_MISTER-gated so it is NOT compiled into the x86_64 headless binary) ─
+cp "$REPO/src/native_video_writer.c" . 2>/dev/null || true
+cp "$REPO/src/native_video_writer.h" . 2>/dev/null || true
+cp "$REPO/src/native_audio_writer.c" . 2>/dev/null || true
+cp "$REPO/src/native_audio_writer.h" . 2>/dev/null || true
+
+# ── Layer the SHIP engine-logic patches so the harness tests OUR build ──
+#    (palette pipeline, stale-pointer fixes, screen_status, range defaults,
+#    loadsprite hash, the PLAYER_MIN_Z/etc. script constants — the last of
+#    which is why 49 stock-headless PAKs exit 1 on "Can't find openbor constant").
+#    The MiSTer-infra bits (DDR3 main, video DDR3 write, native_video_writer.o)
+#    are all ifdef BUILD_MISTER / MISTER_NATIVE_VIDEO, NOT active for the x86_64
+#    target — so they're patched in but not compiled. apply_patches_headless.py
+#    then overrides main() + the video present hook for the headless run.
+echo "=== apply_patches.py (ship engine-logic patches) ==="
+python3 "$REPO/.github/scripts/apply_patches.py" /tmp/openbor/engine "$REPO/patches"
+SRC=$?
+if [ $SRC -ne 0 ]; then
+  echo "ERROR: apply_patches.py failed (rc=$SRC)"; exit 1
+fi
+
+# ── Apply headless harness overrides (main + video frame-counter) ──
 echo "=== apply_patches_headless.py ==="
 python3 "$REPO/.github/scripts/apply_patches_headless.py" /tmp/openbor/engine "$REPO/patches"
 HRC=$?

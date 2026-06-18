@@ -76,13 +76,12 @@ def main():
     print("Patching sdl/video.c (headless frame counter + hang re-arm)...")
     v_path = os.path.join(obor, "sdl/video.c")
     v = read(v_path)
-    anchor = ("\tif(opengl) return video_gl_copy_screen(surface);\n"
-              "\n"
-              "\tSDL_UpdateTexture(texture, NULL, surface->data, surface->pitch);\n"
+    # Anchor on just the SDL present pair — it exists BOTH in pristine upstream
+    # AND inside the #else of apply_patches.py's MISTER_NATIVE_VIDEO bypass, so
+    # this works whether or not the ship patcher ran first (engine-logic layer).
+    anchor = ("\tSDL_UpdateTexture(texture, NULL, surface->data, surface->pitch);\n"
               "\tblit();")
-    repl = ("\tif(opengl) return video_gl_copy_screen(surface);\n"
-            "\n"
-            "\t{\n"
+    repl = ("\t{\n"
             "\t\t/* headless harness: per-frame counter + hang re-arm + exit */\n"
             "\t\tstatic long _hl_n = 0, _hl_max = -2, _hl_alarm = -2;\n"
             "\t\tif (_hl_max == -2) { const char *e = getenv(\"OB_FRAMES\"); _hl_max = e ? atol(e) : 120; }\n"
@@ -95,7 +94,6 @@ def main():
             "\t\t\texit(0);\n"
             "\t\t}\n"
             "\t}\n"
-            "\n"
             "\tSDL_UpdateTexture(texture, NULL, surface->data, surface->pitch);\n"
             "\tblit();")
     v = strict_replace(v, anchor, repl, "sdl/video.c headless frame counter")
