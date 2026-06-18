@@ -68,8 +68,8 @@ cp "$REPO/src/native_audio_writer.h" . 2>/dev/null || true
 #    are all ifdef BUILD_MISTER / MISTER_NATIVE_VIDEO, NOT active for the x86_64
 #    target — so they're patched in but not compiled. apply_patches_headless.py
 #    then overrides main() + the video present hook for the headless run.
-echo "=== apply_patches.py (ship engine-logic patches) ==="
-python3 "$REPO/.github/scripts/apply_patches.py" /tmp/openbor/engine "$REPO/patches"
+echo "=== apply_patches.py (ship engine-logic patches, OB_HEADLESS=1) ==="
+OB_HEADLESS=1 python3 "$REPO/.github/scripts/apply_patches.py" /tmp/openbor/engine "$REPO/patches"
 SRC=$?
 if [ $SRC -ne 0 ]; then
   echo "ERROR: apply_patches.py failed (rc=$SRC)"; exit 1

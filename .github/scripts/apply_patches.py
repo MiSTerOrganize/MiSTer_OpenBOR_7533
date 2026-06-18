@@ -108,6 +108,18 @@ def main():
     obor = sys.argv[1]
     patches = sys.argv[2]
 
+    # OB_HEADLESS=1 (set by build_headless.sh) skips the MiSTer-infra-only
+    # patches that don't compile on the stock x86-64 diff-harness target — the
+    # control_update replacement reads joystick from DDR3 and references SDL
+    # `keystate` that isn't declared for that target. The headless build then
+    # overrides main() + the video present hook via apply_patches_headless.py.
+    # The engine-logic patches (palette / stale-pointer / screen_status / range
+    # / loadsprite-hash / script constants / packfile) all still apply, so the
+    # harness tests OUR shipped engine behavior. Ship build does NOT set this.
+    HEADLESS = bool(os.environ.get("OB_HEADLESS"))
+    if HEADLESS:
+        print("OB_HEADLESS=1 — skipping MiSTer-infra-only patches (control_update)")
+
     # ── 1. Patch Makefile ─────────────────────────────────────────────
     print("Patching Makefile...")
     mf = read(os.path.join(obor, 'Makefile'))
@@ -337,9 +349,13 @@ endif
         'sdl/control.c #include injection'
     )
 
-    src = replace_function(src, "void control_update(s_playercontrols ** playercontrols, int numplayers)", "control_patch.c", patches)
-    write(os.path.join(obor, 'sdl/control.c'), src)
-    print("  control_update() replaced.")
+    if not HEADLESS:
+        src = replace_function(src, "void control_update(s_playercontrols ** playercontrols, int numplayers)", "control_patch.c", patches)
+        write(os.path.join(obor, 'sdl/control.c'), src)
+        print("  control_update() replaced.")
+    else:
+        write(os.path.join(obor, 'sdl/control.c'), src)
+        print("  control_update() kept stock (headless — MiSTer DDR3 joystick patch skipped).")
 
     # ── 5. Patch sdl/sdlport.c — replace main() ─────────────────────
     print("Patching sdl/sdlport.c (main + NativeVideoWriter init)...")
