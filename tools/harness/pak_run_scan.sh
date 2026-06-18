@@ -25,6 +25,11 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
   libsdl2-2.0-0 libsdl2-gfx-1.0-0 libvpx9 libvorbisfile3 libpng16-16t64 libgl1 \
   >/dev/null 2>&1
 mkdir -p /work/logs
+# The shipped engine-logic patches redirect logs/saves to /media/fat/... (MiSTer
+# paths). Create them in the container so the engine can write + doesn't bail on
+# missing save/config dirs (the diff harness is x86, no real /media/fat).
+mkdir -p /media/fat/logs/OpenBOR_7533 /media/fat/saves/OpenBOR_7533 \
+         /media/fat/savestates/OpenBOR_7533 /media/fat/config
 cp /binsrc/OpenBOR_headless /work/ob && chmod +x /work/ob
 cd /work
 : > /work/scan_results.txt
