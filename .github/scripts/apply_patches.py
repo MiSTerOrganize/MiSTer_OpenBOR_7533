@@ -4454,6 +4454,25 @@ endif
     print("Patching openbor.c (Sig B -- guard load_cached_model translation)...")
     obc_path = os.path.join(obor, 'openbor.c')
     obc = read(obc_path)
+    # ROOT CAUSE (2026-06-18, Moscow 'cum' soft-lock): a MODEL-LEVEL @script
+    # (declared before any `anim`) is processed with ani_id = ANI_NONE = 0
+    # and newanim = NULL. The id-wrapper guard `if(ani_id >= 0)` is `0 >= 0`
+    # = TRUE, so the engine (a) derefs newanim->index -> SIGSEGV (the crash),
+    # and (b) once made non-crashing, wraps the model-level script in
+    # `if(animhandle==0){...}` so it only runs when animhandle==0 -- breaking
+    # effects like 'cum' whose `if(frame==18) killentity(self)` self-destruct
+    # then never fires (flickers forever / soft-locks the level). Tie the
+    # id-wrapper to newanim being valid: a model-level script (newanim NULL)
+    # now skips the wrapper and emits its body DIRECTLY (runs every frame),
+    # which is correct. Both the opening + closing wrapper blocks change
+    # together to stay balanced. This is the real fix; the NULL-safe sprintf
+    # + size_t cut guards below remain as defense-in-depth.
+    obc = strict_replace(
+        obc,
+        "                if(ani_id >= 0)\n",
+        "                if(ani_id >= 0 && newanim)\n",
+        "load_cached_model @script model-level guard", count=2,
+    )
     obc = strict_replace(
         obc,
         "sprintf(namebuf, ifid_text, newanim->index);",
