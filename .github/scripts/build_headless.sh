@@ -10,6 +10,8 @@
 set +e
 set -x
 
+REPO="$(pwd)"   # repo checkout root (for patches/ + headless patcher)
+
 # ── Distro deps (x86-64, no source builds — fast) ──────────────────
 sudo apt-get update -qq
 sudo apt-get install -y -qq build-essential gcc make pkg-config git python3 \
@@ -50,6 +52,14 @@ sed -i 's/stricmp/strcasecmp/g' openbor.h
 # -Wno-error; -Werror=X -> -Wno-error=X) so the stock source compiles. This is
 # a HEADLESS-only diagnostic build; the ship build's warning posture is unchanged.
 sed -i 's/-Werror/-Wno-error/g' Makefile
+
+# ── Apply headless harness patches (main + video frame-counter) ────
+echo "=== apply_patches_headless.py ==="
+python3 "$REPO/.github/scripts/apply_patches_headless.py" /tmp/openbor/engine "$REPO/patches"
+HRC=$?
+if [ $HRC -ne 0 ]; then
+  echo "ERROR: apply_patches_headless.py failed (rc=$HRC)"; exit 1
+fi
 
 # ── Build: stock upstream x86-64 Linux target ──────────────────────
 echo "=== make BUILD_LINUX_LE_x86_64=1 ==="
