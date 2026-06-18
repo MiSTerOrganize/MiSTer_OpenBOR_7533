@@ -13,7 +13,8 @@ set -x
 # ── Distro deps (x86-64, no source builds — fast) ──────────────────
 sudo apt-get update -qq
 sudo apt-get install -y -qq build-essential gcc make pkg-config git python3 \
-  libsdl2-dev libsdl2-gfx-dev libpng-dev zlib1g-dev libvorbis-dev libogg-dev
+  libsdl2-dev libsdl2-gfx-dev libpng-dev zlib1g-dev libvorbis-dev libogg-dev \
+  libvpx-dev
 which gcc pkg-config || { echo "ERROR: toolchain install failed"; exit 1; }
 pkg-config --exists sdl2 || { echo "ERROR: libsdl2-dev not found via pkg-config"; exit 1; }
 echo "SDL2 cflags: $(pkg-config sdl2 --cflags)"
