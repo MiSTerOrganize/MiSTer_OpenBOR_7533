@@ -42,6 +42,14 @@ VERSIONEOF
 # ── POSIX compat (mirror ship build) ───────────────────────────────
 sed -i 's/stricmp/strcasecmp/g' openbor.h
 
+# ── Neutralize -Werror for the newer ubuntu-latest GCC ─────────────
+# The ship build uses bullseye GCC (older, lenient); ubuntu-latest GCC 13/14
+# promotes more warnings (unused-result/address/enum-int-mismatch) to errors
+# under the target's bare -Werror. Disable error-promotion (bare -Werror ->
+# -Wno-error; -Werror=X -> -Wno-error=X) so the stock source compiles. This is
+# a HEADLESS-only diagnostic build; the ship build's warning posture is unchanged.
+sed -i 's/-Werror/-Wno-error/g' Makefile
+
 # ── Build: stock upstream x86-64 Linux target ──────────────────────
 echo "=== make BUILD_LINUX_LE_x86_64=1 ==="
 make BUILD_LINUX_LE_x86_64=1 -j$(nproc)
