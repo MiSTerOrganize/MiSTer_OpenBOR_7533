@@ -13,8 +13,9 @@ set -x
 REPO="$(pwd)"   # repo checkout root (for patches/ + headless patcher)
 
 # ── Distro deps (x86-64, no source builds — fast) ──────────────────
-sudo apt-get update -qq
-sudo apt-get install -y -qq build-essential gcc make pkg-config git python3 \
+APTOPT="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+sudo apt-get $APTOPT update -qq
+sudo apt-get $APTOPT install -y -qq build-essential gcc make pkg-config git python3 \
   libsdl2-dev libsdl2-gfx-dev libpng-dev zlib1g-dev libvorbis-dev libogg-dev \
   libvpx-dev
 which gcc pkg-config || { echo "ERROR: toolchain install failed"; exit 1; }

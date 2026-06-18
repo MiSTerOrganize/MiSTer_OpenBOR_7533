@@ -2178,10 +2178,17 @@ endif
         print("  WARN: logsDir pattern not found in sdl/sdlport.c")
 
     # -- 7. Replace sdl/sblaster.c with MiSTer DDR3 audio backend --------
-    print("Patching sdl/sblaster.c (DDR3 audio backend)...")
-    sb = read(os.path.join(patches, 'sblaster_patch.c'))
-    write(os.path.join(obor, 'sdl/sblaster.c'), sb)
-    print("  sdl/sblaster.c replaced.")
+    # Skipped headless: this backend calls NativeAudioWriter_* UNCONDITIONALLY
+    # (not MISTER_NATIVE_VIDEO-gated), and native_audio_writer.o is BUILD_MISTER-
+    # gated so it isn't linked into the x86-64 diff-harness binary -> link error.
+    # Headless keeps stock sblaster.c (SDL audio; runs fine under SDL dummy).
+    if not HEADLESS:
+        print("Patching sdl/sblaster.c (DDR3 audio backend)...")
+        sb = read(os.path.join(patches, 'sblaster_patch.c'))
+        write(os.path.join(obor, 'sdl/sblaster.c'), sb)
+        print("  sdl/sblaster.c replaced.")
+    else:
+        print("  sdl/sblaster.c kept stock (headless — MiSTer DDR3 audio backend skipped).")
 
     # -- 8. Fix R/B swap bug in 32-bit blend functions ------------------
     # pixelformat.c's blend_screen32 / blend_multiply32 / blend_half32
