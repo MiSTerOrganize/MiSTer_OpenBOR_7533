@@ -1,0 +1,450 @@
+1|0|2nenBgumi Gikotaku Seinsei Gaiden.pak
+2|0|A Saga de Ryu.pak
+3|0|A Tale of Vengeance.pak
+4|0|AA Shadow Gaiden.pak
+5|0|Adventure of Nick & Dum-Dum, The.pak
+6|0|Airgallet Fighters Wing.pak
+7|0|Alien vs Predator Aftermath.pak
+8|0|Aliens Clash.pak
+9|0|Arcaders - The Beat 'Em Up.pak
+10|0|Armored Stronghold.pak
+11|0|Armored Warriors Cyberbots.pak
+12|1|Art Of Figting - Trouble In South Town.pak
+13|0|Art of Fighting - Beats of Rage Remix III.pak
+14|0|Asterix and Caesars Challenge.pak
+15|1|Avengers - United Battle Force.pak
+16|0|Bad Ass Babes Episode One.pak
+17|0|Bad School Girls.pak
+18|0|Balance of Power.pak
+19|0|Bare Knuckle - The Next Generation.pak
+20|0|Bare Knuckle 6 - Turn The Tide.pak
+21|1|Bare Knuckle VACUUM.pak
+22|0|Barshen Bash.pak
+23|0|Barshen Below.pak
+24|0|Barshen Border.pak
+25|0|Barshen Breakout.pak
+26|0|Batman - Savage Dawn.pak
+27|0|Batman Gotham Knights.pak
+28|0|Batman Vs. The Teenage Mutant Ninja Turtles.pak
+29|0|Battle Arena Toshinden Origin.pak
+30|0|BattleManiacs Bare Knuckle.pak
+31|0|Battletoads & Double Dragon IV - The Return of the Dark Forces.pak
+32|0|Battletoads Double Dragon - The T-Bird Mission.pak
+33|0|Battletoads.pak
+34|0|Bearz.pak
+35|0|Beast and Blanka in the Violent World.pak
+36|0|Beat 'Em Up  Ultimate Alliance.pak
+37|0|Beats Of Rage Xtra.pak
+38|0|Beats of Rage - Alliance Super Sayan.pak
+39|0|Beats of Rage Remix - Ladies Edition.pak
+40|0|Beats of Rage Remix - Rhythm of Destruction.pak
+41|0|Beats of Rage.pak
+42|0|Bird Bunch.pak
+43|0|Bishojo Dimensional Chaos.pak
+44|0|Bleach.pak
+45|0|Blue Bullet Bintang.pak
+46|0|Bombeiro Mascarado - Herois Das Ruas.pak
+47|0|Braller.pak
+48|0|Briga de Rua 2 - Vanessa.pak
+49|0|Briga de Rua 3 - Killer Instinct.pak
+50|0|Briga de Rua.pak
+51|0|BroomStickBot.pak
+52|0|Bruce Lee - Revenge of the Dragon.pak
+53|0|Burn Kingdom.pak
+54|0|Burning Fox, The.pak
+55|0|Cadillacs & Dinosaurs Warriors.pak
+56|0|Capcom Pocket Brawl [Beta].pak
+57|0|Captain Commando and the Avengers.pak
+58|0|CastleVania Pulse Of Animosity.pak
+59|0|Castlevania - Symphony of Destruction.pak
+60|0|Castlevania Dracula LCD Chronicles Deluxe Edition.pak
+61|0|Castlevania Legacy of Dracula.pak
+62|0|Castlevania Moonlight Nocturine.pak
+63|0|Chaotix Rage.pak
+64|0|Chaves Streets.pak
+65|0|Cherry On Top.pak
+66|0|Chrono Killer.pak
+67|0|City of Heroes.pak
+68|0|City of Kaos, The.pak
+69|0|ClaFan - Classic Fantasy Advanced [Alpha Demo].pak
+70|0|ClaFan - Classic Fantasy.pak
+71|0|Code Name - Sailor V.pak
+72|0|Coin Champion.pak
+73|0|Contra - Locked 'N Loaded.pak
+74|0|Cosmic Damage.pak
+75|0|Cowboys Unison.pak
+76|0|Crime Buster.pak
+77|0|Crisis Evil - Countdown to Oblivion.pak
+78|0|Crisis Evil 2 Remake.pak
+79|0|Crisis Evil 3 - Santiago Infected.pak
+80|0|Crisis Evil 4 - The Night Slashers [Beta].pak
+81|0|Crisis Evil Bootleg - Resident Evil 2.pak
+82|0|Crisis Evil Remake.pak
+83|0|Cyber Robot.pak
+84|0|Dante Must Kill.pak
+85|0|Darkstalkers.pak
+86|0|Demon's Hand [Demo].pak
+87|0|Denjin Makai Zero.pak
+88|0|Dojo Crasher.pak
+89|0|Doom Ultra-Violence.pak
+90|0|Double Dragon - Unleashed.pak
+91|0|Double Dragon - Zhao Yun.pak
+92|0|Double Dragon 3 - The Rosetta Stone.pak
+93|0|Double Dragon 4.pak
+94|0|Double Dragon Bangaihen.pak
+95|0|Double Dragon Evil Forces Expand.pak
+96|0|Double Dragon Extreme.pak
+97|0|Double Dragon Gaiden.pak
+98|0|Double Dragon Genesis.pak
+99|0|Double Dragon Gold.pak
+100|0|Double Dragon III - Rosetta Stone Remake.pak
+101|0|Double Dragon Reloaded Alternate.pak
+102|0|Double Dragon Remix.pak
+103|0|Double Dragon Renegade.pak
+104|0|Double Dragon Revival.pak
+105|0|Double Dragon Revolution 2.pak
+106|0|Double Dragon Revolution.pak
+107|0|Double Dragon SNK Final Edition.pak
+108|0|Double Dragon Zero.pak
+109|0|Dragon Ball Z - Attack of Saiyans.pak
+110|0|Dragon Ball Z Gold.pak
+111|0|Dragon Ball Z Tournament.pak
+112|0|Dragon Ball.pak
+113|0|Dragons of Rage EX.pak
+114|0|Dungeons & Dragons - Knights & Dragons Final Cut.pak
+115|0|Dungeons & Dragons - Knights & Dragons The Endless Quest.pak
+116|1|Dungeons & Dragons - Rise Of Warduke.pak
+117|0|Dungeons & Dragons - The Animated Series.pak
+118|0|Dynamic Edge.pak
+119|0|Dynasty Assassin.pak
+120|0|Ed Edd n Eddy - Nightmare on Ed Street.pak
+121|0|Eerie Erratic Expedition.pak
+122|0|Egi The Egg.pak
+123|0|EightMan.pak
+124|0|Einbein - Einvines Weekday.pak
+125|0|El Chapulin Colorado.pak
+126|0|Elfen Lied.pak
+127|0|Escape From Cartoon Hell.pak
+128|0|Escape From Guha.pak
+129|0|Escape of the Ages.pak
+130|0|Eternal Champions - The Thin Strings of Fate.pak
+131|0|Evil Dead 2.pak
+132|0|Evil Dead.pak
+133|0|Evil Splatter.pak
+134|0|Faderhead's Fist Full of Fuck You.pak
+135|0|Fatal Fury Final.pak
+136|0|Fatal Fury ReBout.pak
+137|0|Fatal fury Rebout 2.pak
+138|0|Fearless Warriors, The.pak
+139|0|Fighters Rage 3 (Napalm Hack).pak
+140|0|Fighting Street.pak
+141|0|Final Double Dragon.pak
+142|0|Final Fantasy 1.pak
+143|0|Final Fantasy 7 Advance.pak
+144|0|Final Fight & Cadillacs 2.pak
+145|0|Final Fight - Heroes.pak
+146|0|Final Fight - Last Round.pak
+147|0|Final Fight - Revival of Rage.pak
+148|0|Final Fight Alpha.pak
+149|0|Final Fight And Cadillacs.pak
+150|0|Final Fight Apocalypse - 1st Edition.pak
+151|0|Final Fight Apocalypse - 2nd Edition.pak
+152|0|Final Fight Boss.pak
+153|0|Final Fight DC Alteration.pak
+154|0|Final Fight Gold Champion Edition.pak
+155|0|Final Fight Luta.pak
+156|0|Final Fight PC - SNES Version.pak
+157|0|Final Fight Special Edition.pak
+158|0|Final Fight Vs The King of Fighters.pak
+159|0|Final Rage Chaos.pak
+160|0|Final fight X.pak
+161|0|Fire Emblem - Castle Defense.pak
+162|0|Fire Hearts.pak
+163|0|Fire Leaf Water.pak
+164|0|First Fight.pak
+165|0|Fists of Legendary Heroes.pak
+166|0|Fruits Frenzy.pak
+167|0|Fruits Survivors.pak
+168|0|GG' Girls.pak
+169|0|GI Joe - Attack On Cobra Island.pak
+170|0|Garou - Rage of the Wolves.pak
+171|0|Ghouls 'N Ghosts Returns.pak
+172|0|Girls Special II, The.pak
+173|0|Girls Special III, The.pak
+174|0|Girls Special, The.pak
+175|0|Go Bat.pak
+176|0|God Of War - Ragnarok.pak
+177|0|God of War.pak
+178|0|Godzilla - Ultraman - Gamera! All Out Monster War!.pak
+179|0|Golden Axe Curse of Death Adder.pak
+180|0|Golden Axe Genesis.pak
+181|0|Golden Axe Legend.pak
+182|1|Golden Axe Myth.pak
+183|1|Golden Axe Remake - Special Edition.pak
+184|0|Golden Axe Returns.pak
+185|0|Guardian Heroes Warpath.pak
+186|0|Guardians of the Hood II.pak
+187|0|Guardians of the Requiem - The Warriors of God.pak
+188|0|Gudule - Fist in ya Face!.pak
+189|0|Gudule.pak
+190|0|Guilty Gear - The Crusades.pak
+191|0|Gunman.pak
+192|0|Gunslingers Unison.pak
+193|0|Gunstar Heroes Z.pak
+194|0|Halloween - The Wrath of Michael Myers.pak
+195|0|Happy Heart.pak
+196|0|Hatchet Ninjaz.pak
+197|0|He-Man and the Masters of the Universe.pak
+198|0|Head Hunters.pak
+199|139|Heaven's Anime Girls.pak
+200|0|Hentai City.pak
+201|139|Hiryu No Ken [Demo].pak
+202|0|Hokuto no Ken Fury Road.pak
+203|0|Honeybee Harvest.pak
+204|0|Hulk vs. Streets of Rage.pak
+205|0|Hyper Final Fight 1.pak
+206|0|Hyper Final Fight 2.pak
+207|0|Hyper Final Fight 3 - Return of the Black.pak
+208|0|Ikari Warriors 2010 + Mutation Nation.pak
+209|0|Immortal Monster.pak
+210|0|Infinity Beat 'Em Up.pak
+211|0|Jaspion.pak
+212|0|Joe and Mac - Caveman Ninja.pak
+213|0|Joker.pak
+214|0|Justice League Legacy.pak
+215|0|Justice League United.pak
+216|0|Kill Bill - Volume 1.pak
+217|0|Kill Ryu 1.pak
+218|0|Kill Ryu 2.pak
+219|0|Kill Ryu Turbo.pak
+220|0|King of Fighters Zillion, The  - Another Road.pak
+221|0|King of Fighters, The - Beat 'Em Up Plus.pak
+222|0|Kingdom Hearts.pak
+223|0|Kirby Blast.pak
+224|0|Konpaku.pak
+225|0|Kung Fu Masters and the Wrath of the Gods.pak
+226|1|Kunio-Kun Renegade L A Remaster.pak
+227|0|Ladies of Rage.pak
+228|0|Langit Lands.pak
+229|0|Last Life.pak
+230|0|Legend of Korr - Path of Destruction.pak
+231|0|Legend of the Double Dragon.pak
+232|0|Lift.pak
+233|0|Lunar.pak
+234|1|Lust Rush.pak
+235|0|M@skaku, The - Wonder Momo '09.pak
+236|0|Maplevania.pak
+237|0|Martial Masters - New Legend.pak
+238|0|Marvel - Infinity War.pak
+239|0|Marvel First Alliance 2.pak
+240|0|Marvel First Alliance.pak
+241|0|Marvel Super Heroes Infinity Adventure.pak
+242|0|Marvel Super Heroes.pak
+243|0|Marvel War of the Gems.pak
+244|0|Marvel vs Capcom.pak
+245|0|Masters Of The Universe - Eternian Battle.pak
+246|0|Masters of the Universe.pak
+247|0|Maximun Carnage Returns.pak
+248|0|Mega Sonic.pak
+249|0|Mega-Boy Into the Mega World.pak
+250|0|MegaMan - War of the Past.pak
+251|0|MegaMan - Xtreme Legend.pak
+252|0|MegaMan Armada.pak
+253|0|Melty Blood Stimulate.pak
+254|139|Memory Loss.pak
+255|0|Metal Gear Origin.pak
+256|0|Metal Slug Beat Em Up.pak
+257|0|Mighty Final Fight 3.pak
+258|0|Mighty Final Fight Forever.pak
+259|0|Mighty Final Fight X.pak
+260|0|Minetroid.pak
+261|0|Mobile Suit Zeta Gundam.pak
+262|139|Monster Girl Dimensions.pak
+263|0|Monster Jam [Demo].pak
+264|0|Mortal Kombat - The Chosen One.pak
+265|0|Mortal Kombat Outworld Assassins.pak
+266|0|Mortal Kombat Unlimited.pak
+267|139|Moscow RE-Action.pak
+268|0|Naruto.pak
+269|0|Nelsoncomica.pak
+270|0|Neon Lightning Force.pak
+271|0|Never Ending Story.pak
+272|0|Night Slashers X.pak
+273|0|Nightmare on Elm Street - Dreams of Rage.pak
+274|0|Ninja - Stealth Assassins.pak
+275|0|Ninja Jiraya.pak
+276|0|Ninja Warriors vs Marvel.pak
+277|139|Ogres Mayhem.pak
+278|0|One Piece - Grand Line Bout.pak
+279|0|Overload.pak
+280|0|POW 2010.pak
+281|0|POW Remake.pak
+282|0|Pafman [Demo].pak
+283|0|Panda Warriors.pak
+284|0|Pestilaence - The New Plague.pak
+285|0|Pew Pew Dadu.pak
+286|0|Phantasy Star II + IV [Demo].pak
+287|0|Phantasy Star Online.pak
+288|0|Plump on the Stump.pak
+289|0|Pocket Dimensional Clash 2.pak
+290|0|Pocket Ladies Gang War.pak
+291|0|Pokemon - Red Blue Yellow.pak
+292|0|Pokemon Rumble 2D.pak
+293|0|Poppy Playtime Brawl [Demo].pak
+294|0|Porkchop 'n Flatscreen.pak
+295|0|Power Rangers - Beats of Power Special Edition.pak
+296|0|Pretty Soldier Sailor Moon - R Plus.pak
+297|0|Project FGC.pak
+298|0|Project Moon [Demo].pak
+299|0|Project R.pak
+300|0|Punisher, The and Nick Fury.pak
+301|0|Puzzle Puss.pak
+302|0|Quack Ninja.pak
+303|0|Rael - The Redemption.pak
+304|0|Rage Force Briga De Rua.pak
+305|0|Rage of the Streets.pak
+306|0|Raider & Reaper.pak
+307|0|Raiders Rush.pak
+308|0|Rainbow.pak
+309|0|Real Bout Pro Wrestling.pak
+310|0|Recca Soldiers - Advance Wars.pak
+311|0|Red Cyclone Zangief.pak
+312|0|Red Earth.pak
+313|139|Rescue Command - Against the Amazon Girls.pak
+314|0|Rescue Command Ep. 1 - Escaping from Bad Girls Island.pak
+315|0|Rescue Command Ep. 2 Attack on Amazon Island.pak
+316|0|Resident Evil Survive.pak
+317|0|Retro Gamer Adventure.pak
+318|0|Return of Double Dragon.pak
+319|0|Return of Kyo, The.pak
+320|0|Rhythm of Destruction 2 - Blue Edition.pak
+321|0|Rhythm of Destruction 2 - Green Edition.pak
+322|0|Rhythm of Destruction 2 - Red Edition.pak
+323|0|River City Ransom Zero.pak
+324|0|Robo Magi.pak
+325|0|Robz Rush.pak
+326|0|Rocket Viper 2.pak
+327|0|Rocket Viper.pak
+328|0|Rocko's Modern Life.pak
+329|0|Roy Streets.pak
+330|0|Ruins of the Deep.pak
+331|0|Rushing Beat.pak
+332|0|Ryuko No Ken Nekketsu.pak
+333|0|S.C.U. - Special Criminal Unit.pak
+334|0|Sailor Moon - Alternate Story Return Of The Clones.pak
+335|0|Sailor Moon Arcade.pak
+336|0|Sailor Moon.pak
+337|0|Sailormoon Alternate Story Clone Attack.pak
+338|0|Saint Seiya - Death & Rebirth.pak
+339|0|Samurai Warriors.pak
+340|1|Scorer Horror.pak
+341|0|Search for Athena, The.pak
+342|0|Secrets of the Deep.pak
+343|0|Sega Brawlers Megamix.pak
+344|1|Shadows of Death.pak
+345|0|Shiva & Lisa 2.pak
+346|0|Shiva & Lisa 3.pak
+347|0|Shiva & Lisa.pak
+348|0|Shock Troopers - The Living Daylights.pak
+349|0|Shodown Revenge.pak
+350|0|Silver Night's Crusaders.pak
+351|0|Simpsons, The - Treehouse of Horror.pak
+352|0|Skull Kingz Remake.pak
+353|0|Snail N Turtle.pak
+354|0|Snestalgia.pak
+355|0|Sonic Adventure - Revolution.pak
+356|0|Sonic Defense.pak
+357|0|Sonic SatAM Liberations.pak
+358|0|Sonic Super Jam.pak
+359|0|SonicX Battle.pak
+360|0|Sonics Splatterhouse.pak
+361|0|Soul Edge II.pak
+362|0|Spawn - The Crusade Across Time.pak
+363|0|Special Squadron Cyberman.pak
+364|0|Splatterhouse - Back from the Dead.pak
+365|0|Splatterhouse - Deception of the Mask.pak
+366|0|Splatterhouse - Eternal Nightmare.pak
+367|0|Splatterhouse 2 - Journey Through Hell.pak
+368|0|Splatterhouse 3 - Back to Light.pak
+369|0|Stains of Deception.pak
+370|0|Steampunk Raiders.pak
+371|0|Steins Gate D!.pak
+372|0|Street Fighter '89 - The Final Fight [Demo].pak
+373|0|Street Fighter - Beats of Rage Remix II.pak
+374|0|Street Fighter II Champion Edition.pak
+375|0|Street Fighter Legends.pak
+376|0|Street Fighter Rage World Olympic Tour.pak
+377|0|Street Fighter Taiwan.pak
+378|0|Street Fighter Ultimate Collection.pak
+379|0|Street Fighter Victory.pak
+380|1|Street Fighter Vs. The King of Fighters.pak
+381|0|Street Fury.pak
+382|0|Street Knightz.pak
+383|0|Streets Of Rage Z - Return Of The Hero.pak
+384|0|Streets Of Russia.pak
+385|0|Streets of Fighting - Final Edition.pak
+386|0|Streets of Rage - Silent Hill.pak
+387|0|Streets of Rage 2X.pak
+388|0|Streets of Rage 4 - Silent Storm [Demo].pak
+389|0|Streets of Rage Furia Massiva.pak
+390|0|Streets of Rage Legacy.pak
+391|1|Streets of Rage X2 Megamix.pak
+392|0|Streets of Rage XXX.pak
+393|0|Streets of Rage Z 2.pak
+394|0|Streets of Rage Zombies.pak
+395|0|Streets of Vendetta - Cracoland War.pak
+396|0|Strider X.pak
+397|0|Supah! Princess Defender.pak
+398|0|Super Fightin' Spirit.pak
+399|0|Super Final Fight Gold Plus LNS.pak
+400|0|Super Final Fight Gold.pak
+401|0|Super Karate Kid.pak
+402|0|Super Mario Brawl.pak
+403|0|Super Street Fighter II Turbo HD Remix.pak
+404|0|Super Thundercats - The Lost Eye of Thundera.pak
+405|0|Super Universe Brawl.pak
+406|0|Symphonia Battalion - Well Fight Together.pak
+407|0|Tabib.pak
+408|0|Tanks Vs Tanks.pak
+409|0|Target Renegade [Demo].pak
+410|0|Teenage Mutant Ninja Turtles - 8-Bit.pak
+411|0|Teenage Mutant Ninja Turtles - Fall of the Foot Clan DX [Demo].pak
+412|0|Teenage Mutant Ninja Turtles - Lost in Space.pak
+413|0|Teenage Mutant Ninja Turtles - Recolored & Extended.pak
+414|0|Teenage Mutant Ninja Turtles - Red Sky Battle.pak
+415|0|Teenage Mutant Ninja Turtles - Rescue Palooza!.pak
+416|0|Teenage Mutant Ninja Turtles - Shell Shocked.pak
+417|0|Teenage Mutant Ninja Turtles III The Manhattan Project.pak
+418|0|Teenage Mutant Ninja Turtles and Battletoads.pak
+419|0|Teenage Mutant Ninja Turtles.pak
+420|0|Tekken - The Devils Rage.pak
+421|0|The Beast Within - Divine Comedy.pak
+422|0|The Suffering In Me [Beta Demo].pak
+423|0|Tides Before the Tragedy.pak
+424|0|Time Crisis - Side Scroller [Demo].pak
+425|0|Touhou Madness Wrath.pak
+426|0|Touhou Shooter.pak
+427|0|Turrican vs Terminator.pak
+428|0|Ultimate Double Dragon.pak
+429|0|Ultimate Super Mega Beatdown.pak
+430|0|Unnamed Project.pak
+431|0|Urban Lockdown.pak
+432|0|Valdivia City Ransom.pak
+433|0|Vampire Hunters.pak
+434|0|Vampire Rage Hide.pak
+435|0|Vengeance of Kyo, The.pak
+436|0|Vermilion Sword - The Legend Of Calibur.pak
+437|0|Village of Rage.pak
+438|0|Warrior Frenzy.pak
+439|0|Warslayers - Land of Sinners.pak
+440|0|Way of Martial Arts.pak
+441|0|Women's War.pak
+442|0|World Heroes Supreme Justice Extra.pak
+443|0|X-Men - Guerra dos Clones.pak
+444|0|X-Men Hunter for Mutants.pak
+445|0|X-Men Vs. Street Fighter.pak
+446|0|X-Men.pak
+447|0|Xelam.pak
+448|0|XuanYuan Sword.pak
+449|0|Yu Yu Hakusho Dark Tournament.pak
+450|0|Yu-Gi-Oh! - Duels Alive.pak
