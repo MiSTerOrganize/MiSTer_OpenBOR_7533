@@ -11,11 +11,14 @@ OpenBOR_4086 (same PAK format + engine family); edit in 7533, mirror to 4086.
 | Category | Status | Tool |
 |---|---|---|
 | **Decode** (PAK-integrity) | ✅ DONE — 450/450 local corpus clean | `pak_decode_scan.py` |
-| **Crashes** | 🏗️ needs headless engine build | (planned `openbor_headless`) |
-| **Hangs** (`--alarm` wall-clock) | 🏗️ needs headless engine build | (planned `openbor_headless`) |
-| **Preprocess** (script/model parse, #include) | 🏗️ needs headless engine build | (planned) |
-| **Input-fed mass-scan** | 🏗️ needs headless engine build | (planned) |
-| **Render-correctness** | 🔴 GAP — no open ground-truth (same as PICO-8; PC OpenBOR.exe is the reference) | — |
+| **Headless build** | ✅ DONE — compiles+links on x86 (`diff_harness.yml`) | `build_headless.sh` |
+| **Crashes** | ✅ FUNCTIONAL — SIGSEGV/BUS/ABRT/FPE backtrace→addr2line | `apply_patches_headless.py` + `pak_run_scan.sh` |
+| **Hangs** (SIGALRM wall-clock, re-armed/frame) | ✅ FUNCTIONAL | same |
+| **Input-fed mass-scan** | 🏗️ (basic run works; generic input-feed TODO) | `pak_run_scan.sh` |
+| **Preprocess** (script/model parse, #include) | 🏗️ planned (engine-logic patches layer) | (planned) |
+| **Render-correctness** | 🔴 GAP — no open ground-truth (PC OpenBOR.exe only) | — |
+
+**Runner:** `OpenBOR_headless` is **dynamic glibc+SDL2** (unlike PICO-8's fully-static z8headless that runs on the musl docker-desktop WSL). It runs in an **`ubuntu:24.04` glibc container matching the `diff_harness.yml` build env** — `docker run` mounting the PAK corpus + binary + an out dir, executing `pak_run_scan.sh`. This is *running* a diagnostic in a container, not building (the no-local-Docker rule is about the ARM ship build). Milestone 1b verified: A Tale of Vengeance → 60 frames → exit 0.
 
 ## Decode category (done) — `pak_decode_scan.py`
 
