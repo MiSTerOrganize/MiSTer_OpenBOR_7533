@@ -73,11 +73,18 @@ token length. (My crash handler maps SIGABRT→exit 139, so these showed as
 ## Script-compile-fail (ec=1) on patched build — 12 PAKs (candidate script-API gaps)
 
 These compile-fail during PAK script compile = the **preprocess category** signal.
-⚠️ NOT confirmed bugs: some may be PAK-version differences vs the corpus copy, or
-ship-build gaps. Need hardware/PC confirmation. Notable: **Avengers** fails on
-`changeentityproperty` (deadpool `takedamagescript`) yet is "confirmed working"
-on the dev MiSTer — strongly suggests a PAK-version difference; verify the
-installed Avengers PAK == corpus copy.
+⚠️ NOT confirmed bugs — ec=1 is a CONTAMINATED signal, trust the crashes more.
+Checked 2026-06-18: the dev MiSTer's `Avengers - United Battle Force.pak` is
+**byte-identical** to the corpus copy (both md5 `5b9867f8c0595519e3abb8486b6d30ec`,
+89213098 bytes) — so its ec=1 is NOT a PAK-version difference. Yet Avengers loads
++ plays on the MiSTer. Most likely the failing model (deadpool `takedamagescript`,
+`changeentityproperty`) is **lazy-loaded** ('know' model — compiled only when
+first spawned, so it doesn't block load on hardware) or the ship build handles a
+property the headless build doesn't. Net: ec=1 mixes (a) lazy-model compile
+failures that don't break the PAK on hardware, (b) headless-vs-ship script-API
+gaps, and (c) possibly real gaps — so each needs per-PAK hardware confirmation.
+The crashes (Signatures A/B, in the model-load + preprocessor-lexer paths, NOT
+the gated control/sblaster code) are the high-confidence findings.
 - Art Of Figting - Trouble In South Town.pak
 - Avengers - United Battle Force.pak
 - Bare Knuckle VACUUM.pak
