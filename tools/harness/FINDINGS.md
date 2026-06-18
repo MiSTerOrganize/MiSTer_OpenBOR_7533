@@ -29,21 +29,42 @@ candidate engine-robustness bugs. **Pending PC OpenBOR.exe / real-MiSTer
 confirmation** (headless build excludes only input/audio patches, which don't
 touch these load paths, but hardware confirms they hit the shipped build).
 
-### Signature B — `load_models → sprintf` SIGSEGV (buffer-overflow class)
-Chain: `openborMain (openbor.c:51423) → startup (47309) → load_models (18491) →
-sprintf` → SIGSEGV inside the libc sprintf. A model/path string formatted with a
-bad/oversized argument during PAK model load. Clean backtrace.
+### Signature B — `load_cached_model` @cmd/@script translation crash (SIGSEGV) — PINNED via gdb
+gdb backtrace (Moscow RE-Action, loading model `"cum"`):
+```
+#0 sprintf(__s=namebuf, __fmt=ifid_text "    if(animhandle==%d)...")   stdio2.h:30
+#1 load_cached_model(name="cum", owner="models.txt")   openbor.c:17339 (≈ upstream 17197/17239)
+#2 load_models()  openbor.c:18490   #3 startup()  #4 openborMain()
+```
+The crash is in `load_cached_model`'s **@cmd/@script → inline-script translation**
+(the block that turns a model's `@cmd`/`@script` animation directives into a
+generated OpenBOR script). The `sprintf(namebuf, ifid_text, newanim->index)` at
+upstream openbor.c:17197/17239 faults. Two candidate mechanisms (disambiguate
+with a -O0/ASan run): (a) `newanim` NULL/dangling when an `@cmd`/`@script`
+appears in a state where no current anim is set; (b) the nearby
+`scriptbuf[scriptlen - strclen(X)] = 0` lines (17191/17201/17235/17245/17283/85)
+are **negative-index writes when `scriptlen < strclen(X)`** (buffer underflow)
+that corrupt memory, surfacing at the next sprintf. Real engine-robustness bug
+in the @cmd script-translation path.
 - Monster Girl Dimensions.pak
 - Moscow RE-Action.pak
 - Rescue Command - Against the Amazon Girls.pak
 
-### Signature A — `drawstatus` / stack-corruption crash
-Backtrace shows wild/tiny return addresses (0x1e, 0xdf, 0x11c) = a stack smash /
-call through a garbage pointer; nearest resolved frame is `drawstatus`
-(openbor.c:22881). Exact faulting write needs deeper forensics. On STOCK these
-two of them (Heaven's, Hiryu) crashed earlier in the script parser
-(`Script_AppendText → Parser_*` deep recursion); on the patched build they
-compile further and crash here.
+### Signature A — preprocessor lexer token-buffer overflow on a long string literal (fortify abort) — PINNED via gdb
+gdb backtrace (Memory Loss): `*** buffer overflow detected *** → SIGABRT`
+```
+#9  strcpy(dest, "...STORY: Invalid filename. 'Story' entity should have an 'alias'...")
+#10 pp_token_Init           source/preprocessorlib/pp_lexer.c:63   (destlen=129)
+#11 pp_lexer_GetTokenStringLiteral → #12 pp_lexer_GetNextToken
+#13 pp_parser_lex_token → #15 Lexer_GetNextToken
+```
+The script **preprocessor lexer** copies a string-literal token into a fixed
+~128-byte buffer via `strcpy` (`pp_token_Init`, pp_lexer.c:63). A PAK script with
+a string literal longer than that buffer overflows it; the x86 fortify build
+catches it (`__strcpy_chk`) and aborts. On a non-fortify ARM build this would be
+a silent heap/stack smash. Real engine bug — the lexer must bound string-literal
+token length. (My crash handler maps SIGABRT→exit 139, so these showed as
+"crash" in the scan alongside Signature B's raw SIGSEGV.)
 - Heaven's Anime Girls.pak
 - Hiryu No Ken [Demo].pak
 - Memory Loss.pak
