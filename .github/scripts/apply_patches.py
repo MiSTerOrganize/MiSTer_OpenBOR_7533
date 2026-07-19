@@ -563,6 +563,25 @@ endif
     write(sb_path, sb_c)
     print("  sdl/sblaster.c: SB_playstart gated under OB_TEST (headless build).")
 
+    # ── ORACLE early-exit ─────────────────────────────────────────────
+    # OB_ORACLE=1 (with OB_HEADLESS=1, set by the oracle build) stops here:
+    # the sections ABOVE are the build/harness layer (Makefile target,
+    # direct-write behind its MISTER_NATIVE_VIDEO ifdef which headless never
+    # defines, the OB_TEST trace block + synthetic clock + audio gate); the
+    # sections BELOW are OUR engine-logic patches (palette v3.10,
+    # stale-pointer defense, screen_status normalize, range restoration,
+    # loadsprite hash, script constants, path redirects, ...). Skipping them
+    # yields a STOCK-v7533-behavior binary with the identical trace
+    # instrumentation: diffing an OB_TEST trace from our build against the
+    # oracle isolates exactly what OUR patches change per PAK -- expected
+    # entries are the deliberate fixes; unexpected entries are bugs in our
+    # patches. (Milestone-1a proved stock v7533 compiles headless with no
+    # engine-logic patches.)
+    if os.environ.get("OB_ORACLE"):
+        print("OB_ORACLE=1 -- stock-engine oracle: engine-logic patches SKIPPED.")
+        print("All patches applied successfully.")
+        return
+
     # ── 4. Patch sdl/control.c — replace control_update() ────────────
     print("Patching sdl/control.c (input mapping)...")
     src = read(os.path.join(obor, 'sdl/control.c'))
