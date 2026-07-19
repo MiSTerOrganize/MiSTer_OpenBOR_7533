@@ -126,6 +126,13 @@ int SB_playstart(int bits, int samplerate) {
 
     if (started) return 1;
 
+    /* OB_TEST deterministic trace mode (debugging-methodology component 1):
+     * keep the DDR3 audio thread OFF -- the video_copy_screen trace block
+     * pulls the mixer synchronously per presented frame, which is what the
+     * AUDIOCRC hashes. Async pulls here would race it. Test runs are
+     * silent on hardware; determinism over audibility. */
+    if (getenv("OB_TEST")) { started = 1; return 1; }
+
     if (!NativeAudioWriter_IsActive()) {
         return 0;
     }
@@ -141,8 +148,12 @@ int SB_playstart(int bits, int samplerate) {
 
 void SB_playstop(void) {
     if (!started) return;
-    audio_thread_run = 0;
-    pthread_join(audio_thread, NULL);
+    /* OB_TEST gate in SB_playstart sets started without spawning the
+     * thread -- only join a thread that was actually created. */
+    if (audio_thread_run) {
+        audio_thread_run = 0;
+        pthread_join(audio_thread, NULL);
+    }
     started = 0;
 }
 

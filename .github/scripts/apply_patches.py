@@ -304,6 +304,13 @@ endif
         '#include "../resources/OpenBOR_Icon_32x32_png.h"\n'
         '#include <stdio.h>\n'
         '#include <stdlib.h>\n'
+        '/* OB_TEST deterministic test mode (debugging-methodology component 1):\n'
+        ' * synthetic clock lives in sdl/timer.c; the trace block below advances\n'
+        ' * it per presented frame and pulls the engine mixer synchronously. */\n'
+        'extern int ob_test_active(void);\n'
+        'extern void ob_test_frame_advance(void);\n'
+        'extern void update_sample(unsigned char *buf, int size);\n'
+        'extern int playfrequency;\n'
         '#ifdef MISTER_NATIVE_VIDEO\n'
         '#include "native_video_writer.h"\n'
         '#endif',
@@ -337,6 +344,10 @@ endif
         '\t\tstatic int tt_checked = 0;\n'
         '\t\tstatic long tt_limit = 0;\n'
         '\t\tstatic long long tt_frame = 0;\n'
+        '\t\t/* Synthetic-clock advance: one 60fps frame per present (16/17/17\n'
+        '\t\t * ms). Self-gated in sdl/timer.c -- no-op unless OB_TEST is set,\n'
+        '\t\t * so the ship fast path pays one predictable branch. */\n'
+        '\t\tob_test_frame_advance();\n'
         '\t\tif (!tt_checked) {\n'
         '\t\t\tconst char *tp = getenv("OB_TEST");\n'
         '\t\t\tconst char *tl = getenv("OB_TESTFRAMES");\n'
@@ -351,6 +362,7 @@ endif
         '\t\t\tstatic unsigned int tt_tab[256];\n'
         '\t\t\tstatic int tt_have = 0;\n'
         '\t\t\tunsigned int crc = 0xFFFFFFFFu;\n'
+        '\t\t\tunsigned int acrc = 0xFFFFFFFFu;\n'
         '\t\t\tint bpp = stored_videomodes.pixel;  /* bytes per pixel */\n'
         '\t\t\tint y, x;\n'
         '\t\t\tif (!tt_have) {\n'
@@ -367,7 +379,21 @@ endif
         '\t\t\t\tint nb = surface->width * bpp;\n'
         '\t\t\t\tfor (x = 0; x < nb; x++) crc = (crc >> 8) ^ tt_tab[(crc ^ row[x]) & 0xFF];\n'
         '\t\t\t}\n'
-        '\t\t\tfprintf(tt_f, "%lld:%08x:%08x\\n", tt_frame, crc ^ 0xFFFFFFFFu, 0u);\n'
+        '\t\t\t/* AUDIOCRC: synchronous mixer pull. In OB_TEST mode no audio\n'
+        '\t\t\t * device/thread runs (SB_playstart gated in both builds), so\n'
+        '\t\t\t * this is the ONLY mixer consumer: playfrequency/60 stereo\n'
+        '\t\t\t * 16-bit frames per presented frame. update_sample fully\n'
+        '\t\t\t * overwrites the buffer (silence when no voices). Before\n'
+        '\t\t\t * sound_start_playback (playfrequency==0) nothing is pulled\n'
+        '\t\t\t * and the field hashes empty = 00000000. */\n'
+        '\t\t\t{\n'
+        '\t\t\t\tstatic unsigned char tt_abuf[8192];\n'
+        '\t\t\t\tint tt_ab = (playfrequency > 0) ? (playfrequency / 60) * 4 : 0;\n'
+        '\t\t\t\tif (tt_ab > (int)sizeof(tt_abuf)) tt_ab = (int)sizeof(tt_abuf);\n'
+        '\t\t\t\tif (tt_ab > 0) update_sample(tt_abuf, tt_ab);\n'
+        '\t\t\t\tfor (x = 0; x < tt_ab; x++) acrc = (acrc >> 8) ^ tt_tab[(acrc ^ tt_abuf[x]) & 0xFF];\n'
+        '\t\t\t}\n'
+        '\t\t\tfprintf(tt_f, "%lld:%08x:%08x\\n", tt_frame, crc ^ 0xFFFFFFFFu, acrc ^ 0xFFFFFFFFu);\n'
         '\t\t\ttt_frame++;\n'
         '\t\t\tif (tt_limit > 0 && tt_frame >= tt_limit) {\n'
         '\t\t\t\tfclose(tt_f);\n'
@@ -395,8 +421,147 @@ endif
         'sdl/video.c video_copy_screen bypass'
     )
 
+    # OB_TEST: skip real-time frame pacing -- the synthetic clock (sdl/timer.c)
+    # drives ALL game timing, so vga_vwait's SDL_Delay would only slow test
+    # runs down without affecting determinism. C90 note: decls stay first.
+    video_c = strict_replace(
+        video_c,
+        'void vga_vwait(void)\n'
+        '{\n'
+        '\tstatic int prevtick = 0;\n'
+        '\tint now = SDL_GetTicks();\n'
+        '\tint wait = 1000/60 - (now - prevtick);\n',
+        'void vga_vwait(void)\n'
+        '{\n'
+        '\tstatic int prevtick = 0;\n'
+        '\tint now;\n'
+        '\tint wait;\n'
+        '\tif (ob_test_active()) return;  /* OB_TEST: no wall-clock pacing */\n'
+        '\tnow = SDL_GetTicks();\n'
+        '\twait = 1000/60 - (now - prevtick);\n',
+        'sdl/video.c vga_vwait OB_TEST skip'
+    )
+
     write(video_path, video_c)
     print("  sdl/video.c: video_copy_screen now writes directly to DDR3, bypassing SDL2 renderer chain")
+
+    # -- 3b. OB_TEST deterministic clock (debugging-methodology component 1) --
+    # Every engine time source in sdl/timer.c returns a SYNTHETIC clock when
+    # env OB_TEST is set, advanced 16/17/17 ms per presented frame (exactly
+    # 60.000 fps) by ob_test_frame_advance() -- called from video_copy_screen's
+    # trace block. Wall clock never enters game logic, so boot runs become
+    # bit-reproducible (the 140-NONDET-PAK class from the 2026-07-18 corpus
+    # scan). rand32's seed is already a constant (source/randlib/rand32.c:
+    # u64 seed = 1234567890, reseeded only by the engine's own .inp replay),
+    # so pinning the clock pins rand too. Default (env unset): the real
+    # SDL_GetTicks paths are byte-for-byte the same expressions.
+    print("Patching sdl/timer.c (OB_TEST synthetic clock)...")
+    timer_path = os.path.join(obor, 'sdl/timer.c')
+    timer_c = read(timer_path)
+    timer_c = strict_replace(
+        timer_c,
+        '#include "timer.h"\n'
+        '#include "types.h"\n',
+        '#include "timer.h"\n'
+        '#include "types.h"\n'
+        '#include <stdlib.h>\n'
+        '\n'
+        '/* -- OB_TEST deterministic clock (debugging-methodology component 1) --\n'
+        ' * With env OB_TEST set, every time source below returns a synthetic\n'
+        ' * clock advanced only by ob_test_frame_advance() (one 60fps frame per\n'
+        ' * presented frame, from video_copy_screen). Env unset: zero change. */\n'
+        'static int ob_test_on = -1;\n'
+        'static unsigned ob_test_ms = 0;\n'
+        'static unsigned ob_test_nframes = 0;\n'
+        'int ob_test_active(void)\n'
+        '{\n'
+        '\tif (ob_test_on < 0) ob_test_on = getenv("OB_TEST") ? 1 : 0;\n'
+        '\treturn ob_test_on;\n'
+        '}\n'
+        'void ob_test_frame_advance(void)\n'
+        '{\n'
+        '\tif (!ob_test_active()) return;\n'
+        '\t/* 16,17,17 ms -> exactly 50 ms per 3 frames = 60.000 fps */\n'
+        '\tob_test_ms += (ob_test_nframes % 3) ? 17 : 16;\n'
+        '\tob_test_nframes++;\n'
+        '}\n',
+        'sdl/timer.c OB_TEST clock state'
+    )
+    timer_c = strict_replace(
+        timer_c,
+        '\tnow=SDL_GetTicks()-newticks;\n',
+        '\tnow=(ob_test_active() ? ob_test_ms : SDL_GetTicks())-newticks;\n',
+        'sdl/timer.c timer_getinterval synthetic'
+    )
+    timer_c = strict_replace(
+        timer_c,
+        'unsigned timer_gettick()\n'
+        '{\n'
+        '\treturn SDL_GetTicks();\n'
+        '}\n',
+        'unsigned timer_gettick()\n'
+        '{\n'
+        '\treturn ob_test_active() ? ob_test_ms : SDL_GetTicks();\n'
+        '}\n',
+        'sdl/timer.c timer_gettick synthetic'
+    )
+    timer_c = strict_replace(
+        timer_c,
+        'u64 timer_uticks()\n'
+        '{\n'
+        '\tu64 freq = SDL_GetPerformanceFrequency();\n'
+        '\tu64 counter = SDL_GetPerformanceCounter();\n'
+        '\treturn counter * (1000000.0 / freq);\n'
+        '}\n',
+        'u64 timer_uticks()\n'
+        '{\n'
+        '\tu64 freq;\n'
+        '\tu64 counter;\n'
+        '\tif (ob_test_active()) return (u64)ob_test_ms * 1000;\n'
+        '\tfreq = SDL_GetPerformanceFrequency();\n'
+        '\tcounter = SDL_GetPerformanceCounter();\n'
+        '\treturn counter * (1000000.0 / freq);\n'
+        '}\n',
+        'sdl/timer.c timer_uticks synthetic'
+    )
+    write(timer_path, timer_c)
+    print("  sdl/timer.c: synthetic clock under OB_TEST (frame-advanced, 60.000 fps).")
+
+    # Stock sdl/sblaster.c: no audio device/callback thread under OB_TEST so
+    # nothing pulls the mixer asynchronously (the trace block is the only
+    # consumer). Only the HEADLESS build compiles this file -- the ship build
+    # replaces it wholesale with patches/sblaster_patch.c (step 7), which
+    # carries its own equivalent gate. Patched unconditionally here since the
+    # ship overwrite makes it moot. Stock SB_playstop is already safe with no
+    # device (SDL_CloseAudioDevice(0) is a no-op).
+    print("Patching sdl/sblaster.c (OB_TEST: no audio device)...")
+    sb_path = os.path.join(obor, 'sdl/sblaster.c')
+    sb_c = read(sb_path)
+    sb_c = strict_replace(
+        sb_c,
+        '#include "sblaster.h"\n'
+        '#include "soundmix.h"\n',
+        '#include "sblaster.h"\n'
+        '#include "soundmix.h"\n'
+        '#include <stdlib.h>\n',
+        'sdl/sblaster.c stdlib include'
+    )
+    sb_c = strict_replace(
+        sb_c,
+        'int SB_playstart(int bits, int samplerate)\n'
+        '{\n'
+        '\tSDL_AudioSpec spec;\n',
+        'int SB_playstart(int bits, int samplerate)\n'
+        '{\n'
+        '\tSDL_AudioSpec spec;\n'
+        '\t/* OB_TEST deterministic mode: report success without opening a\n'
+        '\t * device -- the video_copy_screen trace block pulls the mixer\n'
+        '\t * synchronously; an async SDL callback would race it. */\n'
+        '\tif (getenv("OB_TEST")) { started = 1; return 1; }\n',
+        'sdl/sblaster.c SB_playstart OB_TEST gate'
+    )
+    write(sb_path, sb_c)
+    print("  sdl/sblaster.c: SB_playstart gated under OB_TEST (headless build).")
 
     # ── 4. Patch sdl/control.c — replace control_update() ────────────
     print("Patching sdl/control.c (input mapping)...")
