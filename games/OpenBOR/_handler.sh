@@ -112,14 +112,11 @@ sleep 1
 
 echo "OpenBOR handler: dispatching to $BINARY (RBF=$MISTER_RBF)" > "$LOGDIR/OpenBOR.log"
 
-# Step 29 (v3.1) + 2026-06-07 affinity fix: allow BOTH cores (mask 0x03).
-# MiSTer's Cortex-A9 is dual-core. This previously pinned the whole process
-# to core 1 only (0x02), which SILENTLY broke the audio thread's attempt to
-# move to core 0 — a child thread cannot widen affinity past the process mask,
-# so the audio thread's CPU_SET(0) returned EINVAL and audio stayed on the
-# render core, contending with the render loop every tick.
-# 0x03 = cores 0+1: the render/main thread pins ITSELF to core 1 (see
-# native_video_writer.c::NativeVideoWriter_Init), and the audio thread's
-# existing core-0 pin (sblaster_patch.c) now succeeds — so audio runs on
-# core 0 and no longer steals time from render. Mask 0x03 = bits 0 and 1.
+# Affinity: allow BOTH cores (mask 0x03 = cores 0+1). The process mask must
+# cover both cores or the binary's own thread pins fail with EINVAL (a child
+# thread cannot widen affinity past the process mask — the original 0x02 mask
+# silently broke thread pinning). WHICH thread goes on WHICH core is decided
+# inside each build's binary (native_video_writer.c render pin +
+# sblaster_patch.c audio pin), not here — this shared handler only opens
+# both cores so those pins take effect.
 exec taskset 0x03 ./"$BINARY" >> "$LOGDIR/OpenBOR.log" 2>&1
