@@ -4645,6 +4645,47 @@ endif
     # Modern PAKs: untouched (has_legacy_remaps=0, all gates skip).
     # (no patches in this step — step 11 was removed; see comment block above)
 
+    # ── Preprocessor lexer: bound token-buffer writes ─────────────────
+    # Diff-harness mass-scan crash Signature A (2026-06 findings): a PAK
+    # script with a token longer than MAX_TOKEN_LENGTH (128) overflows the
+    # lexer's fixed `theTokenSource[MAX_TOKEN_LENGTH+1]` buffer. CONSUMECHARACTER
+    # writes `theTokenSource[theTokenLen++]` with NO bound check, and
+    # pp_token_Init then strcpy's the overrun into `theSource` (also
+    # MAX_TOKEN_LENGTH+1) — fortify caught the strcpy on x86 (SIGABRT); a
+    # non-fortify ARM build would silently smash the stack. GDB-pinned to
+    # pp_lexer.c:63 via a 129-byte "STORY: Invalid filename..." string literal
+    # (Memory Loss.pak; also Heaven's Anime Girls, Hiryu No Ken [Demo],
+    # Ogres Mayhem).
+    #
+    # FIX: cap the copy at MAX_TOKEN_LENGTH while STILL advancing pcurChar/
+    # offset/col — the source pointer must keep moving so the string-literal /
+    # identifier / symbol loops still terminate on their closing delimiter
+    # (stopping the pointer instead would hang). Over-long tokens are safely
+    # truncated (a preprocessor token > 128 chars is already malformed input;
+    # the engine now processes the truncated token instead of crashing). This
+    # bounds EVERY token type since the whole lexer routes through this macro.
+    print("Patching preprocessor lexer (bound CONSUMECHARACTER token writes)...")
+    ppl_path = os.path.join(obor, 'source/preprocessorlib/pp_lexer.c')
+    ppl = read(ppl_path)
+    ppl = strict_replace(
+        ppl,
+        "#define CONSUMECHARACTER \\\n"
+        "   plexer->theTokenSource[plexer->theTokenLen++] = *(plexer->pcurChar);\\\n"
+        "   plexer->theTokenSource[plexer->theTokenLen] = '\\0';\\\n"
+        "   plexer->pcurChar++; \\\n"
+        "   plexer->theTextPosition.col++; \\\n"
+        "   plexer->offset++;",
+        "#define CONSUMECHARACTER \\\n"
+        "   if (plexer->theTokenLen < MAX_TOKEN_LENGTH) { \\\n"
+        "      plexer->theTokenSource[plexer->theTokenLen++] = *(plexer->pcurChar);\\\n"
+        "      plexer->theTokenSource[plexer->theTokenLen] = '\\0';\\\n"
+        "   } \\\n"
+        "   plexer->pcurChar++; \\\n"
+        "   plexer->theTextPosition.col++; \\\n"
+        "   plexer->offset++;",
+        "pp_lexer CONSUMECHARACTER bound")
+    write(ppl_path, ppl)
+
     print("\nAll patches applied successfully.")
 
 if __name__ == '__main__':
