@@ -129,3 +129,30 @@ mass-scan). See `MiSTer_OpenBOR_4086/tools/harness/README.md` +
       signal, not a clean bug; ec=1 is lower-confidence than crashes.)
 - 4086 = ad-hoc only (see corpus-class note above) — NOT mass-scanned.
 - Render-correctness remains a gap (no open ground-truth; PC OpenBOR.exe is the reference). See `feedback_hybrid_core_diff_harness_required.md`.
+
+## RESOLUTION — Signature A FIXED (2026-07-23, commit 45b043c)
+
+**pp_lexer.c CONSUMECHARACTER token-buffer overflow — FIXED + verified.**
+`CONSUMECHARACTER` wrote `theTokenSource[theTokenLen++]` with no bound against
+the fixed `theTokenSource[MAX_TOKEN_LENGTH+1]` (129-byte) buffer; a token > 128
+chars overflowed it and `pp_token_Init`'s strcpy propagated the overrun. Fix
+(apply_patches.py, new patch step): gate the copy on `theTokenLen <
+MAX_TOKEN_LENGTH` while STILL advancing pcurChar/offset/col so the loops still
+terminate on their delimiter. Bounds every token type (all accumulating paths
+route through this macro; the direct newline/space writes are single-append-
+then-return, bounded to len 1 by construction — verified).
+
+Verified: (1) pattern matches pristine upstream v7533 exactly + full
+apply_patches.py dry-run from a fresh clone applies clean (EXIT=0); (2) fortify
+build of the exact GetTokenStringLiteral path on arm32 ABORTS on the old macro
+(exit 134 = the mass-scan signature) and exits 0 on the bounded macro; (3)
+END-TO-END: the diff-harness build (run 30028943736, commit 45b043c) rescanned
+all 4 Signature-A PAKs (Heaven's Anime Girls, Hiryu No Ken [Demo], Memory Loss,
+Ogres Mayhem) — **all 4 now exit 0, running the full 90 frames** (were crashes).
+
+SHIP STATUS: the fix is in the SOURCE on main. It is NOT yet in the shipped
+binary/db.json — the CI diagnostic-marker gate is (correctly) withholding the
+binary commit-back because apply_patches.py still carries the TEMPORARY per-frame
+profiling patches (SUB-PROFILE v8/v9/v11, kept for ongoing perf work). To ship
+the crash fix to users, remove those profiling markers so the gate allows the
+commit-back + DB rebuild. Signature B (load_cached_model) is the next fix.
