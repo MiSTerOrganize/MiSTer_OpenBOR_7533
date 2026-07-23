@@ -12,6 +12,7 @@ OpenBOR_4086 (same PAK format + engine family); edit in 7533, mirror to 4086.
 |---|---|---|
 | **Decode** (PAK-integrity) | ✅ DONE — 450/450 local corpus clean | `pak_decode_scan.py` |
 | **Headless build** | ✅ DONE — compiles+links on x86 (`diff_harness.yml`) | `build_headless.sh` |
+| **arm32 on-target build** | ✅ DONE 2026-07-23 — local Docker (arm32v7 bullseye, ship gcc-10 + Cortex-A9 flags); runs under QEMU AND on real arm32 hardware | `build_headless_arm32.sh` |
 | **Crashes** | ✅ FUNCTIONAL — SIGSEGV/BUS/ABRT/FPE backtrace→addr2line | `apply_patches_headless.py` + `pak_run_scan.sh` |
 | **Hangs** (SIGALRM wall-clock, re-armed/frame) | ✅ FUNCTIONAL | same |
 | **Input-fed mass-scan** | 🏗️ (basic run works; generic input-feed TODO) | `pak_run_scan.sh` |
@@ -19,6 +20,40 @@ OpenBOR_4086 (same PAK format + engine family); edit in 7533, mirror to 4086.
 | **Render-correctness** | 🔴 GAP — no open ground-truth (PC OpenBOR.exe only) | — |
 
 **Runner:** `OpenBOR_headless` is **dynamic glibc+SDL2** (unlike PICO-8's fully-static z8headless that runs on the musl docker-desktop WSL). It runs in an **`ubuntu:24.04` glibc container matching the `diff_harness.yml` build env** — `docker run` mounting the PAK corpus + binary + an out dir, executing `pak_run_scan.sh`. This is *running* a diagnostic in a container, not building (the no-local-Docker rule is about the ARM ship build). Milestone 1b verified: A Tale of Vengeance → 60 frames → exit 0.
+
+## arm32 on-target build — `build_headless_arm32.sh`
+
+The arm32 (Cortex-A9 class) counterpart of `build_headless.sh`: same clone + same
+ship engine-logic patches (`apply_patches.py OB_HEADLESS=1`) + same headless
+overrides (`apply_patches_headless.py`), compiled inside an
+`arm32v7/debian:bullseye-slim` container (the ship build's own toolchain, gcc-10)
+via the stock upstream `BUILD_LINUX_LE_arm` target with the ship CPU flags
+(`-mcpu=cortex-a9 -mfloat-abi=hard -mfpu=neon`). Debug/verify harness only —
+never a ship artifact.
+
+```
+docker run -d --name obarm --platform linux/arm/v7 \
+  -v "<repo>:/build" -v "<paks>:/paks:ro" arm32v7/debian:bullseye-slim sleep 14400
+docker exec obarm bash /build/tools/harness/build_headless_arm32.sh
+```
+
+Outputs `/tmp/OpenBOR_headless_arm32` (unstripped, symbols kept for
+addr2line/GDB) + `/tmp/oblibs_arm32/` (the non-glibc runtime `.so` bundle —
+the binary is dynamic; a Buildroot-style arm device has bullseye-matching
+glibc 2.31 but not distro SDL2/vpx/vorbis/png, and note `libnsl.so.2` is a
+separate bullseye package, not part of glibc, so it belongs in the bundle too).
+Run it two ways:
+
+- **Under QEMU** (clean container filesystem): `docker exec` with `OB_PAK`/
+  `OB_FRAMES`/`OB_ALARM` env, exactly like the x86 runner.
+- **On real arm32 hardware** (real filesystem): copy binary + bundle over, then
+  `LD_LIBRARY_PATH=<bundle> OB_PAK=<pak> ./OpenBOR_headless_arm32`. The headless
+  main forces SDL dummy video/audio, so it never touches an FPGA, framebuffer,
+  or running processes.
+
+Same binary on both = the environment-vs-code discriminator: identical output →
+the bug is elsewhere; divergent output → it's device filesystem state, not code.
+Verified 2026-07-23: A Tale of Vengeance → 60 frames → exit 0 on BOTH sides.
 
 ## Decode category (done) — `pak_decode_scan.py`
 
