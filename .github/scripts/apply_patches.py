@@ -4686,6 +4686,54 @@ endif
         "pp_lexer CONSUMECHARACTER bound")
     write(ppl_path, ppl)
 
+    # ── load_cached_model: guard @cmd/@script translation on a current anim ──
+    # Diff-harness mass-scan crash Signature B (2026-06 findings, GDB-pinned):
+    # a model with an `@cmd` or `@script` directive that appears BEFORE any
+    # valid `anim` command reads `newanim->index` while `newanim` is still NULL
+    # (the load_cached_model @cmd/@script -> inline-script translation). GDB
+    # put the fault at the `sprintf(namebuf, ifid_text, newanim->index)` line —
+    # under -O2 the NULL read of `newanim->index` (the sprintf argument) is
+    # attributed to the sprintf call. (namebuf is MAX_BUFFER_LEN and the format
+    # only inserts an int, so the sprintf itself is not the culprit.)
+    #
+    # Root cause: `ani_id` starts at ANI_NONE, which is the FIRST value of the
+    # e_animations enum == 0 (not negative). But the two directive guards test
+    # the SIGN of ani_id to mean "is there a current animation":
+    #   @cmd    : if(ani_id < 0)  -> reject "must follow an animation"  (never
+    #             fires for the initial no-anim state, since 0 is not < 0)
+    #   @script : if(ani_id >= 0) -> wrap the emitted script in an animhandle
+    #             check  (wrongly true for the initial no-anim state, 0 >= 0)
+    # So both reach `newanim->index` with newanim == NULL. `newanim` is the
+    # exact "have a current animation" predicate (non-NULL iff an `anim` command
+    # allocated one via alloc_anim()), so gate on it. Malformed models: @cmd now
+    # gives the intended clean "must follow an animation" shutdown; @script emits
+    # the script WITHOUT the animhandle wrapper (sensible) instead of faulting.
+    # Valid models (any anim before @cmd/@script) have newanim != NULL, so every
+    # condition is unchanged -> byte-identical generated script. Zero regression.
+    # Diff-harness Signature B: Monster Girl Dimensions, Moscow RE-Action,
+    # Rescue Command - Against the Amazon Girls.
+    print("Patching load_cached_model (@cmd/@script NULL-anim guard, crash Sig B)...")
+    obc_path = os.path.join(obor, 'openbor.c')
+    obc = read(obc_path)
+    # @cmd: strengthen the existing no-anim guard to also catch newanim == NULL
+    obc = strict_replace(
+        obc,
+        "                if(ani_id < 0)\n"
+        "                {\n"
+        "                    shutdownmessage = \"command '@cmd' must follow an animation!\";",
+        "                if(ani_id < 0 || newanim == NULL)\n"
+        "                {\n"
+        "                    shutdownmessage = \"command '@cmd' must follow an animation!\";",
+        "load_cached_model @cmd no-anim guard")
+    # @script: both wrapper guards (open + close) gate the animhandle wrapper on
+    # a current anim; count=2 keeps the open/close balanced.
+    obc = strict_replace(
+        obc,
+        "                if(ani_id >= 0)",
+        "                if(ani_id >= 0 && newanim != NULL)",
+        "load_cached_model @script anim-wrapper guard", count=2)
+    write(obc_path, obc)
+
     print("\nAll patches applied successfully.")
 
 if __name__ == '__main__':
