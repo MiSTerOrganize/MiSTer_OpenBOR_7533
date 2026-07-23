@@ -156,3 +156,40 @@ binary commit-back because apply_patches.py still carries the TEMPORARY per-fram
 profiling patches (SUB-PROFILE v8/v9/v11, kept for ongoing perf work). To ship
 the crash fix to users, remove those profiling markers so the gate allows the
 commit-back + DB rebuild. Signature B (load_cached_model) is the next fix.
+
+## RESOLUTION — Signature B FIXED (2026-07-23, commit 18b55e3)
+
+**load_cached_model @cmd/@script NULL-anim guard — FIXED + verified.**
+`ani_id` starts at `ANI_NONE` (first e_animations enum value == 0, not
+negative), so the `@cmd` guard `if(ani_id < 0)` never caught the initial
+no-animation state and the `@script` wrapper `if(ani_id >= 0)` was wrongly
+true for it — both then read `newanim->index` with `newanim == NULL`
+(sprintf argument evaluation, attributed to the sprintf line under -O2). Fix:
+gate on `newanim` (non-NULL iff an `anim` command allocated one). @cmd guard
+-> `ani_id < 0 || newanim == NULL` (intended clean "must follow an animation"
+shutdown); @script wrappers (open+close, count=2, balanced) -> `ani_id >= 0
+&& newanim != NULL` (no-anim emits the script without the animhandle wrapper).
+Zero regression: valid models have newanim != NULL so conditions are unchanged
+-> byte-identical generated script; only malformed models (that faulted) change.
+
+Alternate mechanism (b) from the findings — `scriptbuf[scriptlen -
+strclen(sur_text)]` writing before the buffer start — ruled out by code review:
+`pre_text` ends with exactly `sur_text` ("\n}\n") and is ~120 chars vs 3, so
+`scriptlen - strclen(sur_text)` is always safely positive. Not reachable.
+
+Verified: pattern matches pristine upstream v7533 (guard counts 1 + 2); full
+apply_patches.py dry-run from a fresh clone applies clean (EXIT=0), all three
+guards transformed, zero bare guards left; END-TO-END the diff-harness build
+(run 30031927355, commit 18b55e3) rescanned all 3 Signature-B PAKs (Monster
+Girl Dimensions, Moscow RE-Action, Rescue Command - Against the Amazon Girls) =
+all 3 exit 0, full 90 frames (were faults).
+
+## ALL KNOWN MASS-SCAN FAULTS RESOLVED (2026-07-23)
+Both signatures fixed. The combined build (commit 18b55e3, which carries BOTH
+the pp_lexer bound and the load_cached_model guard) was rescanned over all 7
+previously-faulting PAKs (4 Sig-A + 3 Sig-B): **7/7 exit 0, full 90 frames** —
+each fix confirmed not to regress the other. SHIP STATUS unchanged: both fixes
+are source-only on main; the CI diagnostic-marker gate withholds the binary
+commit-back while the TEMPORARY perf-profiling patches remain in apply_patches.py.
+Remove those markers to ship both crash fixes to users (binary commit-back + DB
+rebuild).
