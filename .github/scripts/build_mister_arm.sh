@@ -5,7 +5,20 @@
 # Called by GitHub Actions CI workflow.
 #
 # Expects /build to be mounted from the repo checkout.
+#
+# NOTE: this script runs under `set +e` because SDL's ./configure probes
+# optional features that fail non-fatally. That means a failed dependency
+# download or a failed `make` does NOT abort the step on its own — so every
+# critical artifact is checked explicitly with require_file() and the build
+# fails LOUDLY at the point of failure. Without this, a transient tarball
+# download failure surfaced confusingly downstream as `cp: cannot stat
+# 'OpenBOR'` in the commit-back step (2026-07-23), looking like a code bug
+# when it was a network hiccup.
 set +e
+
+# Fail loudly + immediately if a required artifact is missing (a build under
+# set +e otherwise limps on and fails much later with a confusing message).
+require_file() { [ -f "$1" ] || { echo "ERROR: $2" >&2; exit 1; }; }
 
 SDL_PREFIX=/tmp/sdl2
 
@@ -25,6 +38,7 @@ apt-get clean
 echo "=== Building SDL 2.0.8 ==="
 cd /tmp
 wget -q https://www.libsdl.org/release/SDL2-2.0.8.tar.gz
+require_file SDL2-2.0.8.tar.gz "SDL2 download failed"
 tar xzf SDL2-2.0.8.tar.gz
 cd SDL2-2.0.8
 
@@ -68,6 +82,7 @@ test -f $SDL_PREFIX/lib/libSDL2.a || { echo "ERROR: SDL2 build/install failed �
 echo "=== Building SDL2_gfx 1.0.4 ==="
 cd /tmp
 wget -q https://www.ferzkopp.net/Software/SDL2_gfx/SDL2_gfx-1.0.4.tar.gz
+require_file SDL2_gfx-1.0.4.tar.gz "SDL2_gfx download failed"
 tar xzf SDL2_gfx-1.0.4.tar.gz
 cd SDL2_gfx-1.0.4
 ./autogen.sh 2>/dev/null
@@ -90,6 +105,7 @@ test -f $SDL_PREFIX/lib/libSDL2_gfx.a || { echo "ERROR: SDL2_gfx build/install f
 echo "=== Building libogg ==="
 cd /tmp
 wget -q https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz
+require_file libogg-1.3.5.tar.gz "libogg download failed"
 tar xzf libogg-1.3.5.tar.gz
 cd libogg-1.3.5
 ./configure --prefix=$SDL_PREFIX --disable-shared --enable-static --quiet
@@ -100,6 +116,7 @@ make install --quiet
 echo "=== Building libvorbis ==="
 cd /tmp
 wget -q https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz
+require_file libvorbis-1.3.7.tar.gz "libvorbis download failed"
 tar xzf libvorbis-1.3.7.tar.gz
 cd libvorbis-1.3.7
 ./configure --prefix=$SDL_PREFIX --disable-shared --enable-static --with-ogg=$SDL_PREFIX --quiet
@@ -125,6 +142,7 @@ make install --quiet
 echo "=== Building libpng ==="
 cd /tmp
 wget -q https://download.sourceforge.net/libpng/libpng-1.6.39.tar.gz
+require_file libpng-1.6.39.tar.gz "libpng download failed"
 tar xzf libpng-1.6.39.tar.gz
 cd libpng-1.6.39
 CPPFLAGS="-I$SDL_PREFIX/include" LDFLAGS="-L$SDL_PREFIX/lib" \
@@ -188,6 +206,7 @@ echo "=== Building OpenBOR for MiSTer ==="
 make BUILD_MISTER=1 SDL_PREFIX=$SDL_PREFIX -j$(nproc)
 
 echo "=== Binary info ==="
+require_file OpenBOR "make produced no OpenBOR binary — see the compile/link errors above (a missing dependency header or a real build error)"
 ls -lh OpenBOR
 
 # ── Copy result back to mounted volume ───────────────────────────
