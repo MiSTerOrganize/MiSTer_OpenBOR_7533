@@ -14,6 +14,7 @@ OpenBOR_4086 (same PAK format + engine family); edit in 7533, mirror to 4086.
 | **Headless build** | ✅ DONE — compiles+links on x86 (`diff_harness.yml`) | `build_headless.sh` |
 | **arm32 on-target build** | ✅ DONE 2026-07-23 — local Docker (arm32v7 bullseye, ship gcc-10 + Cortex-A9 flags); runs under QEMU AND on real arm32 hardware | `build_headless_arm32.sh` |
 | **Crashes** | ✅ FUNCTIONAL — SIGSEGV/BUS/ABRT/FPE backtrace→addr2line | `apply_patches_headless.py` + `pak_run_scan.sh` |
+| **AI bot** (scripted input + `.inp` record/replay) | ✅ DONE 2026-07-23 — headless bot navigates menu→level hands-free; record→replay round-trip byte-deterministic (ATOV) | `apply_patches_headless.py` + `AI_BOT.md` |
 | **Hangs** (SIGALRM wall-clock, re-armed/frame) | ✅ FUNCTIONAL | same |
 | **Input-fed mass-scan** | 🏗️ (basic run works; generic input-feed TODO) | `pak_run_scan.sh` |
 | **Preprocess** (script/model parse, #include) | 🏗️ planned (engine-logic patches layer) | (planned) |
