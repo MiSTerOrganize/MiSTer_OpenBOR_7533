@@ -23,7 +23,17 @@
  *   bit 5  = Xbox A (bottom) -> FLAG_JUMP    (Jump -- AND pause menu confirm)
  *   bit 6  = Xbox Y (top)    -> FLAG_ATTACK2 (Attack2)
  *   bit 7  = Xbox X (left)   -> FLAG_SPECIAL (Special -- AND pause menu back)
- *   bit 8  = Start           -> FLAG_START
+ *   bit 8  = jn L            -> FLAG_ATTACK3 (Attack3 -- e.g. DD style switch)
+ *   bit 9  = jn R            -> FLAG_ATTACK4 (Attack4)
+ *   bit 10 = Start           -> FLAG_START
+ *
+ * Attack3/Attack4 added 2026-07 so OpenBOR games that use all 6 action
+ * buttons (e.g. Ultimate/Legend of the Double Dragon shoulder-button style
+ * switching) are fully playable. CONF_STR: J1,Attack,Jump,Special,Attack2,
+ * Attack3,Attack4,Start / jn,A,B,X,Y,L,R,Start. Adding the two buttons before
+ * Start shifts Start from bit 8 to bit 10 (the RBF + this binary must ship
+ * together). The FPGA already writes the full 32-bit joystick word to DDR3,
+ * so no RTL change beyond the CONF_STR labels was needed.
  *
  * Copyright (C) 2026 MiSTer Organize — GPL-3.0
  */
@@ -70,7 +80,9 @@ void control_update(s_playercontrols ** playercontrols, int numplayers)
             if (joy & 0x020) k |= FLAG_JUMP;       /* Xbox A (bottom) = Jump + pause confirm */
             if (joy & 0x040) k |= FLAG_ATTACK2;    /* Xbox Y (top)    = Attack2 */
             if (joy & 0x080) k |= FLAG_SPECIAL;    /* Xbox X (left)   = Special / pause back */
-            if (joy & 0x100) k |= FLAG_START;      /* Start */
+            if (joy & 0x100) k |= FLAG_ATTACK3;    /* jn L            = Attack3 */
+            if (joy & 0x200) k |= FLAG_ATTACK4;    /* jn R            = Attack4 */
+            if (joy & 0x400) k |= FLAG_START;      /* Start (shifted bit 8 -> bit 10) */
         }
 #else
         /* Original SDL keyboard input */
