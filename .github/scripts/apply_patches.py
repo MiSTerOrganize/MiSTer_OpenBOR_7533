@@ -280,6 +280,33 @@ endif
     write(os.path.join(obor, 'openbor.c'), src)
     print("  pausemenu() replaced.")
 
+    # ── 2b. Fix the .inp recorder double-free (needed now the pause menu drives
+    #        the recorder — "Stop Recording" calls stopRecordInputs) ──────────
+    # stopRecordInputs() fcloses playrecstatus->handle in each switch case but
+    # leaves it DANGLING (not NULL), then calls freeRecordedInputs() at the end,
+    # which does `if(playrecstatus->handle) fclose(...)` — a DOUBLE fclose on the
+    # already-closed FILE* => a "double free" abort at recorder cleanup, AFTER
+    # the .inp is written. Without this, the new Recording menu's "Stop
+    # Recording" would crash the engine (daemon relaunch) after saving. NULL the
+    # handle before freeRecordedInputs() so the second fclose is skipped. (The
+    # headless AI-bot harness carries the same fix; this is the ship copy.)
+    print("Patching openbor.c (recorder double-free fix)...")
+    obor_c_df = read(os.path.join(obor, 'openbor.c'))
+    obor_c_df = strict_replace(
+        obor_c_df,
+        "        playrecstatus->status = A_REC_STOP;\n"
+        "        playrecstatus->begin = 0;\n"
+        "        playrecstatus->synctime = 0;\n"
+        "        freeRecordedInputs();",
+        "        playrecstatus->handle = NULL; /* MiSTer: engine leaves handle dangling after fclose -> freeRecordedInputs double-fcloses it */\n"
+        "        playrecstatus->status = A_REC_STOP;\n"
+        "        playrecstatus->begin = 0;\n"
+        "        playrecstatus->synctime = 0;\n"
+        "        freeRecordedInputs();",
+        "openbor.c stopRecordInputs double-free fix (ship)")
+    write(os.path.join(obor, 'openbor.c'), obor_c_df)
+    print("  stopRecordInputs handle-NULL (double-free) fix applied.")
+
     # ── 3. sdl/video.c — bypass SDL2 renderer chain in video_copy_screen ─
     # Profiling 2026-05-22 showed video_copy_screen consumed ~22ms of every
     # ~25ms update() call (89%). The chain SDL_UpdateTexture → blit() (which
