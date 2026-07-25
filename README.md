@@ -135,10 +135,12 @@ Both `OpenBOR_4086` and `OpenBOR_7533` cores have identical support across these
 | **B** button     | Attack (primary punch/kick) | |
 | **Y** button     | Special / grab          | |
 | **X** button     | Attack2 (secondary attack) | |
+| **LB** (Left Bumper)  | Attack3            | e.g. Double Dragon style switch |
+| **RB** (Right Bumper) | Attack4            | |
 | **Menu / Start** | Start (insert coin / pause / add player) | |
 | **Xbox Guide (center)** | MiSTer OSD       | core's OSD overlay — framework-level, not per-core |
 
-CONF_STR: `J1,Attack,Jump,Special,Attack2,Start;` / `jn,A,B,X,Y,Start;`. MiSTer's `jn` extension uses SNES naming (`jn A`=Xbox B, `jn B`=Xbox A, `jn X`=Xbox Y, `jn Y`=Xbox X), so the defaults above pair `jn A` (Xbox B) → Attack, `jn B` (Xbox A) → Jump, `jn X` (Xbox Y) → Special, `jn Y` (Xbox X) → Attack2.
+CONF_STR: `J1,Attack,Jump,Special,Attack2,Attack3,Attack4,Start;` / `jn,A,B,X,Y,L,R,Start;`. MiSTer's `jn` extension uses SNES naming (`jn A`=Xbox B, `jn B`=Xbox A, `jn X`=Xbox Y, `jn Y`=Xbox X), so the defaults above pair `jn A` (Xbox B) → Attack, `jn B` (Xbox A) → Jump, `jn X` (Xbox Y) → Special, `jn Y` (Xbox X) → Attack2. Attack3/Attack4 (added 2026-07) sit on the shoulder bumpers -- `jn L` = Xbox LB -> Attack3, `jn R` = Xbox RB -> Attack4 -- so OpenBOR games that use all six action buttons (e.g. Ultimate/Legend of the Double Dragon shoulder-button style switching) are fully playable.
 
 Both OpenBOR_4086 and OpenBOR_7533 use the IDENTICAL mapping — sister-core swap (4086 ↔ 7533) preserves your input config. All 4 players use the same button layout. Remap buttons from the MiSTer OSD (press F12 or the OSD button on your IO board).
 
