@@ -261,8 +261,8 @@ localparam CONF_STR = {
 	"OQ,Swap Joysticks,No,Yes;",
 	"ORS,Stereo Mix,None,25%,50%,100%;",
 	"-;",
-	"J1,Attack,Jump,Special,Attack2,Start;",
-	"jn,A,B,X,Y,Start;",
+	"J1,Attack,Jump,Special,Attack2,Attack3,Attack4,Start;",
+	"jn,A,B,X,Y,L,R,Start;",
 	"-;",
 	"V,v",`BUILD_DATE 
 };
