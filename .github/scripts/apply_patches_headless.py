@@ -105,6 +105,34 @@ def main():
     write(v_path, v)
     print("  video_copy_screen frame counter + hang re-arm injected.")
 
+    # ── 2b. Fix the .inp recorder's double-free (engine bug, found via the AI bot) ─
+    # stopRecordInputs() fcloses playrecstatus->handle in each switch case but
+    # leaves it DANGLING (not NULL), then calls freeRecordedInputs() at the end,
+    # which does `if(playrecstatus->handle) fclose(playrecstatus->handle)` — a
+    # DOUBLE fclose on the already-closed FILE* => glibc "double free" abort at
+    # the recorder's cleanup, AFTER the .inp is fully written. NULL the handle
+    # before freeRecordedInputs() so the second fclose is skipped. Headless-only
+    # (the recorder isn't reachable from our on-device pause menu, so no ship
+    # change / no db churn; move to apply_patches.py if Record Game is ever
+    # exposed on-device). Verified by code trace: the A_REC_REC/PLAY/STOP cases
+    # all fclose without NULLing; only the handle is double-freed (buffer is
+    # already NULLed in the REC case, freed once by freeRecordedInputs otherwise).
+    print("Patching openbor.c (recorder double-free fix)...")
+    o_path = os.path.join(obor, "openbor.c")
+    o0 = read(o_path)
+    df_anchor = ("        playrecstatus->status = A_REC_STOP;\n"
+                 "        playrecstatus->begin = 0;\n"
+                 "        playrecstatus->synctime = 0;\n"
+                 "        freeRecordedInputs();")
+    df_fix = ("        playrecstatus->handle = NULL; /* MiSTer: engine leaves handle dangling after fclose -> freeRecordedInputs double-fcloses it */\n"
+              "        playrecstatus->status = A_REC_STOP;\n"
+              "        playrecstatus->begin = 0;\n"
+              "        playrecstatus->synctime = 0;\n"
+              "        freeRecordedInputs();")
+    o0 = strict_replace(o0, df_anchor, df_fix, "openbor.c stopRecordInputs double-free fix")
+    write(o_path, o0)
+    print("  stopRecordInputs handle-NULL (double-free) fix applied.")
+
     # ── 3. Headless scripted-input injection into inputrefresh (the AI bot) ──
     # OpenBOR's `.inp` replay only drives an already-loaded level and contains
     # no menu navigation, so a hands-free headless bot first needs to REACH
@@ -207,8 +235,7 @@ def main():
                 if (_rec_n >= 0 && !_rec_stopped && _lf >= _rec_n) {
                     _rec_stopped = 1;
                     if (playrecstatus && playrecstatus->status == A_REC_REC) {
-                        stopRecordInputs();
-                        playrecstatus->handle = NULL; /* engine leaves this dangling -> avoid double-fclose at exit */
+                        stopRecordInputs(); /* double-free fixed by step 2b (handle-NULL in stopRecordInputs) */
                         fprintf(stderr, "[inject] RECORD stopped+written at level-frame %ld\\n", _lf);
                         fflush(stderr);
                     }
