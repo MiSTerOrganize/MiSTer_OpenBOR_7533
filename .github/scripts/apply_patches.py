@@ -2698,6 +2698,16 @@ endif
     ob = strict_replace(ob, copy_pal_to_dm_old, copy_pal_to_dm_new, 'v3.10 step 0h: copy has_palette_directive into commonmethod at render')
     print("  drawmethod->has_palette_directive set at render-time (v3.10)")
 
+    # TEMPORARY DIAG (REVERT AFTER MEASURED): render-time gate log to pin the
+    # ATOV legacy-palette Heisenbug (regressed by profiler removal 5c89107).
+    # Logs each model's has_remap/has_palette ONCE (deduped by name hash) to
+    # OpenBorLog.txt via the engine's printf. Diagnostic-marker gated (never main).
+    _gd_anchor = "                    drawmethod->has_palette_directive = e->modeldata.has_palette_directive; /* MiSTer v3.10: pass master-palette flag (tightens step 4 v2 gate for TMNT-RP) */"
+    _gd_inject = _gd_anchor + "\n" + \
+        "                    { static unsigned char _gd[8192]; unsigned _gh=2166136261u; const char*_gp=e->modeldata.name?e->modeldata.name:\"\"; while(*_gp){_gh=(_gh^(unsigned char)*_gp++)*16777619u;} _gh&=8191u; if(!_gd[_gh]){_gd[_gh]=1; printf(\"[GATEDIAG] %s remap=%d palette=%d\\n\", e->modeldata.name?e->modeldata.name:\"?\", e->modeldata.has_remap_directive, e->modeldata.has_palette_directive);} }"
+    ob = strict_replace(ob, _gd_anchor, _gd_inject, 'TEMPORARY DIAG: render gate log (REVERT AFTER MEASURED)')
+    print("  [DIAG] render-time gate log injected")
+
     # Step 1: loadsprite uses PIXEL_x8 ONLY for legacy-remap PAKs (ATOV-style).
     # Modern PAKs keep upstream behavior: `nopalette ? PIXEL_x8 : PIXEL_8`.
     #
