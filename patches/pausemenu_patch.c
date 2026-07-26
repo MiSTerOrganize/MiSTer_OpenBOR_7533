@@ -8,8 +8,8 @@
  * PAUSE MENU:
  *   Continue   — resumes the game
  *   Options    — submenu: Music Volume / SFX Volume / Back
- *   Recording  — submenu: Record / Play Recording (the engine's .inp input
- *                recorder), state-aware (shows Stop while active)
+ *   Recording  — submenu: Record / Play Recording (the MiSTer title-anchored
+ *                raw-input recorder), state-aware (shows Stop while active)
  *   Reset Pak  — restarts the PAK from its title screen
  *   Quit       — exits OpenBOR (daemon relaunches, user lands at PAK browser)
  *
@@ -19,34 +19,37 @@
  *   X (FLAG_SPECIAL) / ESC — back / close menu
  *   D-pad Left/Right — adjust volume in Options
  *
- * RECORDING (the engine's built-in .inp input recorder):
- *   The recorder is per-PAK — it saves/loads
- *   /media/fat/saves/OpenBOR_7533/<pak>.inp via getPakName(...,3) + the engine's
- *   "Saves" base path (left in playrecstatus->path empty so getBasePath fills it
- *   with a trailing slash — avoids the recorder's path-slash quirk).
+ * RECORDING (the MiSTer title-anchored raw-input recorder — apply_patches.py):
+ *   Record and Play both do a PAK reset (this menu writes /tmp/openbor_recmode
+ *   {REC|PLAY} + /tmp/openbor_reset_marker, then exit(0); the daemon respawns and
+ *   the PAK reloads to its title). The recorder hook (inputrefresh, right after
+ *   control_update) arms on the first frame after respawn and captures/injects the
+ *   RAW controller stream (playercontrolpointers[]->keyflags/newkeyflags) — which
+ *   runs at the menus AND in-level — so the recording spans your title navigation
+ *   THROUGH gameplay, and playback drives the menus into the level hands-free.
  *
- *   FLOW: In a level, pause -> Recording -> "Record" -> the menu closes and your
- *   inputs are recorded as you play. Pause -> Recording -> "Stop Recording"
- *   writes the .inp. Later, pause -> Recording -> "Play Recording" replays it.
+ *   FLOW: pause -> Recording -> "Record" restarts the PAK and records everything
+ *   you do from the title on. pause -> Recording -> "Stop Recording" writes the
+ *   stream to /media/fat/saves/OpenBOR_7533/<pak>.inp (magic "MREC1" + seed + len
+ *   + frames) and resumes play. pause -> Recording -> "Play Recording" restarts +
+ *   replays it hands-free; press ANY button to take over.
  *
- *   LIMITATION (engine behaviour, not ours): the recorder only captures/replays
- *   IN-LEVEL player inputs — it does not record menu/title navigation, so replay
- *   drives an already-loaded level; it cannot play back from the title screen.
- *   Recording is paused while the pause menu is open (the engine gates it on
- *   !_pause), so menu navigation is never recorded. .inp files are build/arch
+ *   DETERMINISM: OpenBOR seeds its RNG only inside the record/replay funcs (no
+ *   srand during PAK/level load), so the recorder captures getseed() at Record and
+ *   srand32()-restores it at Play — in-level RNG reproduces; menu nav is pure
+ *   input so it is deterministic regardless. Recording/injection are gated on
+ *   !_pause, so the pause menu itself is never recorded. .inp files are build/arch
  *   specific.
+ *
+ *   `mrec_mode` (int, openbor.c global; 0=idle 1=rec 2=play) is the single source
+ *   of truth this menu reads. Stop Playback sets it to 0 directly.
  *
  * RESET PAK / QUIT: unchanged from the prior menu (see the case bodies).
  *
- * The recorder globals (playrecstatus, A_REC_STOP/REC/PLAY, stopRecordInputs,
- * getPakName) are all in openbor.c scope, since this function is injected in
- * place of the stock pausemenu(). playrecstatus is non-NULL during gameplay
- * (init_input_recorder() runs unconditionally at engine startup). The recorder's
- * stopRecordInputs() double-free is fixed in apply_patches.py (step: recorder
- * double-free) so "Stop Recording" writes the .inp cleanly.
- *
  * Copyright (C) 2026 MiSTer Organize — GPL-3.0
  */
+
+extern int mrec_mode;  /* MiSTer raw-input recorder: 0=idle, 1=recording, 2=playing */
 
 void pausemenu()
 {
@@ -84,21 +87,21 @@ void pausemenu()
 
     while(!quit)
     {
-        int recmode = playrecstatus ? playrecstatus->status : A_REC_STOP;
-        int rec_items = (recmode == A_REC_STOP) ? 3 : 2;
+        int recmode = mrec_mode;   /* 0=idle, 1=recording, 2=playing */
+        int rec_items = (recmode == 0) ? 3 : 2;
 
         if(in_recording)
         {
             /* -- Recording submenu (state-aware) -- */
             _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6], Tr("Recording"));
 
-            if(recmode == A_REC_REC)
+            if(recmode == 1)
             {
                 _menutextmshift((rec_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Stop Recording"));
                 _menutextmshift((rec_selector == 1)?pauseoffset[1]:pauseoffset[0],  1, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
                 _menutextmshift(pauseoffset[0], 3, 0, pauseoffset[2], pauseoffset[3], Tr("Recording your inputs..."));
             }
-            else if(recmode == A_REC_PLAY)
+            else if(recmode == 2)
             {
                 _menutextmshift((rec_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Stop Playback"));
                 _menutextmshift((rec_selector == 1)?pauseoffset[1]:pauseoffset[0],  1, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
@@ -157,17 +160,15 @@ void pausemenu()
             {
                 sound_play_sample(global_sample_list.beep_2, 0, savedata.effectvol, savedata.effectvol, 100);
 
-                if(recmode == A_REC_STOP)
+                if(recmode == 0)
                 {
-                    if(rec_selector == 0 && playrecstatus)   /* Record */
+                    if(rec_selector == 0)   /* Record */
                     {
-                        /* Reset-to-start (NES-TAS style): OpenBOR's .inp needs the
-                         * SAME start state for record AND replay, so both begin from
-                         * a fresh level load. Queue a RECORD marker + trigger the
-                         * Reset-Pak restart; the level-load hook (openbor.c) arms
-                         * A_REC_REC the instant the PAK's first level loads, and the
-                         * marker survives the daemon respawn. */
-                        stopRecordInputs();               /* clear any prior state */
+                        /* Title-anchored: queue a RECORD marker + Reset-Pak restart.
+                         * On respawn the recorder (openbor.c) arms at the first frame
+                         * (the PAK title) and captures your raw controller stream from
+                         * the title through gameplay. The marker survives the daemon
+                         * respawn. Play replays that whole stream hands-free. */
                         {
                             FILE *_rm = fopen("/tmp/openbor_recmode", "w");
                             if(_rm) { fputs("REC", _rm); fclose(_rm); }
@@ -176,13 +177,11 @@ void pausemenu()
                         }
                         exit(0);
                     }
-                    else if(rec_selector == 1 && playrecstatus)  /* Play Recording */
+                    else if(rec_selector == 1)  /* Play Recording */
                     {
-                        /* Same reset-to-start: queue a PLAY marker + restart so the
-                         * replay begins from the identical fresh level-1 state the
-                         * recording started from (deterministic; RNG reseeded from
-                         * the .inp header). */
-                        stopRecordInputs();
+                        /* Same restart: the recorder loads the saved stream + restores
+                         * the RNG seed, then drives the menus into the level and plays
+                         * back hands-free. Press any button to take control. */
                         {
                             FILE *_rm = fopen("/tmp/openbor_recmode", "w");
                             if(_rm) { fputs("PLAY", _rm); fclose(_rm); }
@@ -201,8 +200,18 @@ void pausemenu()
                 {
                     if(rec_selector == 0)   /* Stop Recording / Stop Playback */
                     {
-                        stopRecordInputs();
-                        rec_selector = 0;   /* submenu returns to the idle (Record/Play) items */
+                        if(recmode == 1)
+                        {   /* signal the recorder to flush the .inp, then resume play */
+                            FILE *_rs = fopen("/tmp/openbor_recstop", "w");
+                            if(_rs) fclose(_rs);
+                        }
+                        else
+                        {   /* stop playback immediately (recorder frees next frame) */
+                            mrec_mode = 0;
+                        }
+                        quit = 1;   /* close the pause menu, back to gameplay */
+                        sound_pause_music(0);
+                        sound_pause_sample(0);
                     }
                     else   /* Back */
                     {

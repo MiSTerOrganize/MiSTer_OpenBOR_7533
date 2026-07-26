@@ -2698,43 +2698,147 @@ endif
     ob = strict_replace(ob, copy_pal_to_dm_old, copy_pal_to_dm_new, 'v3.10 step 0h: copy has_palette_directive into commonmethod at render')
     print("  drawmethod->has_palette_directive set at render-time (v3.10)")
 
-    # ── Reset-to-start .inp recorder: arm on first level load (2026-07-26) ────
-    # The pause menu (pausemenu_patch.c) queues /tmp/openbor_recmode ({REC|PLAY})
-    # + a reset marker, then exit(0)s so the daemon respawns and reloads the PAK
-    # from its start. This hook (in inputrefresh, right after control_update)
-    # detects the PAK's FIRST level load (level NULL->non-NULL) and arms
-    # A_REC_REC / A_REC_PLAY then — so record and replay both begin from the SAME
-    # fresh level state (deterministic; OpenBOR's .inp reseeds RNG from its
-    # header). Replaces the old arm-mid-level flow that crashed on playback due to
-    # a world-state mismatch. Ship-build only (the headless harness has its own
-    # env-driven arm on the same anchor; gating on `not HEADLESS` avoids a clash).
+    # ── Title-anchored raw-input recorder + take-over (2026-07-26) ───────────
+    # Records/replays the RAW controller stream (playercontrolpointers[]->keyflags/
+    # newkeyflags) captured right after control_update in inputrefresh — which runs
+    # EVERY frame at the menus AND in-level (via update()). That is what makes it
+    # "title-anchored": Record/Play both do a PAK reset (pause menu -> exit(0) ->
+    # daemon respawn -> PAK reloads to its title), and this hook arms on the first
+    # frame after respawn, so the recording captures your title-menu navigation
+    # THROUGH gameplay, and playback drives the menus into the level hands-free.
+    #
+    # The native .inp path (recordInputs/playRecordedInputs) is deliberately NOT
+    # used: it only runs `&& level` (in-level) and reads player[].keys, so it is
+    # blind to menu navigation. We capture one level earlier, at the shared raw
+    # read, so menus + gameplay replay uniformly.
+    #
+    # Determinism: OpenBOR seeds its RNG ONLY inside the record/replay funcs (no
+    # srand during PAK/level load — verified in v7533), so capturing getseed() at
+    # the record anchor and srand32()-restoring it at the play anchor reproduces
+    # in-level RNG exactly; menu nav is pure input so it is deterministic anyway.
+    # Take-over: any live newkey press during playback stops the automation and
+    # hands the controller back. `mrec_mode` (global) is the single source of
+    # truth the pause menu reads.
+    #
+    # (a) shared global — injected in BOTH builds: pausemenu() (which references
+    # mrec_mode) is replaced unconditionally, so the headless diff-harness build
+    # needs the global defined too or it fails to link. The recorder HOOK (b) is
+    # ship-only (`not HEADLESS`).
+    ob = strict_replace(
+        ob,
+        "a_playrecstatus *playrecstatus = NULL;",
+        "a_playrecstatus *playrecstatus = NULL;\n"
+        "int mrec_mode = 0; /* MiSTer raw-input recorder: 0=idle 1=rec 2=play */",
+        'mrec_mode global declaration')
+
     if not HEADLESS:
+        # (b) the recorder itself, right after the shared raw controller read
         rec_arm_anchor = "    control_update(playercontrolpointers, MAX_PLAYERS);"
         rec_arm_new = rec_arm_anchor + "\n" + (
-            "    {   /* MiSTer reset-to-start .inp recorder: arm on first level load */\n"
-            "        static int _mr_prevlevel = 0, _mr_done = 0;\n"
-            "        int _mr_now = (level != NULL);\n"
-            "        if(_mr_now && !_mr_prevlevel && !_mr_done && playrecstatus)\n"
-            "        {\n"
-            "            FILE *_mr = fopen(\"/tmp/openbor_recmode\", \"r\");\n"
-            "            if(_mr)\n"
+            "    {   /* MiSTer title-anchored raw-input recorder (menus + gameplay) */\n"
+            "        static u64 *_mr_buf = NULL;\n"
+            "        static long _mr_cap = 0, _mr_len = 0, _mr_pos = 0;\n"
+            "        static unsigned long _mr_seed = 0;\n"
+            "        static int _mr_armed = 0;\n"
+            "        char _mr_path[MAX_BUFFER_LEN], _mr_nm[MAX_BUFFER_LEN];\n"
+            "        int _mr_p;\n"
+            "        if(!_mr_armed)\n"
+            "        {   /* arm once per process; respawn lands at the PAK title */\n"
+            "            FILE *_mr_f = fopen(\"/tmp/openbor_recmode\", \"r\");\n"
+            "            _mr_armed = 1;\n"
+            "            if(_mr_f)\n"
             "            {\n"
-            "                char _mrmode[8]; _mrmode[0] = 0;\n"
-            "                if(fgets(_mrmode, sizeof(_mrmode), _mr)) { ; }\n"
-            "                fclose(_mr);\n"
+            "                char _mr_m[8]; _mr_m[0] = 0;\n"
+            "                if(fgets(_mr_m, sizeof(_mr_m), _mr_f)) { ; }\n"
+            "                fclose(_mr_f);\n"
             "                remove(\"/tmp/openbor_recmode\");\n"
-            "                playrecstatus->path[0] = '\\0';\n"
-            "                getPakName(playrecstatus->filename, 3);\n"
-            "                playrecstatus->begin = 0;\n"
-            "                playrecstatus->status = (_mrmode[0] == 'P') ? A_REC_PLAY : A_REC_REC;\n"
-            "                _mr_done = 1;\n"
+            "                getBasePath(_mr_path, \"Saves\", 0); getPakName(_mr_nm, 3);\n"
+            "                strcat(_mr_path, _mr_nm);\n"
+            "                if(_mr_m[0] == 'P')\n"
+            "                {\n"
+            "                    FILE *_mr_pf = fopen(_mr_path, \"rb\");\n"
+            "                    if(_mr_pf)\n"
+            "                    {\n"
+            "                        char _mr_h[5]; _mr_h[0]=0;\n"
+            "                        if(fread(_mr_h,1,5,_mr_pf)==5 && _mr_h[0]=='M' && _mr_h[1]=='R'\n"
+            "                           && _mr_h[2]=='E' && _mr_h[3]=='C' && _mr_h[4]=='1'\n"
+            "                           && fread(&_mr_seed,sizeof(unsigned long),1,_mr_pf)==1\n"
+            "                           && fread(&_mr_len,sizeof(long),1,_mr_pf)==1\n"
+            "                           && _mr_len>0 && _mr_len<20000000L)\n"
+            "                        {\n"
+            "                            _mr_buf = (u64*)malloc((size_t)_mr_len*8*sizeof(u64));\n"
+            "                            if(_mr_buf && fread(_mr_buf,8*sizeof(u64),(size_t)_mr_len,_mr_pf)==(size_t)_mr_len)\n"
+            "                            { _mr_pos=0; mrec_mode=2; srand32(_mr_seed); }\n"
+            "                            else { if(_mr_buf){free(_mr_buf);_mr_buf=NULL;} _mr_len=0; }\n"
+            "                        } else _mr_len=0;\n"
+            "                        fclose(_mr_pf);\n"
+            "                    }\n"
+            "                }\n"
+            "                else\n"
+            "                {\n"
+            "                    if(_mr_buf){free(_mr_buf);_mr_buf=NULL;}\n"
+            "                    _mr_len=0; _mr_pos=0; _mr_cap=0;\n"
+            "                    _mr_seed = getseed(); mrec_mode = 1;\n"
+            "                }\n"
             "            }\n"
             "        }\n"
-            "        _mr_prevlevel = _mr_now;\n"
+            "        if(mrec_mode == 1)\n"
+            "        {   /* Stop signal from the pause menu: flush, resume (no reset) */\n"
+            "            FILE *_mr_s = fopen(\"/tmp/openbor_recstop\", \"r\");\n"
+            "            if(_mr_s)\n"
+            "            {\n"
+            "                fclose(_mr_s); remove(\"/tmp/openbor_recstop\");\n"
+            "                getBasePath(_mr_path, \"Saves\", 0); getPakName(_mr_nm, 3);\n"
+            "                strcat(_mr_path, _mr_nm);\n"
+            "                { FILE *_mr_wf = fopen(_mr_path, \"wb\");\n"
+            "                  if(_mr_wf)\n"
+            "                  { fwrite(\"MREC1\",1,5,_mr_wf);\n"
+            "                    fwrite(&_mr_seed,sizeof(unsigned long),1,_mr_wf);\n"
+            "                    fwrite(&_mr_len,sizeof(long),1,_mr_wf);\n"
+            "                    if(_mr_len>0 && _mr_buf) fwrite(_mr_buf,8*sizeof(u64),(size_t)_mr_len,_mr_wf);\n"
+            "                    fclose(_mr_wf); } }\n"
+            "                if(_mr_buf){free(_mr_buf);_mr_buf=NULL;} _mr_cap=0; _mr_len=0;\n"
+            "                mrec_mode = 0;\n"
+            "            }\n"
+            "        }\n"
+            "        if(mrec_mode == 1 && !_pause && _mr_len < 20000000L)\n"
+            "        {   /* record: append raw input each gameplay frame */\n"
+            "            if(_mr_len >= _mr_cap)\n"
+            "            {\n"
+            "                long _mr_nc = _mr_cap ? _mr_cap*2 : 8192;\n"
+            "                u64 *_mr_nb = (u64*)realloc(_mr_buf,(size_t)_mr_nc*8*sizeof(u64));\n"
+            "                if(_mr_nb){ _mr_buf=_mr_nb; _mr_cap=_mr_nc; } else mrec_mode=0;\n"
+            "            }\n"
+            "            if(mrec_mode==1 && _mr_buf)\n"
+            "            {\n"
+            "                u64 *_mr_fr = _mr_buf + _mr_len*8;\n"
+            "                for(_mr_p=0; _mr_p<MAX_PLAYERS && _mr_p<4; _mr_p++)\n"
+            "                { _mr_fr[_mr_p]=playercontrolpointers[_mr_p]->keyflags;\n"
+            "                  _mr_fr[4+_mr_p]=playercontrolpointers[_mr_p]->newkeyflags; }\n"
+            "                for(; _mr_p<4; _mr_p++){ _mr_fr[_mr_p]=0; _mr_fr[4+_mr_p]=0; }\n"
+            "                _mr_len++;\n"
+            "            }\n"
+            "        }\n"
+            "        if(mrec_mode == 2 && !_pause)\n"
+            "        {   /* playback: inject recorded input; a live press hands control back */\n"
+            "            int _mr_live = 0;\n"
+            "            for(_mr_p=0; _mr_p<MAX_PLAYERS && _mr_p<4; _mr_p++)\n"
+            "                if(playercontrolpointers[_mr_p]->newkeyflags){ _mr_live=1; break; }\n"
+            "            if(_mr_live || _mr_pos >= _mr_len)\n"
+            "            { if(_mr_buf){free(_mr_buf);_mr_buf=NULL;} _mr_cap=0; _mr_len=0; mrec_mode=0; }\n"
+            "            else if(_mr_buf)\n"
+            "            {\n"
+            "                u64 *_mr_fr = _mr_buf + _mr_pos*8;\n"
+            "                for(_mr_p=0; _mr_p<MAX_PLAYERS && _mr_p<4; _mr_p++)\n"
+            "                { playercontrolpointers[_mr_p]->keyflags=_mr_fr[_mr_p];\n"
+            "                  playercontrolpointers[_mr_p]->newkeyflags=_mr_fr[4+_mr_p]; }\n"
+            "                _mr_pos++;\n"
+            "            }\n"
+            "        }\n"
             "    }")
         ob = strict_replace(ob, rec_arm_anchor, rec_arm_new,
-                            'reset-to-start .inp recorder: arm on first level load')
-        print("  reset-to-start recorder: arm-on-level-load hook injected")
+                            'title-anchored raw-input recorder + take-over')
+        print("  title-anchored raw-input recorder injected (menus + gameplay, take-over)")
 
     # Step 1: loadsprite uses PIXEL_x8 ONLY for legacy-remap PAKs (ATOV-style).
     # Modern PAKs keep upstream behavior: `nopalette ? PIXEL_x8 : PIXEL_8`.
@@ -4182,6 +4286,8 @@ endif
                 'drawmethod->has_remap_directive = e->modeldata',   # render copy -- the exact line 5c89107 dropped
                 'newchar->has_remap_directive = 1',                 # CMD_MODEL_REMAP sets it (step 0c)
                 'prepare_sprite_map',                               # hash-map loadsprite optimization
+                'int mrec_mode = 0;',                               # raw-input recorder global
+                'title-anchored raw-input recorder',                # recorder hook body
             ],
             'source/gamelib/sprite.c': [
                 'has_remap_directive && !drawmethod->has_palette_directive',  # step 4 v2 gate
