@@ -3467,6 +3467,21 @@ endif
     print("  Step 16b: block_find_target short-circuit reorder cheap-first")
     print("  Step 16c: find_ent_here grab-distance invariant hoist")
 
+    # ── PERSIST the openbor.c ob-section patches (CRITICAL FIX 2026-07-26) ────
+    # The profiler-removal commit 5c89107 accidentally deleted `write(ob_path, ob)`
+    # along with the profiler block, silently dropping the ENTIRE ob section
+    # (v3.9/v3.10 palette flag set+copy steps 0c/0d/0g/0h AND the hash-map
+    # loadsprite optimization) from the shipped binary. Without this write, the
+    # Step 23 / crash-fix sections below re-read openbor.c fresh and never see
+    # these patches. The palette gate then ran on UNINITIALIZED drawmethod flags
+    # (rendered correctly only by memory-layout luck; removing the profiler
+    # globals changed the layout -> ATOV enemy palette regressed, and the dropped
+    # hash-map slowed loading). Restoring this write persists all ob-section
+    # patches. Verified: openbor.c now contains has_remap_directive/has_palette_
+    # directive set+copy after apply_patches.py runs.
+    write(ob_path, ob)
+    print("  openbor.c ob-section persisted (palette steps 0c/0d/0g/0h + hash-map loadsprite)")
+
 
     # ── Step 22 (2026-05-27): scalar tightening of palette-LUT inner loops ─────────
     #
