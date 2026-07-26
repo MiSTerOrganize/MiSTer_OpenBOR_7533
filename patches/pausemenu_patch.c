@@ -161,26 +161,35 @@ void pausemenu()
                 {
                     if(rec_selector == 0 && playrecstatus)   /* Record */
                     {
+                        /* Reset-to-start (NES-TAS style): OpenBOR's .inp needs the
+                         * SAME start state for record AND replay, so both begin from
+                         * a fresh level load. Queue a RECORD marker + trigger the
+                         * Reset-Pak restart; the level-load hook (openbor.c) arms
+                         * A_REC_REC the instant the PAK's first level loads, and the
+                         * marker survives the daemon respawn. */
                         stopRecordInputs();               /* clear any prior state */
-                        playrecstatus->path[0] = '\0';    /* empty => engine uses the Saves base path */
-                        getPakName(playrecstatus->filename, 3);   /* <pak>.inp */
-                        playrecstatus->begin = 0;
-                        playrecstatus->status = A_REC_REC;
-                        /* close the menu so recording captures live gameplay */
-                        quit = 1;
-                        sound_pause_music(0);
-                        sound_pause_sample(0);
+                        {
+                            FILE *_rm = fopen("/tmp/openbor_recmode", "w");
+                            if(_rm) { fputs("REC", _rm); fclose(_rm); }
+                            _rm = fopen("/tmp/openbor_reset_marker", "w");
+                            if(_rm) fclose(_rm);
+                        }
+                        exit(0);
                     }
                     else if(rec_selector == 1 && playrecstatus)  /* Play Recording */
                     {
+                        /* Same reset-to-start: queue a PLAY marker + restart so the
+                         * replay begins from the identical fresh level-1 state the
+                         * recording started from (deterministic; RNG reseeded from
+                         * the .inp header). */
                         stopRecordInputs();
-                        playrecstatus->path[0] = '\0';
-                        getPakName(playrecstatus->filename, 3);
-                        playrecstatus->begin = 0;
-                        playrecstatus->status = A_REC_PLAY;
-                        quit = 1;
-                        sound_pause_music(0);
-                        sound_pause_sample(0);
+                        {
+                            FILE *_rm = fopen("/tmp/openbor_recmode", "w");
+                            if(_rm) { fputs("PLAY", _rm); fclose(_rm); }
+                            _rm = fopen("/tmp/openbor_reset_marker", "w");
+                            if(_rm) fclose(_rm);
+                        }
+                        exit(0);
                     }
                     else   /* Back */
                     {

@@ -2698,6 +2698,44 @@ endif
     ob = strict_replace(ob, copy_pal_to_dm_old, copy_pal_to_dm_new, 'v3.10 step 0h: copy has_palette_directive into commonmethod at render')
     print("  drawmethod->has_palette_directive set at render-time (v3.10)")
 
+    # ── Reset-to-start .inp recorder: arm on first level load (2026-07-26) ────
+    # The pause menu (pausemenu_patch.c) queues /tmp/openbor_recmode ({REC|PLAY})
+    # + a reset marker, then exit(0)s so the daemon respawns and reloads the PAK
+    # from its start. This hook (in inputrefresh, right after control_update)
+    # detects the PAK's FIRST level load (level NULL->non-NULL) and arms
+    # A_REC_REC / A_REC_PLAY then — so record and replay both begin from the SAME
+    # fresh level state (deterministic; OpenBOR's .inp reseeds RNG from its
+    # header). Replaces the old arm-mid-level flow that crashed on playback due to
+    # a world-state mismatch. Ship-build only (the headless harness has its own
+    # env-driven arm on the same anchor; gating on `not HEADLESS` avoids a clash).
+    if not HEADLESS:
+        rec_arm_anchor = "    control_update(playercontrolpointers, MAX_PLAYERS);"
+        rec_arm_new = rec_arm_anchor + "\n" + (
+            "    {   /* MiSTer reset-to-start .inp recorder: arm on first level load */\n"
+            "        static int _mr_prevlevel = 0, _mr_done = 0;\n"
+            "        int _mr_now = (level != NULL);\n"
+            "        if(_mr_now && !_mr_prevlevel && !_mr_done && playrecstatus)\n"
+            "        {\n"
+            "            FILE *_mr = fopen(\"/tmp/openbor_recmode\", \"r\");\n"
+            "            if(_mr)\n"
+            "            {\n"
+            "                char _mrmode[8]; _mrmode[0] = 0;\n"
+            "                if(fgets(_mrmode, sizeof(_mrmode), _mr)) { ; }\n"
+            "                fclose(_mr);\n"
+            "                remove(\"/tmp/openbor_recmode\");\n"
+            "                playrecstatus->path[0] = '\\0';\n"
+            "                getPakName(playrecstatus->filename, 3);\n"
+            "                playrecstatus->begin = 0;\n"
+            "                playrecstatus->status = (_mrmode[0] == 'P') ? A_REC_PLAY : A_REC_REC;\n"
+            "                _mr_done = 1;\n"
+            "            }\n"
+            "        }\n"
+            "        _mr_prevlevel = _mr_now;\n"
+            "    }")
+        ob = strict_replace(ob, rec_arm_anchor, rec_arm_new,
+                            'reset-to-start .inp recorder: arm on first level load')
+        print("  reset-to-start recorder: arm-on-level-load hook injected")
+
     # Step 1: loadsprite uses PIXEL_x8 ONLY for legacy-remap PAKs (ATOV-style).
     # Modern PAKs keep upstream behavior: `nopalette ? PIXEL_x8 : PIXEL_8`.
     #
