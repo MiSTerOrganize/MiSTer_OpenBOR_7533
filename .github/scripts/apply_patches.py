@@ -4097,6 +4097,53 @@ endif
         "load_cached_model @script anim-wrapper guard", count=2)
     write(obc_path, obc)
 
+    # ── POST-APPLY INTEGRITY GATE (2026-07-26) ──────────────────────────────
+    # Prevents the class of failure where a patch APPLIES in memory (strict_replace
+    # succeeds -> "All patches applied") but never PERSISTS to disk -- e.g. an
+    # unwritten read() variable (the 5c89107 dropped-write bug that silently removed
+    # the palette + hash-map section from the shipped binary), a silent no-op, or a
+    # swept-up deletion. "All patches applied" only means the in-memory replaces ran;
+    # it does NOT mean the load-bearing code reached the compiled binary. This gate
+    # asserts the FINAL on-disk source actually contains each load-bearing patch's
+    # signature and HARD-FAILS the build on a miss (build_mister_arm.sh checks $?),
+    # rather than shipping a binary quietly missing the palette/hash patches.
+    # Palette/hash signatures are ship-build only (OB_HEADLESS omits those patches).
+    _required = {}
+    if not HEADLESS:
+        _required = {
+            'openbor.c': [
+                'has_remap_directive',                              # v3.9 palette flag (steps 0c/0d)
+                'has_palette_directive',                            # v3.10 palette flag (steps 0g/0h)
+                'drawmethod->has_remap_directive = e->modeldata',   # render copy -- the exact line 5c89107 dropped
+                'newchar->has_remap_directive = 1',                 # CMD_MODEL_REMAP sets it (step 0c)
+                'prepare_sprite_map',                               # hash-map loadsprite optimization
+            ],
+            'source/gamelib/sprite.c': [
+                'has_remap_directive && !drawmethod->has_palette_directive',  # step 4 v2 gate
+            ],
+            'openbor.h': [
+                'has_remap_directive',                              # s_model struct field
+            ],
+        }
+    _missing = []
+    for _rel, _sigs in _required.items():
+        try:
+            _c = read(os.path.join(obor, _rel))
+        except Exception as _e:
+            _missing.append(f"{_rel}: UNREADABLE ({_e})"); continue
+        for _sig in _sigs:
+            if _sig not in _c:
+                _missing.append(f"{_rel}: MISSING load-bearing signature {_sig[:60]!r}")
+    if _missing:
+        raise RuntimeError(
+            "POST-APPLY INTEGRITY GATE FAILED -- a load-bearing patch applied in memory "
+            "but is NOT in the final on-disk source (dropped write / silent no-op / "
+            "swept-up deletion; the 5c89107 bug class). Refusing to ship a binary "
+            "missing the palette/hash patches:\n  " + "\n  ".join(_missing))
+    if not HEADLESS:
+        print("Post-apply integrity gate: %d load-bearing signatures verified present in final source."
+              % sum(len(v) for v in _required.values()))
+
     print("\nAll patches applied successfully.")
 
 if __name__ == '__main__':
