@@ -276,7 +276,9 @@ void pausemenu()
                           * OSD PAK browser. */
                     remove("/tmp/openbor_current.pak");
                     remove("/media/fat/config/OpenBOR.s0");
-                    remove("/media/fat/config/OpenBOR.s1");  /* clear replay pick too */
+                    /* .s1 intentionally NOT removed — the binary baselines .s1's
+                     * mtime at startup, so a stale .s1 never auto-replays and a
+                     * fresh OSD pick (newer mtime) always triggers. */
                     exit(0);
                     break;
                 }

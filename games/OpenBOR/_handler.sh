@@ -15,6 +15,11 @@ GAMEDIR="/media/fat/games/OpenBOR"
 
 cd "$GAMEDIR" || exit 1
 
+# Recordings folder — the recorder saves .inp files here so the MiSTer OSD
+# "Load Replay" (SC1) file browser can reach them (SC1 opens at games/OpenBOR/,
+# like SC0/PAK). Kept out of saves/ because the OSD browser can't reach saves/.
+mkdir -p "$GAMEDIR/Replays" 2>/dev/null
+
 # Read MiSTer Main's argv to find the loaded RBF filename.
 # `pidof MiSTer` may return multiple PIDs (older lingering shells); take
 # the one whose argv contains an .rbf path.
@@ -92,13 +97,11 @@ else
     rm -f /media/fat/config/OpenBOR.s0 2>/dev/null
 fi
 
-# Replay picker (.s1) cleanup — ALWAYS clear on respawn. A replay's target
-# path is carried to the new instance via /tmp/openbor_playfile (written by
-# the swap thread before it exits), so .s1 is never read after a respawn.
-# Clearing it unconditionally means only a FRESH "Load Replay" (SC1) pick
-# during a live session triggers a replay — no stale .s1 auto-replays after a
-# PAK hot-swap, Reset, Quit, or core switch. (Mirrors the .s0 discipline.)
-rm -f /media/fat/config/OpenBOR.s1 2>/dev/null
+# NOTE: .s1 is intentionally NOT cleared here. The binary detects a replay pick
+# by .s1's MTIME (baselined at startup) — every OSD "Load Replay" pick bumps the
+# mtime, even re-picking the same .inp, so a fresh pick triggers while a stale/
+# unchanged .s1 never auto-replays. Clearing .s1 would risk a clear-then-restore
+# false trigger, so we leave it as a persistent "last replay" marker.
 
 # Free kernel page cache — FC0 PAK streaming exhausts RAM otherwise.
 # OpenBOR segfaults on repeated PAK loads without this.
