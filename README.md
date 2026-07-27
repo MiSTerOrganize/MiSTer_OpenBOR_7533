@@ -162,6 +162,15 @@ Navigate with D-pad up/down. Press A to confirm, X to go back.
 Record a playthrough and watch it back — deterministic, so a recording plays
 exactly what you did. There are two ways to play a recording back.
 
+**Why this is handy — and a great debugging tool.** A recording replays *exactly*
+what you did, every time, and you can replay it endlessly. Great for saving and
+re-watching a favorite run — but also a powerful way to find and fix problems: if
+you hit a bug, glitch, or crash, record the run that causes it and it will
+reproduce the *same* thing on demand, hands-free — no need to remember or replay it
+by hand. That makes an issue easy to pin down and easy to confirm once it's fixed
+(replay the same recording and see if it's gone). The `.inp` file captures the whole
+run, so you can keep it or share it.
+
 **Recordings are saved as `.inp` files** in `/media/fat/saves/OpenBOR_7533/`
 (one per PAK: `<pak>.inp`).
 
