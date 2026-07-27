@@ -34,7 +34,8 @@ If a PAK won't run on one build, reload the other RBF and try again — your `Pa
 - **CRT support** — scanlines, shadow masks, and analog video output for CRT displays
 - **MiSTer OSD integration** — load PAK files from the file browser
 - **4-player support** — connect up to 4 controllers, add players by pressing START
-- **Custom pause menu** — Continue / Options / Reset Pak / Quit. Music and sound effects pause cleanly on menu entry, resume on Continue (audio-tail leak fixed 2026-05-22)
+- **Custom pause menu** — Continue / Options / Recording / Reset Pak / Quit. Music and sound effects pause cleanly on menu entry, resume on Continue (audio-tail leak fixed 2026-05-22)
+- **Gameplay recording & replay** — record a playthrough and watch it back hands-free, from the pause menu or the MiSTer OSD (`.inp` files); deterministic bit-for-bit playback, press any button to take over (see [Recording & Replay](#recording--replay))
 - **Auto-launch** — OpenBOR starts automatically when the core is loaded
 - **Sub-native PAKs scale automatically** — PAKs with native resolutions other than 320×224 (320×240 4086-era PAKs, 480×272 PSP-widescreen PAKs like Pocket Dimensional Clash 2, 960×480 He-Man, 480×272 Avengers UBF, etc.) are anisotropic-nearest-neighbor-squished into the 320×224 Sega CD V28 NTSC active area edge-to-edge. NN matches engine render character (engine renders pixel-exact, wrapper preserves it; bilinear was ~4× more CPU for marginal benefit). Aspect distortion is intentional — matches Sega CD displayed area.
 
@@ -111,7 +112,7 @@ Both `OpenBOR_4086` and `OpenBOR_7533` cores have identical support across these
 | Logs (with auto-prune N=10) | ✅ `/media/fat/logs/OpenBOR_4086/` | ✅ `/media/fat/logs/OpenBOR_7533/` |
 | Configs (`<pak>.cfg` + `default.cfg` + `<pak>.hi`) | ✅ `/media/fat/config/` (shared across sister cores) | ✅ shared with 4086 |
 | MGLs (`_Other/*.mgl` one-click launchers) | ✅ | ✅ |
-| Gameplay Recordings / TAS (`<pak>.inp`) | ✅ engine-native Record Game / Play Recording | ✅ same |
+| Gameplay recording & replay (`<pak>.inp`) | ✅ pause menu **or** MiSTer OSD "Load Replay"; deterministic bit-for-bit, hands-free, press any button to take over | ✅ same |
 | Gamepad (up to 4P, Start adds player) | ✅ | ✅ |
 | Keyboard | ❌ no (SDL keyboard not wired through dummy driver) | ❌ no |
 | Mouse | ❌ no (no native engine mouse support) | ❌ no |
@@ -150,10 +151,42 @@ Press START during gameplay:
 
 - **Continue** — resume gameplay
 - **Options** — adjust Music Volume and SFX Volume with D-pad left/right
+- **Recording** — record and play back your gameplay (see below)
 - **Reset Pak** — restart the current PAK fresh
 - **Quit** — exit to PAK browser
 
 Navigate with D-pad up/down. Press A to confirm, X to go back.
+
+## Recording & Replay
+
+Record a playthrough and watch it back — deterministic, so a recording plays
+exactly what you did. There are two ways to play a recording back.
+
+**Recordings are saved as `.inp` files** in `/media/fat/saves/OpenBOR_7533/`
+(one per PAK: `<pak>.inp`).
+
+**From the pause menu** (START → **Recording**):
+
+- **Record** — restarts the PAK and records everything from the title screen
+  through your play. (It records from the start so playback can reproduce the
+  run exactly.)
+- **Stop Recording** — saves the recording to `<pak>.inp` and drops you back
+  into the game.
+- **Play Recording** — restarts the PAK and plays your recording back
+  hands-free, driving through the menus into the game on its own.
+- **Stop Playback** — end playback and take control.
+- **Take over any time** — during playback, just press any button and the
+  automated inputs stop instantly so you can play.
+
+**From the MiSTer OSD** (a second way to launch a replay):
+
+1. **Load PAK** — pick the PAK you want.
+2. **Load Replay** — pick the matching `.inp` file. The PAK restarts and the
+   recording plays back hands-free (press any button to take over).
+
+Playback is bit-for-bit accurate: recording and replay both start from a PAK
+restart, the random-number seed is captured and restored, and the engine's
+per-frame timing is locked so the run reproduces identically regardless of load.
 
 ## FPGA Technical Details
 
