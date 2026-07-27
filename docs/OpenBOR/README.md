@@ -174,9 +174,11 @@ run, so you can keep it or share it.
 **Recordings are saved as `.inp` files** in `/media/fat/games/OpenBOR/Replays/`.
 Each **Stop Recording** saves a **new numbered file** — `<pak>_1.inp`, `<pak>_2.inp`,
 … — so a new recording never overwrites an older one; you build a library per PAK.
-Each `.inp` is stamped with the engine version it was recorded on; if a later core
-update changes the game logic, an old replay may drift (a note is logged) — just
-press any button to take over.
+Each `.inp` is stamped with the PAK it was recorded on **and** the engine version.
+A recording only plays on its own PAK — if you load a replay while a different PAK is
+loaded, it won't start (load the matching PAK first). And if a later core update
+changes the game logic, an old replay may drift (a note is logged) — just press any
+button to take over.
 
 **From the pause menu** (START → **Recording**):
 
