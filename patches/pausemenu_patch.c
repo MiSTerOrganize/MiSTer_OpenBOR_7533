@@ -276,6 +276,7 @@ void pausemenu()
                           * OSD PAK browser. */
                     remove("/tmp/openbor_current.pak");
                     remove("/media/fat/config/OpenBOR.s0");
+                    remove("/media/fat/config/OpenBOR.s1");  /* clear replay pick too */
                     exit(0);
                     break;
                 }

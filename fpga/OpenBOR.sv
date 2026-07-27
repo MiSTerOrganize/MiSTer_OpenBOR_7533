@@ -253,6 +253,7 @@ assign LED_POWER[0]= FB ? led[2] : act_cnt2[26] ? act_cnt2[25:18] > act_cnt2[7:0
 localparam CONF_STR = {
 	"OpenBOR;;",
 	"SC0,PAK,Load PAK;",
+	"SC1,INP,Load Replay;",
 	"-;",
 	"OCE,H Position (CRT),0,+1,+2,+3,-3,-2,-1;",
 	"OFH,V Position (CRT),0,+1,+2,+3,-3,-2,-1;",
@@ -284,12 +285,14 @@ wire [15:0] ioctl_index;
 wire        ioctl_wait;
 assign ioctl_wait = nv_ioctl_wait;
 
-// SC0 mounted image — config file created instantly, no ioctl streaming.
-// We only need the filename (from .s0 config). No disk I/O needed.
-wire        img_mounted;
+// SC0 (PAK) + SC1 (replay .inp) mounted images — config files created
+// instantly, no ioctl streaming. We only need the filenames (from .s0 / .s1
+// config); both slots are read as FILES by the ARM binary, never as block
+// devices, so the disk I/O is tied off. VDNUM=2 exposes the second slot.
+wire  [1:0] img_mounted;
 wire [63:0] img_size;
 
-hps_io #(.CONF_STR(CONF_STR)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .VDNUM(2)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -311,10 +314,10 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.img_mounted(img_mounted),
 	.img_size(img_size),
 	// Tie off disk I/O — we never read/write sectors
-	.sd_lba('{32'd0}),
-	.sd_rd(1'b0),
-	.sd_wr(1'b0),
-	.sd_buff_din('{8'd0})
+	.sd_lba('{32'd0, 32'd0}),
+	.sd_rd(2'b0),
+	.sd_wr(2'b0),
+	.sd_buff_din('{8'd0, 8'd0})
 );
 
 ////////////////////   CLOCKS   ///////////////////

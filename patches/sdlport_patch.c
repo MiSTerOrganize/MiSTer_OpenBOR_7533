@@ -74,6 +74,7 @@ static void mister_crash_handler(int sig, siginfo_t *info, void *ucontext)
  * OpenBOR with the new PAK. */
 static volatile int mister_swap_requested = 0;
 static char mister_loaded_path[256] = {0};
+static char mister_replay_path[256] = {0};  /* SC1 .inp replay-picker baseline */
 
 static void *mister_swap_thread(void *arg)
 {
@@ -131,6 +132,41 @@ static void *mister_swap_thread(void *arg)
                  * process is terminating anyway — daemon will relaunch
                  * cleanly and pick up the new .s0 path. */
                 _exit(1);
+            }
+        }
+
+        /* SC1 "Load Replay" picker: a NEW .inp path in .s1 arms title-anchored
+         * playback of THAT file against the currently-loaded PAK. Write the
+         * resolved path to /tmp/openbor_playfile + a PLAY marker + a reset
+         * marker (so _handler.sh preserves .s0 -> same PAK reloads to title),
+         * then exit; the daemon respawn arms the recorder in PLAY mode from
+         * the picked file. Baselined at startup so a pre-existing .s1 (e.g. the
+         * pick that armed THIS playback) never re-triggers on respawn. */
+        {
+            FILE *rf = fopen("/media/fat/config/OpenBOR.s1", "r");
+            if (rf) {
+                char rp[256] = {0};
+                if (fgets(rp, sizeof(rp), rf)) {
+                    char *n = strchr(rp, '\n'); if (n) *n = 0;
+                    char *c = strchr(rp, '\r'); if (c) *c = 0;
+                    char *e = strstr(rp, ".inp"); if (e) e[4] = 0;
+                    int rl = (int)strlen(rp);
+                    while (rl > 0 && (rp[rl-1] == ' ' || rp[rl-1] == '\t')) rp[--rl] = 0;
+                }
+                fclose(rf);
+                if (strlen(rp) > 0 && strcmp(rp, mister_replay_path) != 0) {
+                    char rfull[256];
+                    FILE *mf;
+                    if (rp[0] == '/') snprintf(rfull, sizeof(rfull), "%s", rp);
+                    else snprintf(rfull, sizeof(rfull), "/media/fat/%s", rp);
+                    fprintf(stderr, "MiSTer: replay pick (.s1): %s\n", rfull);
+                    fflush(stderr);
+                    mister_swap_requested = 1;
+                    mf = fopen("/tmp/openbor_playfile", "w"); if (mf) { fputs(rfull, mf); fclose(mf); }
+                    mf = fopen("/tmp/openbor_recmode", "w"); if (mf) { fputs("PLAY", mf); fclose(mf); }
+                    mf = fopen("/tmp/openbor_reset_marker", "w"); if (mf) fclose(mf);
+                    _exit(1);
+                }
             }
         }
     }
@@ -340,6 +376,23 @@ int main(int argc, char *argv[])
 #ifdef MISTER_NATIVE_VIDEO
     /* Save loaded path for swap detection and start watcher thread */
     strncpy(mister_loaded_path, packfile, sizeof(mister_loaded_path) - 1);
+    /* Baseline the SC1 replay picker to the current .s1 so a pre-existing value
+     * (the pick that armed THIS playback, still in .s1 after respawn) does NOT
+     * re-trigger. Only a NEW .s1 pick during this session starts a replay. */
+    {
+        FILE *rf0 = fopen("/media/fat/config/OpenBOR.s1", "r");
+        if (rf0) {
+            if (fgets(mister_replay_path, sizeof(mister_replay_path), rf0)) {
+                char *n = strchr(mister_replay_path, '\n'); if (n) *n = 0;
+                char *c = strchr(mister_replay_path, '\r'); if (c) *c = 0;
+                char *e = strstr(mister_replay_path, ".inp"); if (e) e[4] = 0;
+                int rl = (int)strlen(mister_replay_path);
+                while (rl > 0 && (mister_replay_path[rl-1] == ' ' || mister_replay_path[rl-1] == '\t'))
+                    mister_replay_path[--rl] = 0;
+            }
+            fclose(rf0);
+        }
+    }
     pthread_t swap_tid;
     pthread_create(&swap_tid, NULL, mister_swap_thread, NULL);
 #endif

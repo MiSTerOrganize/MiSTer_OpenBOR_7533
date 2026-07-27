@@ -92,6 +92,14 @@ else
     rm -f /media/fat/config/OpenBOR.s0 2>/dev/null
 fi
 
+# Replay picker (.s1) cleanup — ALWAYS clear on respawn. A replay's target
+# path is carried to the new instance via /tmp/openbor_playfile (written by
+# the swap thread before it exits), so .s1 is never read after a respawn.
+# Clearing it unconditionally means only a FRESH "Load Replay" (SC1) pick
+# during a live session triggers a replay — no stale .s1 auto-replays after a
+# PAK hot-swap, Reset, Quit, or core switch. (Mirrors the .s0 discipline.)
+rm -f /media/fat/config/OpenBOR.s1 2>/dev/null
+
 # Free kernel page cache — FC0 PAK streaming exhausts RAM otherwise.
 # OpenBOR segfaults on repeated PAK loads without this.
 echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
