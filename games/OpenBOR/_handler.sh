@@ -15,10 +15,13 @@ GAMEDIR="/media/fat/games/OpenBOR"
 
 cd "$GAMEDIR" || exit 1
 
-# Recordings folder — the recorder saves .inp files here so the MiSTer OSD
-# "Load Replay" (SC1) file browser can reach them (SC1 opens at games/OpenBOR/,
-# like SC0/PAK). Kept out of saves/ because the OSD browser can't reach saves/.
-mkdir -p "$GAMEDIR/Replays" 2>/dev/null
+# Auto-create ALL of the core's game folders so they always exist for every user
+# (standing hybrid-core rule: the handler owns every folder — content + recordings
+# + logs). Paks/ = PAK game modules (SC0 "Load PAK"); Replays/ = recorder .inp files
+# (SC1 "Load Replay"). Both live under games/OpenBOR/ so the OSD file browser (which
+# opens at the core's games/<setname>/ HomeDir) can reach them; NOT under saves/,
+# which the browser can't reach. (Logs/ is created below, once $LOGDIR is known.)
+mkdir -p "$GAMEDIR/Paks" "$GAMEDIR/Replays" 2>/dev/null
 
 # Read MiSTer Main's argv to find the loaded RBF filename.
 # `pidof MiSTer` may return multiple PIDs (older lingering shells); take
