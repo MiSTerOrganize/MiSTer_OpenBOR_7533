@@ -63,7 +63,9 @@ void pausemenu()
     int newkeys;
     char volbuf[64];
     s_set_entry *set = levelsets + current_set;
-    s_screen *pausebuffer = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_32);
+    /* MiSTer Path B: match the 16-bit vscreen so copyscreen(pausebuffer,
+     * vscreen) is not a no-op (copyscreen early-returns on format mismatch). */
+    s_screen *pausebuffer = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_16);
 
     copyscreen(pausebuffer, vscreen);
     spriteq_draw(pausebuffer, 0, MIN_INT, MAX_INT, 0, 0);

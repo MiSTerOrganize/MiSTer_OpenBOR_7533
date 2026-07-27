@@ -3212,6 +3212,32 @@ endif
     ob = strict_replace(ob, load_timer_end_old, load_timer_end_new,
                         'Step 13g: load-time timer end + printf in load_models()')
 
+    # ===================================================================
+    # PDC2 FIX (2026-06-15; ported from vscreen-16bit 2026-07-27): a no-model
+    # level "at" entry must not reference model_cache[0]. PDC2's tutorial has
+    # settings-only entries (light/shadowalpha/shadowcolor + at); each settings
+    # command does its own memset(&next,0,...) then sets its field, so at the
+    # single commit point (CMD_LEVEL_AT memcpy into level->spawnpoints[]) the
+    # entry has name=NULL, model=NULL, index=0. update_scroller smartspawns it
+    # and spawn() resolves model_index 0 -> model_cache[0]; if model_cache[0] is
+    # bgfx (the select-screen background) that settings entry spawns a looping
+    # bgfx into the level = the "character-select screen showing through the
+    # gameplay background" bug. Engine intent is MODEL_INDEX_NONE (-1) for "no
+    # model" (CMD_LEVEL_SPAWN sets it). Fix at the COMMIT point: a no-name +
+    # no-model entry gets MODEL_INDEX_NONE so spawn() returns NULL instead of
+    # model_cache[0]. Legit spawns always have a name -> unaffected. (Latent on
+    # main; also REQUIRED once command-script dedup can shift bgfx to
+    # model_cache[0].)
+    # ===================================================================
+    print("  PDC2 fix: no-model 'at' entries get MODEL_INDEX_NONE at commit (no longer spawn model_cache[0])")
+    ob = strict_replace(ob,
+        "            __realloc(level->spawnpoints, level->numspawns);\n"
+        "            memcpy(&level->spawnpoints[level->numspawns], &next, sizeof(next));",
+        "            __realloc(level->spawnpoints, level->numspawns);\n"
+        "            if((!next.name || !next.name[0]) && !next.model) { next.index = next.item_properties.index = next.weaponindex = MODEL_INDEX_NONE; } /* MiSTer PDC2 fix: settings-only 'at' entry has no model -> don't let spawn() resolve index 0 to model_cache[0] (bgfx) */\n"
+        "            memcpy(&level->spawnpoints[level->numspawns], &next, sizeof(next));",
+        'PDC2 fix: no-model at-entry gets MODEL_INDEX_NONE at CMD_LEVEL_AT commit')
+
     # Patch 8 (Phase 1.1 tune 2026-05-24): prepare_sprite_map growth chunk
     # 256 -> 4096. Reduces realloc count from ~195 to ~12 for a 50k-sprite
     # PAK. Each realloc copies the entire previous array; fewer reallocs =
@@ -3682,6 +3708,540 @@ endif
     print("  Step 16c: find_ent_here grab-distance invariant hoist")
 
     # ── PERSIST the openbor.c ob-section patches (CRITICAL FIX 2026-07-26) ────
+
+    # =====================================================================
+    # SCRIPT DEDUP (2026-06-14) -- the big remaining load-time lever.
+    # Roster-heavy PAKs compile many byte-identical animation scripts (JL
+    # Legacy: 364/629 = 58% duplicates -> ~30s of wasted lex+resolve). Cache
+    # the FIRST model's compiled animation_script (interpreterowner=1) keyed by
+    # source text; duplicate models with the same (unload&1) class get
+    # Script_Copy -- the engine's own per-frame primitive, which ALIASES the
+    # compiled interpreter and sets interpreterowner=0, so no double-free.
+    # Variant 1 (first-model-owns): first occurrence keeps today's exact path
+    # (Script_Init + AppendText + Compile, iscopy=0); only duplicates alias.
+    # Safety: (a) gate on (unload&1) so owner + aliases are always freed in the
+    # same teardown batch (unload_level frees unload&1 models together;
+    # free_models frees all) -> no live-alias-after-owner-free; (b) drop the
+    # cache entry in free_model BEFORE the interpreter is freed so a freed owner
+    # can't serve a post-free duplicate. Full-text compare guards hash
+    # collisions. RAM-only, no SD files. Doesn't touch the LOCKED palette path.
+    # (Investigated against pristine v7533: Script_Copy openborscript.c:484
+    # sets interpreterowner=0; Script_Clear:548 frees interpreter only if owner;
+    # free_model->clear_all_scripts(model->scripts,2) is the single model-script
+    # free site; unload_level:20001 frees individual models mid-session.)
+    print("  Script dedup: cache compiled animation_script by source text (skip lex+compile for duplicate roster models)")
+    # (1) cache + helpers, inserted before execute_animation_script (Script type
+    #     + Script_Copy are in scope there; site/free_model uses come after).
+    ob = strict_replace(ob,
+        "void execute_animation_script(entity *ent)\n{",
+        "/* MiSTer 2026-06-14 within-load animation_script dedup cache. See block\n"
+        "   comment in apply_patches.py. RAM-only; first-model-owns + (unload&1)\n"
+        "   gate + free_model invalidation. */\n"
+        "typedef struct {\n"
+        "    unsigned int hash;\n"
+        "    char *text;          /* owned copy of source (full-compare vs hash collision) */\n"
+        "    int unloadclass;     /* owner's (unload & 1) */\n"
+        "    Script *master;      /* owner model's animation_script (interpreterowner==1) */\n"
+        "} mister_scache_entry;\n"
+        "static mister_scache_entry *mister_scache = NULL;\n"
+        "static int mister_scache_n = 0, mister_scache_cap = 0;\n"
+        "static unsigned int mister_sdedup_hits = 0, mister_sdedup_total = 0; /* [LOAD] diagnostic */\n"
+        "/* bit-exact alias (openborscript.c): aliases the compiled interpreter like\n"
+        "   Script_Copy but runs init with iscopy=0 -> matches a fresh Script_Compile. */\n"
+        "extern void mister_script_alias_fresh(Script *pdest, Script *psrc);\n"
+        "static unsigned int mister_scache_hash(const char *s)\n"
+        "{\n"
+        "    unsigned int h = 5381;\n"
+        "    if(s) while(*s) h = ((h << 5) + h) + (unsigned char)(*s++);\n"
+        "    return h;\n"
+        "}\n"
+        "static Script *mister_scache_lookup(const char *txt, int unloadclass)\n"
+        "{\n"
+        "    unsigned int h = mister_scache_hash(txt);\n"
+        "    int i;\n"
+        "    for(i = 0; i < mister_scache_n; i++)\n"
+        "        if(mister_scache[i].hash == h && mister_scache[i].unloadclass == unloadclass\n"
+        "           && mister_scache[i].text && strcmp(mister_scache[i].text, txt) == 0)\n"
+        "            return mister_scache[i].master;\n"
+        "    return NULL;\n"
+        "}\n"
+        "static void mister_scache_insert(const char *txt, int unloadclass, Script *master)\n"
+        "{\n"
+        "    int len; char *copy; mister_scache_entry *np;\n"
+        "    if(!txt || !master) return;\n"
+        "    if(mister_scache_n >= mister_scache_cap)\n"
+        "    {\n"
+        "        int nc = mister_scache_cap ? (mister_scache_cap * 2) : 256;\n"
+        "        np = (mister_scache_entry *)realloc(mister_scache, nc * sizeof(mister_scache_entry));\n"
+        "        if(!np) return; /* OOM: skip caching, model still works (recompiles) */\n"
+        "        mister_scache = np; mister_scache_cap = nc;\n"
+        "    }\n"
+        "    len = (int)strlen(txt);\n"
+        "    copy = (char *)malloc(len + 1);\n"
+        "    if(!copy) return;\n"
+        "    memcpy(copy, txt, len + 1);\n"
+        "    mister_scache[mister_scache_n].hash = mister_scache_hash(txt);\n"
+        "    mister_scache[mister_scache_n].text = copy;\n"
+        "    mister_scache[mister_scache_n].unloadclass = unloadclass;\n"
+        "    mister_scache[mister_scache_n].master = master;\n"
+        "    mister_scache_n++;\n"
+        "}\n"
+        "/* Drop any cache entry owned by this model; called from free_model BEFORE\n"
+        "   its scripts/interpreter are freed, so a freed owner never leaves a live\n"
+        "   alias pointing at a freed interpreter. */\n"
+        "static void mister_scache_drop_master(Script *master)\n"
+        "{\n"
+        "    int i;\n"
+        "    if(!master) return;\n"
+        "    for(i = 0; i < mister_scache_n; i++)\n"
+        "        if(mister_scache[i].master == master)\n"
+        "        {\n"
+        "            if(mister_scache[i].text) free(mister_scache[i].text);\n"
+        "            mister_scache[i] = mister_scache[mister_scache_n - 1];\n"
+        "            mister_scache_n--; i--;\n"
+        "        }\n"
+        "}\n"
+        "void execute_animation_script(entity *ent)\n{",
+        'script dedup: cache + helpers before execute_animation_script')
+    # (2) restructure the animation_script assembly: finalize text -> dedup
+    #     decision. (Ported to main 2026-07-27: anchors the STOCK compile
+    #     block -- main has no [LOAD] phase instrumentation.)
+    ob = strict_replace(ob,
+        "    if(scriptbuf && animscriptbuf && scriptbuf[0] && animscriptbuf[0])\n"
+        "    {\n"
+        "        writeToScriptLog(\"\\n#### animationscript function main #####\\n# \");\n"
+        "        writeToScriptLog(filename);\n"
+        "        writeToScriptLog(\"\\n########################################\\n\");\n"
+        "        writeToScriptLog(scriptbuf);\n"
+        "\n"
+        "        lcmScriptDeleteMain(&scriptbuf);\n"
+        "        lcmScriptAddMain(&animscriptbuf);\n"
+        "        lcmScriptJoinMain(&animscriptbuf,scriptbuf);\n"
+        "\n"
+        "        if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
+        "        {\n"
+        "            Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
+        "        }\n"
+        "        tempInt = Script_AppendText(newchar->scripts->animation_script, animscriptbuf, filename);\n"
+        "    }\n"
+        "    else if(animscriptbuf && animscriptbuf[0])\n"
+        "    {\n"
+        "        lcmScriptAddMain(&animscriptbuf);\n"
+        "\n"
+        "        if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
+        "        {\n"
+        "            Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
+        "        }\n"
+        "        tempInt = Script_AppendText(newchar->scripts->animation_script, animscriptbuf, filename);\n"
+        "    }\n"
+        "    else if(scriptbuf && scriptbuf[0])\n"
+        "    {\n"
+        "        //printf(\"\\n%s\\n\", scriptbuf);\n"
+        "        if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
+        "        {\n"
+        "            Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
+        "        }\n"
+        "        tempInt = Script_AppendText(newchar->scripts->animation_script, scriptbuf, filename);\n"
+        "        //Interpreter_OutputPCode(newchar->scripts->animation_script.pinterpreter, \"code\");\n"
+        "        writeToScriptLog(\"\\n#### animationscript function main #####\\n# \");\n"
+        "        writeToScriptLog(filename);\n"
+        "        writeToScriptLog(\"\\n########################################\\n\");\n"
+        "        writeToScriptLog(scriptbuf);\n"
+        "    }\n"
+        "\n"
+        "    if(!newchar->isSubclassed)\n"
+        "    {\n"
+        "        Script_Compile(newchar->scripts->animation_script);\n"
+        "    }",
+        "    {\n"
+        "        /* MiSTer 2026-06-14 animation_script dedup: finalize the text via the\n"
+        "           lcmScript* transforms, then for non-subclassed models reuse a cached\n"
+        "           identical compile (Script_Copy aliases the compiled interpreter ->\n"
+        "           skips BOTH lex and resolve) or build fresh as the cache owner. */\n"
+        "        char *_mfinal = 0;\n"
+        "\n"
+        "        if(scriptbuf && animscriptbuf && scriptbuf[0] && animscriptbuf[0])\n"
+        "        {\n"
+        "            writeToScriptLog(\"\\n#### animationscript function main #####\\n# \");\n"
+        "            writeToScriptLog(filename);\n"
+        "            writeToScriptLog(\"\\n########################################\\n\");\n"
+        "            writeToScriptLog(scriptbuf);\n"
+        "\n"
+        "            lcmScriptDeleteMain(&scriptbuf);\n"
+        "            lcmScriptAddMain(&animscriptbuf);\n"
+        "            lcmScriptJoinMain(&animscriptbuf,scriptbuf);\n"
+        "            _mfinal = animscriptbuf;\n"
+        "        }\n"
+        "        else if(animscriptbuf && animscriptbuf[0])\n"
+        "        {\n"
+        "            lcmScriptAddMain(&animscriptbuf);\n"
+        "            _mfinal = animscriptbuf;\n"
+        "        }\n"
+        "        else if(scriptbuf && scriptbuf[0])\n"
+        "        {\n"
+        "            _mfinal = scriptbuf;\n"
+        "            writeToScriptLog(\"\\n#### animationscript function main #####\\n# \");\n"
+        "            writeToScriptLog(filename);\n"
+        "            writeToScriptLog(\"\\n########################################\\n\");\n"
+        "            writeToScriptLog(scriptbuf);\n"
+        "        }\n"
+        "\n"
+        "        if(_mfinal && _mfinal[0] && !newchar->isSubclassed)\n"
+        "        {\n"
+        "            int _muc = (newchar->unload & 1);\n"
+        "            Script *_mmaster;\n"
+        "            mister_sdedup_total++;\n"
+        "            _mmaster = mister_scache_lookup(_mfinal, _muc);\n"
+        "            if(_mmaster)\n"
+        "            {\n"
+        "                /* DEDUP HIT: bit-exact alias (iscopy=0), skip lex + compile */\n"
+        "                mister_script_alias_fresh(newchar->scripts->animation_script, _mmaster);\n"
+        "                mister_sdedup_hits++;\n"
+        "            }\n"
+        "            else\n"
+        "            {\n"
+        "                /* miss: build fresh (unchanged path), register as cache owner */\n"
+        "                if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
+        "                {\n"
+        "                    Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
+        "                }\n"
+        "                tempInt = Script_AppendText(newchar->scripts->animation_script, _mfinal, filename);\n"
+        "                Script_Compile(newchar->scripts->animation_script);\n"
+        "                if(tempInt)\n"
+        "                {\n"
+        "                    mister_scache_insert(_mfinal, _muc, newchar->scripts->animation_script);\n"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "        else if(_mfinal && _mfinal[0])\n"
+        "        {\n"
+        "            /* subclassed: original behavior -- Init (if needed) + AppendText, NO compile */\n"
+        "            if(!Script_IsInitialized(newchar->scripts->animation_script))\n"
+        "            {\n"
+        "                Script_Init(newchar->scripts->animation_script, newchar->name, filename, 0);\n"
+        "            }\n"
+        "            tempInt = Script_AppendText(newchar->scripts->animation_script, _mfinal, filename);\n"
+        "        }\n"
+        "    }",
+        'script dedup: restructure animation_script assembly -> dedup decision')
+    # (3) invalidate cache entry when its owner model is freed (before the
+    #     interpreter is freed by clear_all_scripts). Unique to free_model.
+    ob = strict_replace(ob,
+        "    if(hasFreetype(model, MF_SCRIPTS))\n"
+        "    {\n"
+        "        clear_all_scripts(model->scripts, 2);\n"
+        "        free_all_scripts(&model->scripts);\n"
+        "    }",
+        "    if(hasFreetype(model, MF_SCRIPTS))\n"
+        "    {\n"
+        "        mister_scache_drop_master(model->scripts->animation_script); /* MiSTer dedup: drop owner entry before its interpreter is freed */\n"
+        "        clear_all_scripts(model->scripts, 2);\n"
+        "        free_all_scripts(&model->scripts);\n"
+        "    }",
+        'script dedup: invalidate cache entry in free_model')
+    # (4) bit-exact alias helper in openborscript.c (where the file-static
+    #     execute_init_method is reachable). Identical to Script_Copy EXCEPT it
+    #     runs init with iscopy=0,localclear=1 -- byte-for-byte matching a fresh
+    #     Script_Compile (execute_init_method(pscript,0,1)). So a deduped model
+    #     ends in EXACTLY the fresh-compile end state (no iscopy divergence); the
+    #     only residue is the shared interpreter's symbol-table name/comment (the
+    #     first owner's), used solely in fatal error messages. Read fresh so it
+    #     picks up prior openborscript.c patches (Steps 32/35/61/...).
+    obs_alias_path = os.path.join(obor, 'openborscript.c')
+    obs_alias = read(obs_alias_path)
+    obs_alias = strict_replace(obs_alias,
+        "    pdest->pinterpreter = psrc->pinterpreter;\n"
+        "    pdest->comment = psrc->comment;\n"
+        "    pdest->interpreterowner = 0; // dont own it\n"
+        "    pdest->initialized = psrc->initialized; //just copy, it should be 1\n"
+        "    execute_init_method(pdest, 1, localclear);\n"
+        "}",
+        "    pdest->pinterpreter = psrc->pinterpreter;\n"
+        "    pdest->comment = psrc->comment;\n"
+        "    pdest->interpreterowner = 0; // dont own it\n"
+        "    pdest->initialized = psrc->initialized; //just copy, it should be 1\n"
+        "    execute_init_method(pdest, 1, localclear);\n"
+        "}\n"
+        "\n"
+        "/* MiSTer 2026-06-14 bit-exact dedup alias. Identical to Script_Copy above\n"
+        "   (aliases the compiled interpreter, interpreterowner=0 -> no double-free)\n"
+        "   EXCEPT it runs the init method with iscopy=0,localclear=1 -- byte-for-byte\n"
+        "   matching a fresh Script_Compile (execute_init_method(pscript,0,1) below).\n"
+        "   Used by the load-time animation_script dedup so a deduped duplicate model\n"
+        "   ends in EXACTLY the fresh-compile end state (no iscopy divergence). */\n"
+        "void mister_script_alias_fresh(Script *pdest, Script *psrc)\n"
+        "{\n"
+        "    if(!psrc->initialized)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    if(pdest->initialized)\n"
+        "    {\n"
+        "        Script_Clear(pdest, 1);\n"
+        "    }\n"
+        "    pdest->pinterpreter = psrc->pinterpreter;\n"
+        "    pdest->comment = psrc->comment;\n"
+        "    pdest->interpreterowner = 0; // don't own it (shared with the cache owner)\n"
+        "    pdest->initialized = psrc->initialized;\n"
+        "    execute_init_method(pdest, 0, 1); // iscopy=0,localclear=1 -> matches fresh Script_Compile\n"
+        "}\n"
+        "\n"
+        "/* MiSTer 2026-06-15 compile-WITHOUT-init, for command-script dedup cache\n"
+        "   masters. Identical to Script_Compile EXCEPT it does NOT run\n"
+        "   execute_init_method: the cache master is a code-only holder, and each\n"
+        "   model's alias runs init() exactly once via mister_script_alias_fresh. So\n"
+        "   init() executes once per model (matching the original per-model\n"
+        "   Script_Compile) with NO extra master-init side effect -> bit-exact for\n"
+        "   non-idempotent init() scripts too. */\n"
+        "int mister_script_compile_noinit(Script *pscript)\n"
+        "{\n"
+        "    int result;\n"
+        "    if(!pscript || !pscript->pinterpreter)\n"
+        "    {\n"
+        "        return 1;\n"
+        "    }\n"
+        "    result = SUCCEEDED(Interpreter_CompileInstructions(pscript->pinterpreter));\n"
+        "    if(!result)\n"
+        "    {\n"
+        "        borShutdown(1, \"Can't compile script '%s' %s\\n\", pscript->pinterpreter->theSymbolTable.name, pscript->comment ? pscript->comment : \"\");\n"
+        "    }\n"
+        "    pscript->pinterpreter->bReset = FALSE;\n"
+        "    return result;\n"
+        "}",
+        'script dedup: bit-exact alias helper + compile-noinit helper in openborscript.c')
+    write(obs_alias_path, obs_alias)
+
+    # ===================================================================
+    # COMMAND-SCRIPT DEDUP (2026-06-15) -- extends the animation_script dedup
+    # to the ~27 model command scripts (think/update/takedamage/ondeath/onspawn/
+    # key/onmovea/...), all of which compile through lcmHandleCommandScripts.
+    # Static analysis of local PAKs: JL Legacy 227 refs -> 4 distinct files (98%
+    # dup), TMNT-RP 343 -> 30 (91%). ZERO command-script models use 'unload'.
+    # DESIGN: cache-OWNED master interpreters. Each distinct command script is
+    # compiled once into a cache-owned Script (interpreterowner=1); every model
+    # (incl the first) gets an interpreterowner=0 alias via mister_script_alias_fresh
+    # (bit-exact: same compiled interpreter, execute_init_method iscopy=0). Since
+    # no MODEL owns the shared interpreter, mid-session unload_level frees can't
+    # dangle an alias; the cache is freed once at PAK teardown (free_models),
+    # AFTER every model alias is freed (safe ordering). Key: file-case = script
+    # path ('F'+path; same path==same content within a PAK -> skip file read AND
+    # compile on hit); inline @script case = inline text ('I'+text). Gate:
+    # (compile && !first) -> exactly the 27 model command-script callers; level
+    # scripts (first=1) + deferred-compile callers (compile=0) keep the original
+    # path. Separate cache from the animation dedup (untouched); LOCKED palette
+    # path untouched. RAM-only, no SD files.
+    # ===================================================================
+    print("  Command-script dedup: cache-owned masters for model command scripts (98%/91% dup on JLL/TMNT-RP)")
+    # (1) cache + helpers, inserted before free_models (visible to free_models'
+    #     clear hook AND to lcmHandleCommandScripts further down).
+    ob = strict_replace(ob,
+        "void free_models()\n"
+        "{\n"
+        "    s_model *temp;",
+        "/* MiSTer 2026-06-15 command-script dedup cache (cache-OWNED masters).\n"
+        "   See block comment in apply_patches.py. Separate from the animation\n"
+        "   dedup cache; reuses mister_script_alias_fresh (extern declared earlier). */\n"
+        "typedef struct {\n"
+        "    unsigned int hash;\n"
+        "    char *key;       /* prefix byte ('F' path / 'I' inline) + key text */\n"
+        "    Script *master;  /* cache-owned compiled interpreter (interpreterowner==1) */\n"
+        "} mister_ccache_entry;\n"
+        "static mister_ccache_entry *mister_ccache = NULL;\n"
+        "static int mister_ccache_n = 0, mister_ccache_cap = 0;\n"
+        "extern void mister_script_alias_fresh(Script *pdest, Script *psrc);\n"
+        "extern int mister_script_compile_noinit(Script *pscript);\n"
+        "static unsigned int mister_ccache_hash(char pfx, const char *s)\n"
+        "{\n"
+        "    unsigned int h = 5381; h = ((h << 5) + h) + (unsigned char)pfx;\n"
+        "    if(s) while(*s) h = ((h << 5) + h) + (unsigned char)(*s++);\n"
+        "    return h;\n"
+        "}\n"
+        "static Script *mister_ccache_lookup(char pfx, const char *key)\n"
+        "{\n"
+        "    unsigned int h = mister_ccache_hash(pfx, key);\n"
+        "    int i;\n"
+        "    for(i = 0; i < mister_ccache_n; i++)\n"
+        "        if(mister_ccache[i].hash == h && mister_ccache[i].key\n"
+        "           && mister_ccache[i].key[0] == pfx && strcmp(mister_ccache[i].key + 1, key) == 0)\n"
+        "            return mister_ccache[i].master;\n"
+        "    return NULL;\n"
+        "}\n"
+        "static void mister_ccache_insert(char pfx, const char *key, Script *master)\n"
+        "{\n"
+        "    int len; char *copy; mister_ccache_entry *np;\n"
+        "    if(!key || !master) return;\n"
+        "    if(mister_ccache_n >= mister_ccache_cap)\n"
+        "    {\n"
+        "        int nc = mister_ccache_cap ? (mister_ccache_cap * 2) : 64;\n"
+        "        np = (mister_ccache_entry *)realloc(mister_ccache, nc * sizeof(mister_ccache_entry));\n"
+        "        if(!np) return;\n"
+        "        mister_ccache = np; mister_ccache_cap = nc;\n"
+        "    }\n"
+        "    len = (int)strlen(key);\n"
+        "    copy = (char *)malloc(len + 2);\n"
+        "    if(!copy) return;\n"
+        "    copy[0] = pfx; memcpy(copy + 1, key, len + 1);\n"
+        "    mister_ccache[mister_ccache_n].hash = mister_ccache_hash(pfx, key);\n"
+        "    mister_ccache[mister_ccache_n].key = copy;\n"
+        "    mister_ccache[mister_ccache_n].master = master;\n"
+        "    mister_ccache_n++;\n"
+        "}\n"
+        "/* Free all cache-owned masters. Called from free_models AFTER every model\n"
+        "   (and thus every interpreterowner=0 alias) has been freed, so the shared\n"
+        "   interpreters have no live aliases when freed here. */\n"
+        "static void mister_ccache_clear(void)\n"
+        "{\n"
+        "    int i;\n"
+        "    for(i = 0; i < mister_ccache_n; i++)\n"
+        "    {\n"
+        "        if(mister_ccache[i].master) { Script_Clear(mister_ccache[i].master, 2); free(mister_ccache[i].master); }\n"
+        "        if(mister_ccache[i].key) free(mister_ccache[i].key);\n"
+        "    }\n"
+        "    if(mister_ccache) free(mister_ccache);\n"
+        "    mister_ccache = NULL; mister_ccache_n = 0; mister_ccache_cap = 0;\n"
+        "}\n"
+        "void free_models()\n"
+        "{\n"
+        "    s_model *temp;",
+        'command-script dedup: cache + helpers before free_models')
+    # (2) clear the cache after free_models' model-free loop (all aliases gone).
+    ob = strict_replace(ob,
+        "    while((temp = getFirstModel()))\n"
+        "    {\n"
+        "        free_model(temp);\n"
+        "    }",
+        "    while((temp = getFirstModel()))\n"
+        "    {\n"
+        "        free_model(temp);\n"
+        "    }\n"
+        "    mister_ccache_clear(); /* MiSTer cmd-script dedup: free cache-owned masters (all model aliases now freed) */",
+        'command-script dedup: clear cache in free_models after model-free loop')
+    # (3) dedup restructure of lcmHandleCommandScripts. Gate on (compile && !first)
+    #     -> the 27 model command-script callers. Level scripts (first=1) and
+    #     deferred-compile callers (compile=0) fall to the unchanged original path.
+    ob = strict_replace(ob,
+        "size_t lcmHandleCommandScripts(ArgList *arglist, char *buf, Script *script, char *scriptname, char *filename, int compile, int first)\n"
+        "{\n"
+        "    ptrdiff_t pos = 0;\n"
+        "    size_t len = 0;\n"
+        "    int result = 0;\n"
+        "    char *scriptbuf = NULL;\n"
+        "    Script_Init(script, scriptname, filename, first);\n"
+        "    if(stricmp(GET_ARGP(1), \"@script\") == 0)\n"
+        "    {\n"
+        "        fetchInlineScript(buf, &scriptbuf, &pos, &len);\n"
+        "        if(scriptbuf)\n"
+        "        {\n"
+        "            result = Script_AppendText(script, scriptbuf, filename);\n"
+        "            free(scriptbuf);\n"
+        "        }\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        result = load_script(script, GET_ARGP(1));\n"
+        "    }\n"
+        "    if(result)\n"
+        "    {\n"
+        "        if(compile)\n"
+        "        {\n"
+        "            Script_Compile(script);\n"
+        "        }\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        borShutdown(1, \"Unable to load %s '%s' in file '%s'.\\n\", scriptname, GET_ARGP(1), filename);\n"
+        "    }\n"
+        "    return pos;\n"
+        "}",
+        "size_t lcmHandleCommandScripts(ArgList *arglist, char *buf, Script *script, char *scriptname, char *filename, int compile, int first)\n"
+        "{\n"
+        "    ptrdiff_t pos = 0;\n"
+        "    size_t len = 0;\n"
+        "    int result = 0;\n"
+        "    char *scriptbuf = NULL;\n"
+        "    /* MiSTer 2026-06-15 command-script dedup: for the model command-script\n"
+        "       callers (compile && !first), reuse a cache-owned compiled master and\n"
+        "       make THIS model's script an interpreterowner=0 alias (skips file read +\n"
+        "       lex + compile on a hit). Bit-exact (same compiled interpreter). Level\n"
+        "       scripts (first) + deferred-compile callers (!compile) use the original\n"
+        "       path below unchanged. */\n"
+        "    if(compile && !first)\n"
+        "    {\n"
+        "        char _cpfx; char *_ckey = NULL; char *_cinlinebuf = NULL; Script *_cm;\n"
+        "        if(stricmp(GET_ARGP(1), \"@script\") == 0)\n"
+        "        {\n"
+        "            fetchInlineScript(buf, &scriptbuf, &pos, &len); /* advances pos past the inline block */\n"
+        "            _cinlinebuf = scriptbuf; _ckey = scriptbuf; _cpfx = 'I';\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            _ckey = GET_ARGP(1); _cpfx = 'F';\n"
+        "        }\n"
+        "        if(_ckey && _ckey[0])\n"
+        "        {\n"
+        "            _cm = mister_ccache_lookup(_cpfx, _ckey);\n"
+        "            if(_cm)\n"
+        "            {\n"
+        "                /* HIT: alias this model's (varlist-only, un-Script_Init'd) script.\n"
+        "                   No Script_Init here -> no per-model interpreter to leak. */\n"
+        "                mister_script_alias_fresh(script, _cm);\n"
+        "                result = 1;\n"
+        "            }\n"
+        "            else\n"
+        "            {\n"
+        "                /* MISS: build a cache-OWNED master, then alias this model. */\n"
+        "                _cm = alloc_script();\n"
+        "                Script_Init(_cm, scriptname, filename, 0);\n"
+        "                if(_cinlinebuf) result = Script_AppendText(_cm, _cinlinebuf, filename);\n"
+        "                else            result = load_script(_cm, GET_ARGP(1));\n"
+        "                if(result)\n"
+        "                {\n"
+        "                    mister_script_compile_noinit(_cm); /* master = code-only; init runs once per alias */\n"
+        "                    mister_ccache_insert(_cpfx, _ckey, _cm);\n"
+        "                    mister_script_alias_fresh(script, _cm);\n"
+        "                }\n"
+        "                else\n"
+        "                {\n"
+        "                    Script_Clear(_cm, 2); free(_cm); _cm = NULL;\n"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "        if(_cinlinebuf) free(_cinlinebuf);\n"
+        "        if(!result)\n"
+        "        {\n"
+        "            borShutdown(1, \"Unable to load %s '%s' in file '%s'.\\n\", scriptname, GET_ARGP(1), filename);\n"
+        "        }\n"
+        "        return pos;\n"
+        "    }\n"
+        "    Script_Init(script, scriptname, filename, first);\n"
+        "    if(stricmp(GET_ARGP(1), \"@script\") == 0)\n"
+        "    {\n"
+        "        fetchInlineScript(buf, &scriptbuf, &pos, &len);\n"
+        "        if(scriptbuf)\n"
+        "        {\n"
+        "            result = Script_AppendText(script, scriptbuf, filename);\n"
+        "            free(scriptbuf);\n"
+        "        }\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        result = load_script(script, GET_ARGP(1));\n"
+        "    }\n"
+        "    if(result)\n"
+        "    {\n"
+        "        if(compile)\n"
+        "        {\n"
+        "            Script_Compile(script);\n"
+        "        }\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        borShutdown(1, \"Unable to load %s '%s' in file '%s'.\\n\", scriptname, GET_ARGP(1), filename);\n"
+        "    }\n"
+        "    return pos;\n"
+        "}",
+        'command-script dedup: lcmHandleCommandScripts cache-owned alias (gate compile && !first)')
+
     # The profiler-removal commit 5c89107 accidentally deleted `write(ob_path, ob)`
     # along with the profiler block, silently dropping the ENTIRE ob section
     # (v3.9/v3.10 palette flag set+copy steps 0c/0d/0g/0h AND the hash-map
@@ -3939,58 +4499,140 @@ endif
     #     once at load instead of every frame
     #
     # EXPECTED GAIN: Avengers -8-9 ms/frame (37 -> ~50 fps), He-Man -5-6 ms/frame.
-    print("Patching openbor.c (Step 23: load_background pre-decode 8 -> 32bpp)...")
-    ob_path_step23 = os.path.join(obor, 'openbor.c')
-    ob_step23 = read(ob_path_step23)
+    # Step 23 fork (2026-07-27 Path B port): ship build pre-decodes backgrounds to
+    # 16bpp (the 16-bit vscreen has NO PIXEL_32-src blit path -- a 32bpp bg would
+    # render black); headless keeps the original 32bpp version (PIXEL_32 vscreen +
+    # stable golden traces).
+    if not HEADLESS:
+        print("Patching openbor.c (Step 23 (Path B): load_background pre-decode 8/32bpp -> 16bpp)...")
+        ob_path_step23 = os.path.join(obor, 'openbor.c')
+        ob_step23 = read(ob_path_step23)
 
-    step23_old = (
-        "    // If background is 8bit color depth, use its color\n"
-        "    // table to populate the global and global neon palettes.\n"
-        "    if (background->pixelformat == PIXEL_x8)\n"
-        "    {\n"
-        "        memcpy(pal, background->palette, PAL_BYTES);\n"
-        "        memcpy(neontable, pal, PAL_BYTES);\n"
-        "    }"
-    )
-    step23_new = (
-        "    // If background is 8bit color depth, use its color\n"
-        "    // table to populate the global and global neon palettes.\n"
-        "    if (background->pixelformat == PIXEL_x8)\n"
-        "    {\n"
-        "        memcpy(pal, background->palette, PAL_BYTES);\n"
-        "        memcpy(neontable, pal, PAL_BYTES);\n"
-        "\n"
-        "        /* Step 23 (v3.1 perf, 2026-05-27): pre-decode 8bpp -> 32bpp.\n"
-        "         * v12 [SP2] showed putscreen is 99% of putother bucket on\n"
-        "         * Avengers (9.78 ms/frame). Pre-decoding at load time routes\n"
-        "         * putscreen to blendscreen32 memcpy fast path (screen32.c\n"
-        "         * lines 322-332) instead of per-pixel palette LUT in\n"
-        "         * putscreenx8p32. Safe: post-load background->palette is\n"
-        "         * only read by #ifdef CACHE_BACKGROUNDS code path which\n"
-        "         * MISTER build does not define. */\n"
-        "        {\n"
-        "            s_screen *bg32 = allocscreen(background->width, background->height, PIXEL_32);\n"
-        "            if (bg32)\n"
-        "            {\n"
-        "                unsigned *dst32 = (unsigned *)bg32->data;\n"
-        "                unsigned char *src8 = (unsigned char *)background->data;\n"
-        "                unsigned *pal_u32 = (unsigned *)background->palette;\n"
-        "                int total = background->width * background->height;\n"
-        "                int i;\n"
-        "                for (i = 0; i < total; i++)\n"
-        "                {\n"
-        "                    dst32[i] = pal_u32[src8[i]];\n"
-        "                }\n"
-        "                freescreen(&background);\n"
-        "                background = bg32;\n"
-        "            }\n"
-        "        }\n"
-        "    }"
-    )
-    ob_step23 = strict_replace(ob_step23, step23_old, step23_new,
-                                'Step 23: load_background pre-decode 8 -> 32bpp')
-    write(ob_path_step23, ob_step23)
-    print("  openbor.c: load_background pre-decodes 8bpp -> 32bpp; putscreen routes to memcpy fast path.")
+        step23_old = (
+            "    // If background is 8bit color depth, use its color\n"
+            "    // table to populate the global and global neon palettes.\n"
+            "    if (background->pixelformat == PIXEL_x8)\n"
+            "    {\n"
+            "        memcpy(pal, background->palette, PAL_BYTES);\n"
+            "        memcpy(neontable, pal, PAL_BYTES);\n"
+            "    }"
+        )
+        step23_new = (
+            "    // If background is 8bit color depth, use its color\n"
+            "    // table to populate the global and global neon palettes.\n"
+            "    if (background->pixelformat == PIXEL_x8)\n"
+            "    {\n"
+            "        memcpy(pal, background->palette, PAL_BYTES);\n"
+            "        memcpy(neontable, pal, PAL_BYTES);\n"
+            "\n"
+            "        /* Step 23 (v3.1 perf, 2026-05-27): pre-decode 8bpp -> 32bpp.\n"
+            "         * v12 [SP2] showed putscreen is 99% of putother bucket on\n"
+            "         * Avengers (9.78 ms/frame). Pre-decoding at load time routes\n"
+            "         * putscreen to blendscreen32 memcpy fast path (screen32.c\n"
+            "         * lines 322-332) instead of per-pixel palette LUT in\n"
+            "         * putscreenx8p32. Safe: post-load background->palette is\n"
+            "         * only read by #ifdef CACHE_BACKGROUNDS code path which\n"
+            "         * MISTER build does not define. */\n"
+            "        {\n"
+            "            /* MiSTer Path B: pre-decode bg to 16-bit (BGR565) so it\n"
+            "             * memcpy-blits into the 16-bit vscreen (same-format fast path). */\n"
+            "            s_screen *bg16 = allocscreen(background->width, background->height, PIXEL_16);\n"
+            "            if (bg16)\n"
+            "            {\n"
+            "                unsigned short *dst16 = (unsigned short *)bg16->data;\n"
+            "                unsigned char *src8 = (unsigned char *)background->data;\n"
+            "                unsigned short *pal16 = (unsigned short *)background->palette;\n"
+            "                int total = background->width * background->height;\n"
+            "                int i;\n"
+            "                for (i = 0; i < total; i++)\n"
+            "                {\n"
+            "                    dst16[i] = pal16[src8[i]]; /* MiSTer full-16: native 565 palette, direct LUT */\n"
+            "                }\n"
+            "                freescreen(&background);\n"
+            "                background = bg16;\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
+            "    else if (background->pixelformat == PIXEL_32)\n"
+            "    {\n"
+            "        /* MiSTer full-16 (audit concern #1): truecolor (24-bit PNG) bgs load\n"
+            "         * as PIXEL_32 via loadscreen32/pngdec; convert to 565 so they blit\n"
+            "         * into the 16-bit vscreen. No PIXEL_32-src -> PIXEL_16-dest blit path\n"
+            "         * exists, so a PIXEL_32 bg would otherwise render BLACK. */\n"
+            "        s_screen *bg16b = allocscreen(background->width, background->height, PIXEL_16);\n"
+            "        if (bg16b)\n"
+            "        {\n"
+            "            unsigned short *d16 = (unsigned short *)bg16b->data;\n"
+            "            unsigned char *s32 = (unsigned char *)background->data;\n"
+            "            int total2 = background->width * background->height;\n"
+            "            int k;\n"
+            "            for (k = 0; k < total2; k++)\n"
+            "            {\n"
+            "                unsigned char *pp = s32 + (k << 2);\n"
+            "                d16[k] = colour16(pp[0], pp[1], pp[2]); /* RGBA byte0/1/2 = R/G/B -> BGR565 */\n"
+            "            }\n"
+            "            freescreen(&background);\n"
+            "            background = bg16b;\n"
+            "        }\n"
+            "    }"
+        )
+        ob_step23 = strict_replace(ob_step23, step23_old, step23_new,
+                                    'Step 23: load_background pre-decode 8/32 -> 16bpp')
+        write(ob_path_step23, ob_step23)
+        print("  openbor.c: load_background pre-decodes 8/32bpp -> 16bpp (Path B same-format bg blits).")
+    else:
+        print("Patching openbor.c (Step 23: load_background pre-decode 8 -> 32bpp)...")
+        ob_path_step23 = os.path.join(obor, 'openbor.c')
+        ob_step23 = read(ob_path_step23)
+
+        step23_old = (
+            "    // If background is 8bit color depth, use its color\n"
+            "    // table to populate the global and global neon palettes.\n"
+            "    if (background->pixelformat == PIXEL_x8)\n"
+            "    {\n"
+            "        memcpy(pal, background->palette, PAL_BYTES);\n"
+            "        memcpy(neontable, pal, PAL_BYTES);\n"
+            "    }"
+        )
+        step23_new = (
+            "    // If background is 8bit color depth, use its color\n"
+            "    // table to populate the global and global neon palettes.\n"
+            "    if (background->pixelformat == PIXEL_x8)\n"
+            "    {\n"
+            "        memcpy(pal, background->palette, PAL_BYTES);\n"
+            "        memcpy(neontable, pal, PAL_BYTES);\n"
+            "\n"
+            "        /* Step 23 (v3.1 perf, 2026-05-27): pre-decode 8bpp -> 32bpp.\n"
+            "         * v12 [SP2] showed putscreen is 99% of putother bucket on\n"
+            "         * Avengers (9.78 ms/frame). Pre-decoding at load time routes\n"
+            "         * putscreen to blendscreen32 memcpy fast path (screen32.c\n"
+            "         * lines 322-332) instead of per-pixel palette LUT in\n"
+            "         * putscreenx8p32. Safe: post-load background->palette is\n"
+            "         * only read by #ifdef CACHE_BACKGROUNDS code path which\n"
+            "         * MISTER build does not define. */\n"
+            "        {\n"
+            "            s_screen *bg32 = allocscreen(background->width, background->height, PIXEL_32);\n"
+            "            if (bg32)\n"
+            "            {\n"
+            "                unsigned *dst32 = (unsigned *)bg32->data;\n"
+            "                unsigned char *src8 = (unsigned char *)background->data;\n"
+            "                unsigned *pal_u32 = (unsigned *)background->palette;\n"
+            "                int total = background->width * background->height;\n"
+            "                int i;\n"
+            "                for (i = 0; i < total; i++)\n"
+            "                {\n"
+            "                    dst32[i] = pal_u32[src8[i]];\n"
+            "                }\n"
+            "                freescreen(&background);\n"
+            "                background = bg32;\n"
+            "            }\n"
+            "        }\n"
+            "    }"
+        )
+        ob_step23 = strict_replace(ob_step23, step23_old, step23_new,
+                                    'Step 23: load_background pre-decode 8 -> 32bpp')
+        write(ob_path_step23, ob_step23)
+        print("  openbor.c: load_background pre-decodes 8bpp -> 32bpp; putscreen routes to memcpy fast path.")
 
     # ── 4. Step 4 v2 (sprite.c bypass) — RESTORED in v3.7 (2026-05-20).
     #
@@ -4311,6 +4953,351 @@ endif
         "load_cached_model @script anim-wrapper guard", count=2)
     write(obc_path, obc)
 
+    if not HEADLESS:
+        # -- PORTED from vscreen-16bit 2026-07-27: Path B 16-bit vscreen (fps; locked palette pipeline kept 32-bit) --
+        # ============================================================
+        # Path B: 16-bit (RGB565) vscreen for fps -- palette pipeline kept 32-bit
+        # ------------------------------------------------------------
+        # vscreen becomes PIXEL_16, halving blend dest + vcopy bandwidth. The locked
+        # 32-bit palette pipeline is UNTOUCHED: the 16-bit blit functions convert the
+        # effective 32-bit palette to BGR565 internally (engine colour16(), so channel
+        # order matches _color16 + the native_video_writer BGR565->RGB565 swap), so
+        # every call site works unchanged. Blends use arithmetic (blendtables NULL in
+        # 16-bit mode -- blend_*16 fall back to per-channel math). Build 1 keeps the
+        # existing NN downscale (box-average added in Build 2). Pause buffers (B2)
+        # deferred to Build 2 (cosmetic, not a gameplay-color issue).
+        print("Patching for Path B (16-bit vscreen, palette pipeline kept 32-bit)...")
+        obpb_path = os.path.join(obor, 'openbor.c')
+        obpb = read(obpb_path)
+        obpb = strict_replace(obpb,
+            "    if((vscreen = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_32)) == NULL)",
+            "    if((vscreen = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_16)) == NULL) /* MiSTer Path B: 16-bit vscreen (videomodes.pixel auto-updates to 2 -> bpp=16 to WriteFrame) */",
+            'Path B B1: vscreen PIXEL_32 -> PIXEL_16')
+        obpb = strict_replace(obpb,
+            "void create_blend_tables_x8(unsigned char *tables[])\n"
+            "{\n"
+            "    int i;\n"
+            "    for(i = 0; i < MAX_BLENDINGS; i++)\n"
+            "    {\n"
+            "        tables[i] = blending_table_functions32[i] ? (blending_table_functions32[i])() : NULL;\n"
+            "    }\n"
+            "\n"
+            "}",
+            "extern unsigned char *create_screen16_tbl();\n"
+            "extern unsigned char *create_multiply16_tbl();\n"
+            "extern unsigned char *create_overlay16_tbl();\n"
+            "extern unsigned char *create_hardlight16_tbl();\n"
+            "extern unsigned char *create_dodge16_tbl();\n"
+            "void create_blend_tables_x8(unsigned char *tables[])\n"
+            "{\n"
+            "    int i;\n"
+            "    /* MiSTer Path B: 16-bit vscreen. Build the NATIVE 565-indexed blend\n"
+            "     * LUTs (create_*16_tbl) for the 5 divide-heavy modes. Bit-exact with\n"
+            "     * the arithmetic path (each table is precomputed _<mode>16, the same\n"
+            "     * macro the NULL-table fallback evaluates), so colors are identical --\n"
+            "     * only the per-pixel cost changes. A9 benchmark (blend_bench): LUT is\n"
+            "     * 1.3-4.2x faster than the divide path (dodge 4.2x, hardlight 2.4x,\n"
+            "     * overlay 2.1x, multiply 1.4x, screen 1.3x). BLEND_HALF stays NULL:\n"
+            "     * its arithmetic ((a+b)>>1) has no divide and beats the LUT's extra\n"
+            "     * memory traffic (0.96x). videomodes.pixel==2 by the time this runs\n"
+            "     * (video_set_mode precedes create_blend_tables_x8 in startup()). */\n"
+            "    if(videomodes.pixel == 2)\n"
+            "    {\n"
+            "        tables[BLEND_SCREEN]    = create_screen16_tbl();\n"
+            "        tables[BLEND_MULTIPLY]  = create_multiply16_tbl();\n"
+            "        tables[BLEND_OVERLAY]   = create_overlay16_tbl();\n"
+            "        tables[BLEND_HARDLIGHT] = create_hardlight16_tbl();\n"
+            "        tables[BLEND_DODGE]     = create_dodge16_tbl();\n"
+            "        tables[BLEND_HALF]      = NULL;\n"
+            "        return;\n"
+            "    }\n"
+            "    for(i = 0; i < MAX_BLENDINGS; i++)\n"
+            "    {\n"
+            "        tables[i] = blending_table_functions32[i] ? (blending_table_functions32[i])() : NULL;\n"
+            "    }\n"
+            "\n"
+            "}",
+            'Path B B3: 16-bit blend LUTs for divide-heavy modes (benchmarked fps lever)')
+        # B2: backto_mainmenu pause buffer PIXEL_16 (pausemenu's own buffer is
+        # PIXEL_16 via the edited pausemenu_patch.c, applied earlier at the
+        # pausemenu replace_function -- so only the backto_mainmenu site remains
+        # PIXEL_32 here: count=1). Matches vscreen so copyscreen is not a no-op.
+        obpb = strict_replace(obpb,
+            "    s_screen *pausebuffer = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_32);",
+            "    s_screen *pausebuffer = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_16); /* MiSTer Path B: match 16-bit vscreen */",
+            'Path B B2: backto_mainmenu pause buffer PIXEL_16')
+        write(obpb_path, obpb)
+
+        sppb_path = os.path.join(obor, 'source/gamelib/sprite.c')
+        sppb = read(sppb_path)
+        sppb = strict_replace(sppb,
+            "        case PIXEL_16:\n"
+            "            putsprite_x8p16(x, y, drawmethod->flipx, frame, screen, (unsigned short *)drawmethod->table, getblendfunction16(drawmethod->alpha));\n"
+            "            break;",
+            "        case PIXEL_16:\n"
+            "        {\n"
+            "            /* MiSTer full-16: same v3.10 discriminator as the locked PIXEL_32\n"
+            "             * case -- pick the effective palette (NULL bypass -> putsprite_x8p16\n"
+            "             * falls back to frame->palette). Palettes are NATIVE 565\n"
+            "             * (PAL_BYTES=512), so putsprite_x8p16 reads them directly. */\n"
+            "            unsigned *table_arg16 = (frame && frame->palette && drawmethod->has_remap_directive && !drawmethod->has_palette_directive) ? NULL : (unsigned *)drawmethod->table;\n"
+            "            putsprite_x8p16(x, y, drawmethod->flipx, frame, screen, (unsigned short *)table_arg16, getblendfunction16(drawmethod->alpha));\n"
+            "            break;\n"
+            "        }",
+            'Path B B4: PIXEL_16 dispatch v3.10 discriminator')
+        write(sppb_path, sppb)
+
+        # ── Full-16-bit (Path A): flip the palette pipeline to NATIVE RGB565 ──
+        # The engine image decoders (loadimg.c readgif/pcx/bmp/png) choose palette
+        # format by PAL_BYTES: 512 -> colour16 (565), 1024 -> colour32 (RGBA).
+        # Flipping PAL_BYTES to 512 makes EVERY palette natively 565 (decoders,
+        # allocscreen, encodesprite, convert_map_to_palette all auto-track), so the
+        # 16-bit blits read sprite/model/screen palettes DIRECTLY with NO per-blit
+        # conversion. That is why B5/B6 (the convert-at-blit hacks) are GONE: stock
+        # putsprite_x8p16 / putscreenx8p16 consume native-565 palettes correctly.
+        # B4 still picks WHICH 565 palette (discriminator is format-independent).
+        print("Patching for Path A (full 16-bit: native 565 palette pipeline)...")
+        tpb_path = os.path.join(obor, 'source/gamelib/types.h')
+        tpb = read(tpb_path)
+        tpb = strict_replace(tpb,
+            "#define PAL_BYTES ((pixelbytes[(int)PIXEL_32]*256))",
+            "#define PAL_BYTES ((pixelbytes[(int)PIXEL_16]*256)) /* MiSTer full-16: 256*2=512 -> decoders take the colour16 565 path */",
+            'Path A P0: PAL_BYTES -> 16-bit (565)')
+        write(tpb_path, tpb)
+
+        obp = read(obpb_path)
+        # P1: load_palette (.act) fills 565 entries (dp stays used via cast -> no unused-var warning)
+        obp = strict_replace(obp,
+            "            dp[i] = colour32(tpal[0], tpal[1], tpal[2]);",
+            "            ((unsigned short *)dp)[i] = colour16(tpal[0], tpal[1], tpal[2]); /* MiSTer full-16: 565 */",
+            'Path A P1a: load_palette colour32 -> colour16')
+        obp = strict_replace(obp,
+            "        closepackfile(handle);\n"
+            "        dp[0] = 0;",
+            "        closepackfile(handle);\n"
+            "        ((unsigned short *)dp)[0] = 0; /* MiSTer full-16: transparent entry 0 (565) */",
+            'Path A P1b: load_palette transparent entry 565')
+        # P3: convert_map_to_palette per-colour stride -> 2 bytes
+        obp = strict_replace(obp,
+            "    unsigned pb = pixelbytes[(int)PIXEL_32];",
+            "    unsigned pb = pixelbytes[(int)PIXEL_16]; /* MiSTer full-16: 2-byte 565 stride */",
+            'Path A P3: convert_map_to_palette stride -> 16-bit')
+        # P4: neon palette-rotation per-colour stride -> 2 bytes
+        obp = strict_replace(obp,
+            "    int pb = pixelbytes[(int)PIXEL_32];",
+            "    int pb = pixelbytes[(int)PIXEL_16]; /* MiSTer full-16: 2-byte 565 stride */",
+            'Path A P4: neon palette rotation stride -> 16-bit')
+        # P8: HUD primitive colours (_makecolour) -> 565 (box/line/dot/health bars)
+        obp = strict_replace(obp,
+            "    return colour32(r, g, b);",
+            "    return colour16(r, g, b); /* MiSTer full-16: HUD box/line/dot colours 565 */",
+            'Path A P8: _makecolour -> colour16')
+        write(obpb_path, obp)
+
+        # ## #2: inlined-LUT specialized blit in spritex8p16.c (the HOT 16-bit path)
+        # The 16-bit blitter (spritex8p16.c) is what runs in our PIXEL_16 build:
+        # putsprite_x8p16 -> putsprite_blend_{,flip_}, which call the blend fp PER
+        # PIXEL. blend_bench on the A9 showed inlining the LUT lookup + hoisting the
+        # table (one func; the table ptr is the only per-mode difference) is
+        # ~1.25-1.42x faster than the fp-dispatch LUT. Output is bit-identical (same
+        # _color16(tbl[..]) the fp path computes). half + arithmetic (NULL table)
+        # keep the generic fp path.
+        print("Patching spritex8p16.c (#2: inlined-LUT specialized blit)...")
+        s16_path = os.path.join(obor, 'source/gamelib/spritex8p16.c')
+        s16 = read(s16_path)
+        s16 = strict_replace(s16,
+            "void putsprite_x8p16(\n"
+            "    int x, int y, int is_flip, s_sprite *sprite, s_screen *screen,\n"
+            "    unsigned short *remap, blend16fp blend\n"
+            ")",
+            "/* MiSTer #2: inlined-LUT blit -- same RLE walk as putsprite_blend_, but\n"
+            " * the per-pixel blend is the LUT lookup inlined with the table hoisted\n"
+            " * (no per-pixel fp call, no per-pixel blendtables[] reload). One func\n"
+            " * serves every mode; only `tbl` differs. Bit-identical to the fp path. */\n"
+            "#define _b1 (color1>>11)\n"
+            "#define _g1 ((color1&0x7E0)>>5)\n"
+            "#define _r1 (color1&0x1F)\n"
+            "#define _b2 (color2>>11)\n"
+            "#define _g2 ((color2&0x7E0)>>5)\n"
+            "#define _r2 (color2&0x1F)\n"
+            "#define _lutbi ((_b1<<5)|_b2)\n"
+            "#define _lutgi (((_g1<<6)|_g2)+1024)\n"
+            "#define _lutri ((_r1<<5)|_r2)\n"
+            "#define _lutcolor(r,g,b) ( ((b)<<11)|((g)<<5)|(r) )\n"
+            "static void putsprite_lut_(\n"
+            "    unsigned short *dest, int x, int xmin, int xmax, int *linetab, unsigned short *palette, int h, int screenwidth,\n"
+            "    const unsigned char *tbl\n"
+            ")\n"
+            "{\n"
+            "    for(; h > 0; h--, dest += screenwidth)\n"
+            "    {\n"
+            "        register int lx = x;\n"
+            "        unsigned char *data = ((unsigned char *)linetab) + (*linetab);\n"
+            "        linetab++;\n"
+            "        while(lx < xmax)\n"
+            "        {\n"
+            "            register int count = *data++;\n"
+            "            if(count == 0xFF) break;\n"
+            "            lx += count;\n"
+            "            if(lx >= xmax) break;\n"
+            "            count = *data++;\n"
+            "            if(!count) continue;\n"
+            "            if((lx + count) <= xmin) { lx += count; data += count; continue; }\n"
+            "            if(lx < xmin) { int diff = lx - xmin; count += diff; data -= diff; lx = xmin; }\n"
+            "            if((lx + count) > xmax) count = xmax - lx;\n"
+            "            for(; count > 0; count--, lx++)\n"
+            "            {\n"
+            "                unsigned short color1 = palette[*data++], color2 = dest[lx];\n"
+            "                dest[lx] = (unsigned short)_lutcolor(tbl[_lutri], tbl[_lutgi], tbl[_lutbi]);\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+            "static void putsprite_lut_flip_(\n"
+            "    unsigned short *dest, int x, int xmin, int xmax, int *linetab, unsigned short *palette, int h, int screenwidth,\n"
+            "    const unsigned char *tbl\n"
+            ")\n"
+            "{\n"
+            "    for(; h > 0; h--, dest += screenwidth)\n"
+            "    {\n"
+            "        register int lx = x;\n"
+            "        unsigned char *data = ((unsigned char *)linetab) + (*linetab);\n"
+            "        linetab++;\n"
+            "        while(lx > xmin)\n"
+            "        {\n"
+            "            register int count = *data++;\n"
+            "            if(count == 0xFF) break;\n"
+            "            lx -= count;\n"
+            "            if(lx <= xmin) break;\n"
+            "            count = *data++;\n"
+            "            if(!count) continue;\n"
+            "            if((lx - count) >= xmax) { lx -= count; data += count; continue; }\n"
+            "            if(lx > xmax) { int diff = (lx - xmax); count -= diff; data += diff; lx = xmax; }\n"
+            "            if((lx - count) < xmin) count = lx - xmin;\n"
+            "            for(; count > 0; count--)\n"
+            "            {\n"
+            "                --lx;\n"
+            "                unsigned short color1 = palette[*data++], color2 = dest[lx];\n"
+            "                dest[lx] = (unsigned short)_lutcolor(tbl[_lutri], tbl[_lutgi], tbl[_lutbi]);\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+            "#undef _b1\n#undef _g1\n#undef _r1\n#undef _b2\n#undef _g2\n#undef _r2\n"
+            "#undef _lutbi\n#undef _lutgi\n#undef _lutri\n#undef _lutcolor\n"
+            "\n"
+            "void putsprite_x8p16(\n"
+            "    int x, int y, int is_flip, s_sprite *sprite, s_screen *screen,\n"
+            "    unsigned short *remap, blend16fp blend\n"
+            ")",
+            '#2: insert putsprite_lut_ + _flip_ before putsprite_x8p16')
+        s16 = strict_replace(s16,
+            "    else if(blend)\n"
+            "    {\n"
+            "        if(is_flip)\n"
+            "        {\n"
+            "            putsprite_blend_flip_(dest, x, xmin, xmax, linetab, m , h, screenwidth, blend);\n"
+            "        }\n"
+            "        else\n"
+            "        {\n"
+            "            putsprite_blend_     (dest, x, xmin, xmax, linetab, m , h, screenwidth, blend);\n"
+            "        }\n"
+            "    }",
+            "    else if(blend)\n"
+            "    {\n"
+            "        /* MiSTer #2: built-LUT modes (screen/multiply/overlay/hardlight/\n"
+            "         * dodge = blendfunctions16[0..4]) take the inlined-LUT blit. half\n"
+            "         * (idx 5) + arithmetic (NULL table) fall through to the fp path. */\n"
+            "        unsigned char *lut = NULL; int _bi;\n"
+            "        for(_bi = 0; _bi < 5; _bi++) { if(blend == blendfunctions16[_bi]) { lut = blendtables[_bi]; break; } }\n"
+            "        if(lut)\n"
+            "        {\n"
+            "            if(is_flip) putsprite_lut_flip_(dest, x, xmin, xmax, linetab, m , h, screenwidth, lut);\n"
+            "            else        putsprite_lut_     (dest, x, xmin, xmax, linetab, m , h, screenwidth, lut);\n"
+            "        }\n"
+            "        else if(is_flip)\n"
+            "        {\n"
+            "            putsprite_blend_flip_(dest, x, xmin, xmax, linetab, m , h, screenwidth, blend);\n"
+            "        }\n"
+            "        else\n"
+            "        {\n"
+            "            putsprite_blend_     (dest, x, xmin, xmax, linetab, m , h, screenwidth, blend);\n"
+            "        }\n"
+            "    }",
+            '#2: dispatch built-LUT modes to inlined-LUT blit')
+        write(s16_path, s16)
+        print("  spritex8p16.c: #2 inlined-LUT specialized blit (screen/multiply/overlay/hardlight/dodge).")
+
+        # ## #1: port spritex8p32 Step 22/26 NEON copy to spritex8p16.c (the HOT path)
+        # 8x unroll + NEON 128-bit store (vst1q_u16 = 8 px/store) + source prefetch,
+        # adapted from the cold 32-bit blitter. Scalar palette[idx] gather kept (A9
+        # has no NEON gather; the live LUT keeps flash/remap correct). Output
+        # byte-identical to the stock copy loop.
+        print("Patching spritex8p16.c (#1: NEON copy ported from spritex8p32 Step 22/26)...")
+        s16b = read(s16_path)
+        s16b = strict_replace(s16b,
+            '#include "types.h"',
+            '#include "types.h"\n#ifdef __ARM_NEON\n#include <arm_neon.h>\n#endif',
+            '#1: arm_neon.h include in spritex8p16.c')
+        s16b = strict_replace(s16b,
+            "            if((lx + count) > xmax)\n"
+            "            {\n"
+            "                count = xmax - lx;\n"
+            "            }\n"
+            "            for(; count > 0; count--)\n"
+            "            {\n"
+            "                dest[lx++] = palette[*data++];\n"
+            "            }\n"
+            "            //u16pcpy(dest+lx, data, palette, count);\n"
+            "            //lx+=count;\n"
+            "            //data+=count;",
+            "            if((lx + count) > xmax)\n"
+            "            {\n"
+            "                count = xmax - lx;\n"
+            "            }\n"
+            "            /* MiSTer #1 (ported from spritex8p32 Step 22/26 -> 16-bit):\n"
+            "             *  8x unroll + NEON 128-bit store (vst1q_u16 = 8 px) + src\n"
+            "             *  prefetch. Scalar palette[idx] gather kept (no A9 NEON\n"
+            "             *  gather; live LUT keeps flash/remap correct). */\n"
+            "            __builtin_prefetch(data + 128, 0, 0);\n"
+            "            __builtin_prefetch(data + 192, 0, 0);\n"
+            "            {\n"
+            "                unsigned short * const __restrict__ pal_r = palette;\n"
+            "                unsigned char *data_p = data;\n"
+            "                unsigned short *dest_p = &dest[lx];\n"
+            "                while(count >= 8)\n"
+            "                {\n"
+            "                    unsigned short p0 = pal_r[data_p[0]];\n"
+            "                    unsigned short p1 = pal_r[data_p[1]];\n"
+            "                    unsigned short p2 = pal_r[data_p[2]];\n"
+            "                    unsigned short p3 = pal_r[data_p[3]];\n"
+            "                    unsigned short p4 = pal_r[data_p[4]];\n"
+            "                    unsigned short p5 = pal_r[data_p[5]];\n"
+            "                    unsigned short p6 = pal_r[data_p[6]];\n"
+            "                    unsigned short p7 = pal_r[data_p[7]];\n"
+            "#ifdef __ARM_NEON\n"
+            "                    vst1q_u16((uint16_t *)dest_p, (uint16x8_t){p0, p1, p2, p3, p4, p5, p6, p7});\n"
+            "#else\n"
+            "                    dest_p[0] = p0; dest_p[1] = p1; dest_p[2] = p2; dest_p[3] = p3;\n"
+            "                    dest_p[4] = p4; dest_p[5] = p5; dest_p[6] = p6; dest_p[7] = p7;\n"
+            "#endif\n"
+            "                    dest_p += 8;\n"
+            "                    data_p += 8;\n"
+            "                    count  -= 8;\n"
+            "                }\n"
+            "                while(count > 0)\n"
+            "                {\n"
+            "                    *dest_p++ = pal_r[*data_p++];\n"
+            "                    count--;\n"
+            "                }\n"
+            "                lx   = (int)(dest_p - dest);\n"
+            "                data = data_p;\n"
+            "            }",
+            '#1: putsprite_ 8x-unroll + NEON u16 store (ported from 32-bit)')
+        write(s16_path, s16b)
+
+
+
     # ── POST-APPLY INTEGRITY GATE (2026-07-26) ──────────────────────────────
     # Prevents the class of failure where a patch APPLIES in memory (strict_replace
     # succeeds -> "All patches applied") but never PERSISTS to disk -- e.g. an
@@ -4331,11 +5318,23 @@ endif
                 'drawmethod->has_remap_directive = e->modeldata',   # render copy -- the exact line 5c89107 dropped
                 'newchar->has_remap_directive = 1',                 # CMD_MODEL_REMAP sets it (step 0c)
                 'prepare_sprite_map',                               # hash-map loadsprite optimization
+                'mister_scache_lookup',                             # anim-script dedup cache (ported from vscreen-16bit)
+                'mister_ccache_lookup',                             # command-script dedup cache
+                'MiSTer PDC2 fix',                                  # no-model at-entry MODEL_INDEX_NONE
+                'PIXEL_16)) == NULL',                               # Path B: 16-bit vscreen
                 'int mrec_mode = 0;',                               # raw-input recorder global
                 'title-anchored raw-input recorder',                # recorder hook body
             ],
             'source/gamelib/sprite.c': [
                 'has_remap_directive && !drawmethod->has_palette_directive',  # step 4 v2 gate
+                'table_arg16',                                      # Path B B4: PIXEL_16 dispatch v3.10 discriminator
+            ],
+            'source/gamelib/spritex8p16.c': [
+                'blendfunctions16[_bi]',                            # 16-bit inlined-LUT blit (#2)
+            ],
+            'openborscript.c': [
+                'mister_script_alias_fresh(Script *pdest',          # dedup bit-exact alias helper
+                'mister_script_compile_noinit',                     # cmd-dedup compile-without-init
             ],
             'openbor.h': [
                 'has_remap_directive',                              # s_model struct field
