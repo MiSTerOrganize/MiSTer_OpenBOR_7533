@@ -171,18 +171,23 @@ by hand. That makes an issue easy to pin down and easy to confirm once it's fixe
 (replay the same recording and see if it's gone). The `.inp` file captures the whole
 run, so you can keep it or share it.
 
-**Recordings are saved as `.inp` files** in `/media/fat/saves/OpenBOR_7533/`
-(one per PAK: `<pak>.inp`).
+**Recordings are saved as `.inp` files** in `/media/fat/games/OpenBOR/Replays/`.
+Each **Stop Recording** saves a **new numbered file** — `<pak>_1.inp`, `<pak>_2.inp`,
+… — so a new recording never overwrites an older one; you build a library per PAK.
+Each `.inp` is stamped with the engine version it was recorded on; if a later core
+update changes the game logic, an old replay may drift (a note is logged) — just
+press any button to take over.
 
 **From the pause menu** (START → **Recording**):
 
 - **Record** — restarts the PAK and records everything from the title screen
   through your play. (It records from the start so playback can reproduce the
   run exactly.)
-- **Stop Recording** — saves the recording to `<pak>.inp` and drops you back
-  into the game.
-- **Play Recording** — restarts the PAK and plays your recording back
-  hands-free, driving through the menus into the game on its own.
+- **Stop Recording** — saves the recording to a new numbered `<pak>_N.inp` and
+  drops you back into the game.
+- **Play Recording** — restarts the PAK and plays your **latest** recording back
+  hands-free, driving through the menus into the game on its own. (To play an
+  older one, use the MiSTer OSD "Load Replay" and pick it.)
 - **Stop Playback** — end playback and take control.
 - **Take over any time** — during playback, just press any button and the
   automated inputs stop instantly so you can play.
@@ -190,8 +195,10 @@ run, so you can keep it or share it.
 **From the MiSTer OSD** (a second way to launch a replay):
 
 1. **Load PAK** — pick the PAK you want.
-2. **Load Replay** — pick the matching `.inp` file. The PAK restarts and the
-   recording plays back hands-free (press any button to take over).
+2. **Load Replay** — open the **`Replays`** folder and pick the matching `.inp`
+   file. The PAK restarts and the recording plays back hands-free (press any
+   button to take over). You can re-load the same recording as many times as you
+   like.
 
 Playback is bit-for-bit accurate: recording and replay both start from a PAK
 restart, the random-number seed is captured and restored, and the engine's
