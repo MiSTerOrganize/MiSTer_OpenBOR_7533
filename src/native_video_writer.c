@@ -61,20 +61,20 @@ static uint32_t frame_counter = 0;
 static int active_buf = 0;
 
 bool NativeVideoWriter_Init(void) {
-    /* 2026-06-07 affinity fix: pin this (engine/render/main) thread to core 1.
-     * The handler now launches with taskset 0x03 (both cores); previously 0x02
-     * (core 1 only) silently EINVAL'd the audio thread's core-0 pin. Pinning
-     * render to core 1 keeps it on its cache-warm core while audio moves to
-     * core 0 (sblaster_patch.c), so audio stops contending with the render loop.
-     * Init runs once at startup on the main thread, so this pins the render thread. */
+    /* 2026-06-13 affinity INVERSION: pin this (engine/render/main) thread to core 0.
+     * mem_bench shows core 0 has ~1.85x core 1's DDR3 read bandwidth; the sprite
+     * blend/render pass is memory-bound, so render belongs on the bandwidth-fast
+     * core 0 (validated +81% on He-Man). Audio moves to core 1 (sblaster_patch.c).
+     * The handler launches with taskset 0x03 (both cores). Init runs once at startup
+     * on the main thread, so this pins the render thread. */
     {
         cpu_set_t _cs;
         CPU_ZERO(&_cs);
-        CPU_SET(1, &_cs);
+        CPU_SET(0, &_cs);
         if (sched_setaffinity(0, sizeof(_cs), &_cs) != 0) {
-            perror("NativeVideoWriter: sched_setaffinity core 1");
+            perror("NativeVideoWriter: sched_setaffinity core 0");
         } else {
-            fprintf(stderr, "NativeVideoWriter: render thread pinned to core 1\n");
+            fprintf(stderr, "NativeVideoWriter: render thread pinned to core 0\n");
         }
     }
 
