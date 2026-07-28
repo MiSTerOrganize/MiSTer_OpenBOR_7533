@@ -38,20 +38,33 @@
  *   grid+tight : both. Measured because "fewer candidates AND fewer checks"
  *                sounds strictly better -- it is not; see FINDINGS below.
  *
- * FINDINGS (x86 dev-box run, 2026-07-28 -- re-measure on the A9):
+ * FINDINGS -- MEASURED ON THE REAL A9 (2026-07-28, dev MiSTer, taskset 0x01,
+ * MiSTer=1 / no hybrid core running / load 0.65 -> no contention):
+ *
+ *   scene   N=400   shipped   tight    grid     grid+tight
+ *   screen          2.2988    1.7910   1.5498   1.5171   ms   (grid 1.48x)
+ *   wide            6.5027    8.0739   1.6612   1.6385   ms   (grid 3.91x)
+ *   dense           0.9443    0.8631   0.9567   0.8740   ms   (grid 0.99x)
+ *
  *   - The bucket is dominated by the O(N^2) *visit* loop, NOT by
  *     check_entity_collision: that function early-outs at its own z-cull for
  *     almost every surviving pair, so a pair costs little more than a visit.
- *   - Therefore `tight` (fewer checks, more work per visit) is a NET LOSS on
- *     sparse scenes -- down to 0.68x -- and `grid+tight` is consistently worse
- *     than `grid` alone. Do not stack them.
- *   - `grid` (fewer visits, shipped body unchanged) is the real lever:
- *       wide/scrolling level  3.4-3.8x     <- what a heavy PAK looks like
- *       single screen         1.2-1.6x
- *       degenerate/dense      ~1.0x        <- bypass, never a regression
- *   - Both are still O(N^2) in a FIXED-size level (doubling N doubles density,
- *     so the window fills up too). The grid cuts the constant by the
- *     level-span / window-span ratio; it does not change the exponent.
+ *   - `grid` (fewer visits, shipped body unchanged) is the lever, and its win
+ *     GROWS with entity count on a scrolling level: 2.61x @ N=50 -> 3.28x @ 100
+ *     -> 3.65x @ 200 -> 3.91x @ 400. At N=400 that is 6.50 -> 1.66 ms, i.e.
+ *     ~4.8 ms/frame returned (~29% of a 16.7 ms frame).
+ *   - `tight` is a NET LOSS on the A9 exactly as on x86 (0.78-0.84x on the wide
+ *     scene): the extra per-visit arithmetic costs more than the checks it
+ *     avoids. **QEMU said the opposite (1.4-1.7x win) -- it models neither
+ *     cache nor branch prediction. Do not trust QEMU for this kind of call.**
+ *   - `grid+tight` is NOT meaningfully better than `grid` alone (3.97x vs 3.91x
+ *     wide, 1.52x vs 1.48x screen). Ship the grid alone; stacking buys ~1% for
+ *     a per-entity extent array in the hot path. Do not stack them.
+ *   - Still O(N^2) in a FIXED-size level (doubling N doubles density, so the
+ *     window fills up too). The grid cuts the constant by the level-span /
+ *     window-span ratio; it does not change the exponent.
+ *   - The dense scene confirms the bypass works: 0.99x, i.e. no regression when
+ *     the level is too small for bucketing to pay.
  *
  * EQUIVALENCE (why tight/grid are behaviour-preserving, not approximations):
  *   1. check_entity_collision() has NO side effects when it returns 0 -- the
