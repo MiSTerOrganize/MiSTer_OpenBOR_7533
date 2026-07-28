@@ -38,6 +38,31 @@
  *   grid+tight : both. Measured because "fewer candidates AND fewer checks"
  *                sounds strictly better -- it is not; see FINDINGS below.
  *
+ * 🛑🛑 FIELD VERDICT 2026-07-28: **DO NOT BUILD THE ENGINE PATCH.** The grid is
+ * real and 3.91x on this bench, but an in-engine [ARR] probe on the heaviest
+ * PAK in the library (Justice League Legacy, 52 s load) measured what actually
+ * happens on hardware:
+ *
+ *     ent_max avg 9-11, PEAK 18          <- the whole question
+ *     arrange = 1.7-2.5% of frame typical, 4.9% worst observed
+ *              (129-386 us/frame), frame 7.4-8.3 ms at 120-135 fps
+ *
+ * Real entity counts are ~18 at peak -- BELOW this bench's smallest data point
+ * (N=50). At N=18 the entire ent_list fits in L1 and the linear scan is close
+ * to free; the grid's per-pass build + 3-way merge would cost more than it
+ * saves, so the measured 2.61x-3.91x (N=50-400) simply does not apply. And
+ * arrange_ents CONTAINS gravity/move/bind, so the collision share of that
+ * 1.7-2.5% is smaller still. Best case the grid would return well under 1% of
+ * a frame that is already running at twice 60 fps.
+ *
+ * WHY THE BENCH LOOKED SO PROMISING: it swept N=50-400, a regime no real PAK
+ * reaches. Step 14's B+E cull (2026-05-26) had already taken this bucket's win;
+ * the historical "28-42% of entity-tick" figure predates it and is what made
+ * arrange still look like a hotspot. Keep this bench -- it is correct, it is
+ * the thing that priced the idea honestly, and it is ready if a future PAK ever
+ * pushes entity counts into the hundreds. Just do not spend engine risk near
+ * the locked palette path on it today.
+ *
  * FINDINGS -- MEASURED ON THE REAL A9 (2026-07-28, dev MiSTer, taskset 0x01,
  * MiSTer=1 / no hybrid core running / load 0.65 -> no contention):
  *
