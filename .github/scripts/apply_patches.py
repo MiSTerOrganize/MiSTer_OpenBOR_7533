@@ -3413,6 +3413,96 @@ endif
                         'Step 14: B+E entity-collision optimization (filter non-collidable + 256px rect cull)')
     print("  Step 14: B+E entity-collision cull -- expected 5-10x speedup on arrange bucket")
 
+    # -- TEMPORARY DIAG 2026-07-28 (REVERT AFTER MEASURED) -- [ARR] arrange bucket.
+    #
+    # Answers ONE question before the collision spatial grid earns an engine
+    # patch: how big is the arrange bucket on TODAY's engine, and at what live
+    # entity count? collision_bench says a grid is worth 3.91x on the pass, but
+    # the pass's share of the frame is unmeasured POST-Step-14 -- the historical
+    # "28-42% of entity-tick" figure predates Step 14's B+E cull, which already
+    # claimed 5-10x on this bucket, so it CANNOT be reused.
+    #
+    # Measures arrange_ents() (which CONTAINS check_entity_collision_for) once
+    # per tick at ms resolution, accumulated over ~5 s, plus the live entity
+    # count -- ent_max is what maps the measurement onto the bench's N curve.
+    # Deliberately does NOT try to time check_entity_collision_for alone: that
+    # is per-entity microseconds against a 1 ms clock, and hoisting it out of
+    # ent_post_update to time it would reorder gravity/collision/move and change
+    # behaviour. arrange_ents total is a clean upper bound and a sufficient
+    # go/no-go (collision is a subset of it).
+    arr_globals_old = "void arrange_ents()"
+    arr_globals_new = (
+        "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [ARR] arrange bucket. */\n"
+        "unsigned int _mister_arr_ms = 0;\n"
+        "unsigned int _mister_arr_ticks = 0;\n"
+        "unsigned int _mister_arr_ent_peak = 0;\n"
+        "unsigned int _mister_arr_ent_sum = 0;\n"
+        "unsigned int _mister_arr_frames = 0;\n"
+        "unsigned int _mister_arr_t_last = 0;\n"
+        "\n"
+        "void arrange_ents()"
+    )
+    ob = strict_replace(ob, arr_globals_old, arr_globals_new,
+                        'TEMPORARY DIAG: [ARR] globals')
+
+    # timer + entity-count sample around the per-tick arrange_ents() call
+    arr_time_old = (
+        "    }//end of for\n"
+        "    arrange_ents();"
+    )
+    arr_time_new = (
+        "    }//end of for\n"
+        "    {\n"
+        "        unsigned int _arr_t0 = timer_gettick();  /* TEMPORARY DIAG */\n"
+        "        arrange_ents();\n"
+        "        _mister_arr_ms += timer_gettick() - _arr_t0;\n"
+        "        _mister_arr_ticks++;\n"
+        "        _mister_arr_ent_sum += (unsigned int)ent_max;\n"
+        "        if((unsigned int)ent_max > _mister_arr_ent_peak) _mister_arr_ent_peak = (unsigned int)ent_max;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, arr_time_old, arr_time_new,
+                        'TEMPORARY DIAG: [ARR] timer + entity-count sample around arrange_ents()')
+
+    # periodic report, gameplay-only (title/menu/pause auto-skipped)
+    arr_print_old = (
+        "    if(ingame == 1 && !_pause)\n"
+        "    {\n"
+        "        draw_scrolled_bg();"
+    )
+    arr_print_new = (
+        "    if(ingame == 1 && !_pause)\n"
+        "    {\n"
+        "        /* TEMPORARY DIAG -- REVERT AFTER MEASURED -- log [ARR] every ~5 s */\n"
+        "        {\n"
+        "            unsigned int _now_ms = timer_gettick();\n"
+        "            if(_mister_arr_t_last == 0) _mister_arr_t_last = _now_ms;\n"
+        "            _mister_arr_frames++;\n"
+        "            if(_now_ms - _mister_arr_t_last >= 5000) {\n"
+        "                unsigned int itv = _now_ms - _mister_arr_t_last;\n"
+        "                unsigned int fps_x10 = (_mister_arr_frames * 10000u) / itv;\n"
+        "                unsigned int frame_us = (_mister_arr_frames) ? (itv * 1000u) / _mister_arr_frames : 0u;\n"
+        "                unsigned int arr_us = (_mister_arr_frames) ? (_mister_arr_ms * 1000u) / _mister_arr_frames : 0u;\n"
+        "                unsigned int pct_x10 = (itv) ? (_mister_arr_ms * 1000u) / itv : 0u;\n"
+        "                unsigned int ent_avg = (_mister_arr_ticks) ? _mister_arr_ent_sum / _mister_arr_ticks : 0u;\n"
+        "                printf(\"[ARR] fps=%u.%u frame=%uus | arrange=%ums/%ums (%u.%u%% of frame, %uus/frame) | ent_max avg=%u peak=%u | frames=%u ticks=%u\\n\",\n"
+        "                       fps_x10 / 10u, fps_x10 % 10u,\n"
+        "                       frame_us,\n"
+        "                       _mister_arr_ms, itv,\n"
+        "                       pct_x10 / 10u, pct_x10 % 10u,\n"
+        "                       arr_us,\n"
+        "                       ent_avg, _mister_arr_ent_peak,\n"
+        "                       _mister_arr_frames, _mister_arr_ticks);\n"
+        "                _mister_arr_ms = 0; _mister_arr_ticks = 0; _mister_arr_ent_sum = 0;\n"
+        "                _mister_arr_frames = 0; _mister_arr_t_last = _now_ms;\n"
+        "            }\n"
+        "        }\n"
+        "        draw_scrolled_bg();"
+    )
+    ob = strict_replace(ob, arr_print_old, arr_print_new,
+                        'TEMPORARY DIAG: [ARR] periodic report')
+    print("  TEMPORARY DIAG [ARR] inserted (arrange bucket ms + ent_max) -- REVERT AFTER MEASURED")
+
     # -- Step 15 (2026-05-26): Path 1 reorder of normal_find_target() loop body.
     #
     # SUB-PROFILE v8 data identified ai as He-Man's #2 bottleneck (23.4% of
