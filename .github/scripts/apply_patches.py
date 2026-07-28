@@ -5094,6 +5094,96 @@ endif
             'Path A P8: _makecolour -> colour16')
         write(obpb_path, obp)
 
+        # P9: anigif (cutscene/intro GIF) frame buffers PIXEL_32 -> PIXEL_16.
+        # anigif's pal correctly tracks PAL_BYTES (now 512 -> colour16 565), but its
+        # frame buffers were PIXEL_32: the PIXEL_32 decode path reads the 565 pal as
+        # 4-byte entries (garbage + OOB) and the PIXEL_32 frame has no blit path into
+        # the 16-bit vscreen -> the playscene/playgif cutscenes render BLACK. Making
+        # the buffers PIXEL_16 routes decode through the 565-correct case + lets the
+        # frame blit via blendscreen16. (Both allocscreen calls -- backbuffer + the
+        # gifbuffer ring -- match this anchor: count=2.)
+        ag_path = os.path.join(obor, 'source/gamelib/anigif.c')
+        ag = read(ag_path)
+        ag = strict_replace(ag,
+            "gif_header.screenheight, PIXEL_32);",
+            "gif_header.screenheight, PIXEL_16); /* MiSTer full-16: 565 GIF frames blit into the 16-bit vscreen */",
+            'Path A P9: anigif frame buffers PIXEL_32 -> PIXEL_16', count=2)
+        write(ag_path, ag)
+
+        # P10 (audit concern #2): cart script-allocated screens PIXEL_32 -> PIXEL_16.
+        # Carts do allocscreen()+drawscreen() onto the vscreen; a PIXEL_32 script
+        # screen has no blit path into the 16-bit vscreen (and the scaled path
+        # misreads it) -> black/garbage. Match the 16-bit pipeline.
+        obs_path = os.path.join(obor, 'openborscript.c')
+        obs = read(obs_path)
+        obs = strict_replace(obs,
+            "    screen = allocscreen((int)w, (int)h, PIXEL_32);",
+            "    screen = allocscreen((int)w, (int)h, PIXEL_16); /* MiSTer full-16: match 16-bit vscreen so drawscreen blits */",
+            'Path A P10: script allocscreen PIXEL_32 -> PIXEL_16')
+        write(obs_path, obs)
+
+        # P11 (audit concern #3): the gamelib PNG PLTE decoder writes colour32 UNGATED
+        # (unlike readgif/pcx/bmp which switch on PAL_BYTES). With PAL_BYTES=512 a
+        # 256-colour paletted PNG writes 1024 bytes into a 512-byte palette (heap
+        # overflow) AND stores RGBA where 565 is expected. Gate it like the others.
+        li_path = os.path.join(obor, 'source/gamelib/loadimg.c')
+        li = read(li_path)
+        li = strict_replace(li,
+            "            int *pal32 = (int*) pal;\n"
+            "            if (chunk_size % 3 != 0)\n"
+            "            {\n"
+            "                goto readpng_abort;\n"
+            "            }\n"
+            "            for (i = 0; i < ncolors; i++)\n"
+            "            {\n"
+            "                pal32[i] = colour32(png_data_ptr[0], png_data_ptr[1], png_data_ptr[2]);\n"
+            "                png_data_ptr += 3;\n"
+            "            }",
+            "            /* MiSTer full-16: gate PLTE palette on PAL_BYTES like readgif/pcx/bmp\n"
+            "             * (512 -> colour16 565). Ungated colour32 overflowed the now-512-byte\n"
+            "             * palette and wrote RGBA into a 565 buffer. */\n"
+            "            if (chunk_size % 3 != 0)\n"
+            "            {\n"
+            "                goto readpng_abort;\n"
+            "            }\n"
+            "            for (i = 0; i < ncolors; i++)\n"
+            "            {\n"
+            "                if (PAL_BYTES == 512)\n"
+            "                    ((unsigned short *)pal)[i] = colour16(png_data_ptr[0], png_data_ptr[1], png_data_ptr[2]);\n"
+            "                else\n"
+            "                    ((int *)pal)[i] = colour32(png_data_ptr[0], png_data_ptr[1], png_data_ptr[2]);\n"
+            "                png_data_ptr += 3;\n"
+            "            }",
+            'Path A P11: PNG PLTE palette gate on PAL_BYTES')
+        # 2026-06-14 #3 (decode-CPU): hoist the per-output-pixel loop invariants in
+        # decodegifblock. `height - gb->top` and `gb->left + gb->width` are loop-
+        # invariant, but -O2 re-loads gb->* every pixel (it can't prove gb doesn't
+        # alias the linebuffer[] store). Precompute to const locals. BIT-EXACT: every
+        # hoisted term is read-only inside the loop; only `line` mutates and stays in
+        # the compare. Targets the hottest loop (runs once per decoded pixel).
+        li = strict_replace(li,
+            "    int line = 0;\n"
+            "    int byte = gb->left;\n"
+            "    int pass = 0;",
+            "    int line = 0;\n"
+            "    int byte = gb->left;\n"
+            "    int pass = 0;\n"
+            "    const int row_end = gb->left + gb->width; /* MiSTer #3: hoist per-pixel invariant */\n"
+            "    const int max_line = height - gb->top;    /* MiSTer #3: hoist per-pixel invariant */",
+            '#3 decode-CPU: precompute per-pixel loop invariants in decodegifblock')
+        li = strict_replace(li,
+            "            if(byte < width && line < (height - gb->top))",
+            "            if(byte < width && line < max_line)",
+            '#3 decode-CPU: use hoisted max_line in bounds check')
+        li = strict_replace(li,
+            "            if(byte >= gb->left + gb->width)",
+            "            if(byte >= row_end)",
+            '#3 decode-CPU: use hoisted row_end in row-end test')
+        write(li_path, li)
+        print("  Path A: PAL_BYTES=512 native 565; load_palette/convert_map/neon/HUD/PNG-PLTE -> colour16; anigif+script+truecolor-bg 16-bit; convert-at-blit removed.")
+        print("  #3 decode-CPU: decodegifblock per-pixel invariant hoist (bit-exact).")
+
+
         # ## #2: inlined-LUT specialized blit in spritex8p16.c (the HOT 16-bit path)
         # The 16-bit blitter (spritex8p16.c) is what runs in our PIXEL_16 build:
         # putsprite_x8p16 -> putsprite_blend_{,flip_}, which call the blend fp PER
@@ -5335,6 +5425,13 @@ endif
             'openborscript.c': [
                 'mister_script_alias_fresh(Script *pdest',          # dedup bit-exact alias helper
                 'mister_script_compile_noinit',                     # cmd-dedup compile-without-init
+                'match 16-bit vscreen so drawscreen blits',         # P10: script allocscreen PIXEL_16
+            ],
+            'source/gamelib/anigif.c': [
+                '565 GIF frames blit into the 16-bit vscreen', # P9: anigif buffers PIXEL_16 (black-cutscene fix)
+            ],
+            'source/gamelib/loadimg.c': [
+                'PAL_BYTES == 512',                             # P11: PNG PLTE 565 gate (heap-overflow fix)
             ],
             'openbor.h': [
                 'has_remap_directive',                              # s_model struct field
