@@ -3522,6 +3522,25 @@ endif
         "                           _mister_tb0_fast_ms, _mister_tb0_slow_ms,\n"
         "                           _ftpct / 10u, _ftpct % 10u);\n"
         "                }\n"
+        "                {\n"
+        "                    static const char *_bn[8] = {\"opaque\",\"SCREEN\",\"MULTIPLY\",\"OVERLAY\",\"HARDLIGHT\",\"DODGE\",\"HALF\",\"OOR\"};\n"
+        "                    unsigned int _i, _tc = 0, _tp = 0;\n"
+        "                    for(_i = 0; _i < 8; _i++) { _tc += _mister_tbb_calls[_i]; _tp += _mister_tbb_px[_i]; }\n"
+        "                    printf(\"[TBB] blend modes on the FAST path:\\n\");\n"
+        "                    for(_i = 0; _i < 8; _i++) {\n"
+        "                        unsigned int _cp, _pp;\n"
+        "                        if(!_mister_tbb_calls[_i]) continue;\n"
+        "                        _cp = _tc ? (_mister_tbb_calls[_i] * 1000u) / _tc : 0u;\n"
+        "                        _pp = _tp ? (_mister_tbb_px[_i] * 1000u) / _tp : 0u;\n"
+        "                        printf(\"[TBB]   %-9s alpha=%u  calls=%7u (%u.%u%%)  px=%7uK (%u.%u%%)\\n\",\n"
+        "                               _bn[_i], _i, _mister_tbb_calls[_i], _cp/10u, _cp%10u,\n"
+        "                               _mister_tbb_px[_i]/1024u, _pp/10u, _pp%10u);\n"
+        "                    }\n"
+        "                    printf(\"[TBB] tint-override=%u  rgbchannel(mode6)=%u  with-remap-table=%u  total=%u calls\\n\",\n"
+        "                           _mister_tbb_tint, _mister_tbb_chan, _mister_tbb_remap, _tc);\n"
+        "                    for(_i = 0; _i < 8; _i++) { _mister_tbb_calls[_i] = 0; _mister_tbb_px[_i] = 0; }\n"
+        "                    _mister_tbb_tint = 0; _mister_tbb_chan = 0; _mister_tbb_remap = 0;\n"
+        "                }\n"
         "                _mister_arr_ms = 0; _mister_arr_ticks = 0; _mister_arr_ent_sum = 0;\n"
         "                _mister_cmp_spriteq_ms = 0; _mister_cmp_putsprite_ms = 0; _mister_cmp_putscreen_ms = 0;\n"
         "                _mister_cmp_other_ms = 0; _mister_cmp_putsprite_n = 0; _mister_cmp_putscreen_n = 0;\n"
@@ -3566,7 +3585,18 @@ endif
         "unsigned int _mister_tb0_slow = 0;           /* blits needing scale/rot/water/etc*/\n"
         "int _mister_tb0_is_slow = 0;                 /* which path the last blit took    */\n"
         "unsigned int _mister_tb0_fast_ms = 0;        /* TIME in the offloadable path      */\n"
-        "unsigned int _mister_tb0_slow_ms = 0;        /* TIME in the CPU-only fallback     */\n",
+        "unsigned int _mister_tb0_slow_ms = 0;        /* TIME in the CPU-only fallback     */\n"
+        "/* [TBB] Phase 1b blend histogram. drawmethod->alpha is NOT an alpha level --\n"
+        " * it is a blend MODE INDEX: 0=opaque (fp NULL), 1=SCREEN, 2=MULTIPLY,\n"
+        " * 3=OVERLAY, 4=HARDLIGHT, 5=DODGE, 6=HALF -- see getblendfunction16(),\n"
+        " * pixelformat.c:629. A global tintmode>0 overrides fp with blend_tint16;\n"
+        " * usechannel turns mode 6 into blend_rgbchannel16. Counted per CALL and per\n"
+        " * PIXEL so a mode used by one huge sprite is not hidden by 20 tiny ones. */\n"
+        "unsigned int _mister_tbb_calls[8] = {0,0,0,0,0,0,0,0};\n"
+        "unsigned int _mister_tbb_px[8]    = {0,0,0,0,0,0,0,0};\n"
+        "unsigned int _mister_tbb_tint = 0;   /* fp overridden by tintmode            */\n"
+        "unsigned int _mister_tbb_chan = 0;   /* mode 6 + usechannel -> rgbchannel16   */\n"
+        "unsigned int _mister_tbb_remap = 0;  /* blits carrying a palette/remap table  */\n",
         'TEMPORARY DIAG: [TB0] globals (declared early, before loadsprite)')
 
     cmp_globals_new = (
@@ -3737,7 +3767,12 @@ endif
         '/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- defined in openbor.c */\n'
         'extern unsigned int _mister_tb0_fast;\n'
         'extern unsigned int _mister_tb0_slow;\n'
-        'extern int _mister_tb0_is_slow;\n',
+        'extern int _mister_tb0_is_slow;\n'
+        'extern unsigned int _mister_tbb_calls[8];\n'
+        'extern unsigned int _mister_tbb_px[8];\n'
+        'extern unsigned int _mister_tbb_tint;\n'
+        'extern unsigned int _mister_tbb_chan;\n'
+        'extern unsigned int _mister_tbb_remap;\n',
         'TEMPORARY DIAG: [TB0] sprite.c externs', count=1)
     spr = strict_replace(
         spr,
@@ -3752,7 +3787,16 @@ endif
         "drawmethod->fillcolor == TRANSPARENT_IDX && !drawmethod->rotate)\n"
         "    {\n"
         "        _mister_tb0_fast++;  /* TEMPORARY DIAG [TB0] offloadable */\n"
-        "        _mister_tb0_is_slow = 0;\n",
+        "        _mister_tb0_is_slow = 0;\n"
+        "        {   /* TEMPORARY DIAG [TBB] blend-mode histogram, fast path only */\n"
+        "            unsigned int _a = (unsigned int)drawmethod->alpha;\n"
+        "            unsigned int _i = (_a <= 6u) ? _a : 7u;\n"
+        "            _mister_tbb_calls[_i]++;\n"
+        "            if(frame) _mister_tbb_px[_i] += (unsigned int)frame->width * (unsigned int)frame->height;\n"
+        "            if(tintmode) _mister_tbb_tint++;\n"
+        "            if(_a == 6u && usechannel) _mister_tbb_chan++;\n"
+        "            if(drawmethod->table) _mister_tbb_remap++;\n"
+        "        }\n",
         'TEMPORARY DIAG: [TB0] fast-path counter')
     spr = strict_replace(
         spr,
