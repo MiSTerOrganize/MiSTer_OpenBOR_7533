@@ -3493,7 +3493,27 @@ endif
         "                       arr_us,\n"
         "                       ent_avg, _mister_arr_ent_peak,\n"
         "                       _mister_arr_frames, _mister_arr_ticks);\n"
+        "                unsigned int cmp_us = (_mister_arr_frames) ? (_mister_cmp_spriteq_ms * 1000u) / _mister_arr_frames : 0u;\n"
+        "                unsigned int cmp_pct = (itv) ? (_mister_cmp_spriteq_ms * 1000u) / itv : 0u;\n"
+        "                unsigned int ps_us = (_mister_arr_frames) ? (_mister_cmp_putsprite_ms * 1000u) / _mister_arr_frames : 0u;\n"
+        "                unsigned int sc_us = (_mister_arr_frames) ? (_mister_cmp_putscreen_ms * 1000u) / _mister_arr_frames : 0u;\n"
+        "                unsigned int ot_us = (_mister_arr_frames) ? (_mister_cmp_other_ms * 1000u) / _mister_arr_frames : 0u;\n"
+        "                printf(\"[CMP] spriteq=%uus/frame (%u.%u%% of frame) | putsprite=%uus (%u calls) putscreen=%uus (%u calls) other=%uus\\n\",\n"
+        "                       cmp_us, cmp_pct / 10u, cmp_pct % 10u,\n"
+        "                       ps_us, _mister_cmp_putsprite_n,\n"
+        "                       sc_us, _mister_cmp_putscreen_n,\n"
+        "                       ot_us);\n"
+        "                printf(\"[SCR] px/frame: copy=%u key=%u blend=%u blendkey=%u | x8p16(unconverted 8bpp)=%u calls\\n\",\n"
+        "                       _mister_cmp_px_copy / (_mister_arr_frames ? _mister_arr_frames : 1u),\n"
+        "                       _mister_cmp_px_key / (_mister_arr_frames ? _mister_arr_frames : 1u),\n"
+        "                       _mister_cmp_px_blend / (_mister_arr_frames ? _mister_arr_frames : 1u),\n"
+        "                       _mister_cmp_px_bkey / (_mister_arr_frames ? _mister_arr_frames : 1u),\n"
+        "                       _mister_cmp_x8p16_n);\n"
         "                _mister_arr_ms = 0; _mister_arr_ticks = 0; _mister_arr_ent_sum = 0;\n"
+        "                _mister_cmp_spriteq_ms = 0; _mister_cmp_putsprite_ms = 0; _mister_cmp_putscreen_ms = 0;\n"
+        "                _mister_cmp_other_ms = 0; _mister_cmp_putsprite_n = 0; _mister_cmp_putscreen_n = 0;\n"
+        "                _mister_cmp_px_copy = 0; _mister_cmp_px_key = 0; _mister_cmp_px_blend = 0;\n"
+        "                _mister_cmp_px_bkey = 0; _mister_cmp_x8p16_n = 0;\n"
         "                _mister_arr_frames = 0; _mister_arr_t_last = _now_ms;\n"
         "            }\n"
         "        }\n"
@@ -3502,6 +3522,143 @@ endif
     ob = strict_replace(ob, arr_print_old, arr_print_new,
                         'TEMPORARY DIAG: [ARR] periodic report')
     print("  TEMPORARY DIAG [ARR] inserted (arrange bucket ms + ent_max) -- REVERT AFTER MEASURED")
+
+    # -- TEMPORARY DIAG 2026-07-28 (REVERT AFTER MEASURED) -- [CMP]/[SCR].
+    #
+    # Splits the compositing cost that dominates a heavy-PAK frame. He-Man
+    # measures ~27 ms/frame of which arrange is only ~0.4 ms; the rest is
+    # spriteq_draw. Before NEON-ing anything we need to know WHICH kernel:
+    #   [CMP] putsprite (character blits) vs putscreen (background layers)
+    #   [SCR] and within putscreen, how many pixels take each screen16.c path:
+    #         memcpy / colour-key / blend / blend+key
+    # This matters because the 16-bit vscreen ship (2026-07-28) + Step 23's
+    # Path B fork pre-decode backgrounds to PIXEL_16, so a plain layer now
+    # lands on blendscreen16's per-row memcpy. The documented "putscreen =
+    # 57 ns/px, 99.3% of putother" figures predate that and describe
+    # putscreenx8p32, which the ship build no longer runs. x8p16 call count is
+    # reported too: if it is non-zero, some background escaped the pre-decode.
+    cmp_globals_old = "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [ARR] arrange bucket. */\n"
+    cmp_globals_new = (
+        "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [CMP]/[SCR] compositing split. */\n"
+        "unsigned int _mister_cmp_spriteq_ms = 0;\n"
+        "unsigned int _mister_cmp_putsprite_ms = 0;\n"
+        "unsigned int _mister_cmp_putscreen_ms = 0;\n"
+        "unsigned int _mister_cmp_other_ms = 0;\n"
+        "unsigned int _mister_cmp_putsprite_n = 0;\n"
+        "unsigned int _mister_cmp_putscreen_n = 0;\n"
+        "unsigned int _mister_cmp_px_copy = 0;\n"
+        "unsigned int _mister_cmp_px_key = 0;\n"
+        "unsigned int _mister_cmp_px_blend = 0;\n"
+        "unsigned int _mister_cmp_px_bkey = 0;\n"
+        "unsigned int _mister_cmp_x8p16_n = 0;\n"
+        "\n"
+        "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [ARR] arrange bucket. */\n"
+    )
+    ob = strict_replace(ob, cmp_globals_old, cmp_globals_new,
+                        'TEMPORARY DIAG: [CMP]/[SCR] globals')
+
+    # timer around the whole per-frame compositing call
+    cmp_sq_old = (
+        "    spriteq_draw(vscreen, 0, MIN_INT, MAX_INT, 0, 0); "
+        "// notice, always draw sprites at the very end of other methods"
+    )
+    cmp_sq_new = (
+        "    {\n"
+        "        unsigned int _sq_t0 = timer_gettick();  /* TEMPORARY DIAG */\n"
+        "        spriteq_draw(vscreen, 0, MIN_INT, MAX_INT, 0, 0); "
+        "// notice, always draw sprites at the very end of other methods\n"
+        "        _mister_cmp_spriteq_ms += timer_gettick() - _sq_t0;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, cmp_sq_old, cmp_sq_new,
+                        'TEMPORARY DIAG: [CMP] timer around spriteq_draw()')
+
+    # spriteq.c: split the dispatch into putsprite / putscreen / other
+    spq_path = os.path.join(obor, 'source/gamelib/spriteq.c')
+    spq = read(spq_path)
+    spq = strict_replace(
+        spq,
+        '#include "globals.h"\n',
+        '#include "globals.h"\n'
+        '#include "timer.h"  /* TEMPORARY DIAG [CMP] */\n'
+        '/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- defined in openbor.c */\n'
+        'extern unsigned int _mister_cmp_putsprite_ms;\n'
+        'extern unsigned int _mister_cmp_putscreen_ms;\n'
+        'extern unsigned int _mister_cmp_other_ms;\n'
+        'extern unsigned int _mister_cmp_putsprite_n;\n'
+        'extern unsigned int _mister_cmp_putscreen_n;\n',
+        'TEMPORARY DIAG: spriteq.c timer.h + externs')
+    spq = strict_replace(
+        spq,
+        "            putsprite(x, y, order[i]->frame, screen, &(order[i]->drawmethod));\n"
+        "            break;\n",
+        "            {   /* TEMPORARY DIAG */\n"
+        "                unsigned int _t0 = timer_gettick();\n"
+        "                putsprite(x, y, order[i]->frame, screen, &(order[i]->drawmethod));\n"
+        "                _mister_cmp_putsprite_ms += timer_gettick() - _t0;\n"
+        "                _mister_cmp_putsprite_n++;\n"
+        "            }\n"
+        "            break;\n",
+        'TEMPORARY DIAG: [CMP] putsprite timer')
+    spq = strict_replace(
+        spq,
+        "            putscreen(screen, (s_screen *)(order[i]->frame), x, y, &(order[i]->drawmethod));\n"
+        "            break;\n",
+        "            {   /* TEMPORARY DIAG */\n"
+        "                unsigned int _t0 = timer_gettick();\n"
+        "                putscreen(screen, (s_screen *)(order[i]->frame), x, y, &(order[i]->drawmethod));\n"
+        "                _mister_cmp_putscreen_ms += timer_gettick() - _t0;\n"
+        "                _mister_cmp_putscreen_n++;\n"
+        "            }\n"
+        "            break;\n",
+        'TEMPORARY DIAG: [CMP] putscreen timer')
+    write(spq_path, spq)
+
+    # screen16.c: count pixels down each of blendscreen16's four paths, and
+    # count putscreenx8p16 calls (should be ~0 if Step 23 pre-decode covers
+    # every background -- a non-zero count means one escaped it).
+    sc16_path = os.path.join(obor, 'source/gamelib/screen16.c')
+    sc16 = read(sc16_path)
+    sc16 = strict_replace(
+        sc16,
+        "void putscreenx8p16(s_screen *dest, s_screen *src, int x, int y, int key, "
+        "unsigned short *remap, unsigned short(*blendfp)(unsigned short, unsigned short))\n"
+        "{\n",
+        "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- defined in openbor.c */\n"
+        "extern unsigned int _mister_cmp_px_copy;\n"
+        "extern unsigned int _mister_cmp_px_key;\n"
+        "extern unsigned int _mister_cmp_px_blend;\n"
+        "extern unsigned int _mister_cmp_px_bkey;\n"
+        "extern unsigned int _mister_cmp_x8p16_n;\n"
+        "\n"
+        "void putscreenx8p16(s_screen *dest, s_screen *src, int x, int y, int key, "
+        "unsigned short *remap, unsigned short(*blendfp)(unsigned short, unsigned short))\n"
+        "{\n"
+        "    _mister_cmp_x8p16_n++;  /* TEMPORARY DIAG */\n",
+        'TEMPORARY DIAG: [SCR] externs + putscreenx8p16 call counter')
+    sc16 = strict_replace(
+        sc16,
+        "    sp += (soy * sw + sox);\n"
+        "    dp += (y * dw + x);\n"
+        "\n"
+        "    if(blendfp)\n"
+        "    {\n"
+        "        if(key)\n",
+        "    sp += (soy * sw + sox);\n"
+        "    dp += (y * dw + x);\n"
+        "\n"
+        "    {   /* TEMPORARY DIAG -- which of the four paths, and how many px */\n"
+        "        unsigned int _px = (unsigned int)cw * (unsigned int)ch;\n"
+        "        if(blendfp) { if(key) _mister_cmp_px_bkey += _px; else _mister_cmp_px_blend += _px; }\n"
+        "        else        { if(key) _mister_cmp_px_key  += _px; else _mister_cmp_px_copy  += _px; }\n"
+        "    }\n"
+        "\n"
+        "    if(blendfp)\n"
+        "    {\n"
+        "        if(key)\n",
+        'TEMPORARY DIAG: [SCR] blendscreen16 per-path pixel counters')
+    write(sc16_path, sc16)
+    print("  TEMPORARY DIAG [CMP]/[SCR] inserted (compositing split) -- REVERT AFTER MEASURED")
 
     # -- Step 15 (2026-05-26): Path 1 reorder of normal_find_target() loop body.
     #
