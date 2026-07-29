@@ -3546,13 +3546,22 @@ endif
     # putscreenx8p32, which the ship build no longer runs. x8p16 call count is
     # reported too: if it is non-zero, some background escaped the pre-decode.
     cmp_globals_old = "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [ARR] arrange bucket. */\n"
-    cmp_globals_new = (
+    # [TB0] globals must be declared EARLY: loadsprite() uses them around line
+    # 4670, long before arrange_ents() (~30118) where the [CMP] block sits.
+    # Declaring them next to [CMP] gave "'_mister_tb0_sprite_bytes' undeclared"
+    # at compile time -- C needs the definition first.
+    ob = strict_replace(
+        ob,
+        "int sprite_map_max_items = 0;\n",
+        "int sprite_map_max_items = 0;\n"
         "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [TB0] Tier-B Phase-0 sizing. */\n"
         "unsigned int _mister_tb0_sprite_bytes = 0;   /* total RLE sprite bytes malloc'd  */\n"
         "unsigned int _mister_tb0_sprite_count = 0;   /* how many sprites loaded          */\n"
         "unsigned int _mister_tb0_fast = 0;           /* blits taking the offloadable path*/\n"
-        "unsigned int _mister_tb0_slow = 0;           /* blits needing scale/rot/water/etc*/\n"
-        "\n"
+        "unsigned int _mister_tb0_slow = 0;           /* blits needing scale/rot/water/etc*/\n",
+        'TEMPORARY DIAG: [TB0] globals (declared early, before loadsprite)')
+
+    cmp_globals_new = (
         "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [CMP]/[SCR] compositing split. */\n"
         "unsigned int _mister_cmp_spriteq_ms = 0;\n"
         "unsigned int _mister_cmp_putsprite_ms = 0;\n"
