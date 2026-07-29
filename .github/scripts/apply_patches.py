@@ -3509,6 +3509,14 @@ endif
         "                       _mister_cmp_px_blend / (_mister_arr_frames ? _mister_arr_frames : 1u),\n"
         "                       _mister_cmp_px_bkey / (_mister_arr_frames ? _mister_arr_frames : 1u),\n"
         "                       _mister_cmp_x8p16_n);\n"
+        "                {\n"
+        "                    unsigned int _tot = _mister_tb0_fast + _mister_tb0_slow;\n"
+        "                    unsigned int _fpct = _tot ? (_mister_tb0_fast * 1000u) / _tot : 0u;\n"
+        "                    printf(\"[TB0] sprite working set=%u KB (%u sprites) | blits fast=%u slow=%u (fast %u.%u%% -- Tier-B ceiling)\\n\",\n"
+        "                           _mister_tb0_sprite_bytes / 1024u, _mister_tb0_sprite_count,\n"
+        "                           _mister_tb0_fast, _mister_tb0_slow,\n"
+        "                           _fpct / 10u, _fpct % 10u);\n"
+        "                }\n"
         "                _mister_arr_ms = 0; _mister_arr_ticks = 0; _mister_arr_ent_sum = 0;\n"
         "                _mister_cmp_spriteq_ms = 0; _mister_cmp_putsprite_ms = 0; _mister_cmp_putscreen_ms = 0;\n"
         "                _mister_cmp_other_ms = 0; _mister_cmp_putsprite_n = 0; _mister_cmp_putscreen_n = 0;\n"
@@ -3539,6 +3547,12 @@ endif
     # reported too: if it is non-zero, some background escaped the pre-decode.
     cmp_globals_old = "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [ARR] arrange bucket. */\n"
     cmp_globals_new = (
+        "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [TB0] Tier-B Phase-0 sizing. */\n"
+        "unsigned int _mister_tb0_sprite_bytes = 0;   /* total RLE sprite bytes malloc'd  */\n"
+        "unsigned int _mister_tb0_sprite_count = 0;   /* how many sprites loaded          */\n"
+        "unsigned int _mister_tb0_fast = 0;           /* blits taking the offloadable path*/\n"
+        "unsigned int _mister_tb0_slow = 0;           /* blits needing scale/rot/water/etc*/\n"
+        "\n"
         "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [CMP]/[SCR] compositing split. */\n"
         "unsigned int _mister_cmp_spriteq_ms = 0;\n"
         "unsigned int _mister_cmp_putsprite_ms = 0;\n"
@@ -3572,6 +3586,27 @@ endif
     )
     ob = strict_replace(ob, cmp_sq_old, cmp_sq_new,
                         'TEMPORARY DIAG: [CMP] timer around spriteq_draw()')
+
+    # [TB0] total sprite working set: sum every RLE sprite allocation. This is
+    # THE Tier-B go/no-go number -- the FPGA can only read a physically
+    # contiguous reserved DDR3 window (today just two 143 KB framebuffers at
+    # 0x3A000000 + the cart staging area), but sprites live in the Linux heap.
+    # If the working set is tens of MB, an upload-at-load design has to carve
+    # that much away from a 492 MB box that has already OOM'd once.
+    ob = strict_replace(
+        ob,
+        "    len = strlen(filename);\n"
+        "    size = fakey_encodesprite(bitmap);\n"
+        "    curr = malloc(sizeof(*curr));\n"
+        "    curr->sprite = malloc(size);",
+        "    len = strlen(filename);\n"
+        "    size = fakey_encodesprite(bitmap);\n"
+        "    _mister_tb0_sprite_bytes += (unsigned int)size;  /* TEMPORARY DIAG [TB0] */\n"
+        "    _mister_tb0_sprite_count++;\n"
+        "    curr = malloc(sizeof(*curr));\n"
+        "    curr->sprite = malloc(size);",
+        'TEMPORARY DIAG: [TB0] sprite working-set accumulator')
+    print("  TEMPORARY DIAG [TB0] inserted (sprite working set + fast/slow split) -- REVERT AFTER MEASURED")
 
     # spriteq.c: split the dispatch into putsprite / putscreen / other
     spq_path = os.path.join(obor, 'source/gamelib/spriteq.c')
@@ -3658,6 +3693,42 @@ endif
         "        if(key)\n",
         'TEMPORARY DIAG: [SCR] blendscreen16 per-path pixel counters')
     write(sc16_path, sc16)
+
+    # [TB0] fast-path vs fallback split in putsprite_ex. The offloadable blit is
+    # the gated common case (no water/scale/rotate/flipy/shiftx/fill); anything
+    # else needs gfx_draw_scale and would STAY on the CPU in a hybrid design.
+    # The fast-path FRACTION caps what Tier-B can ever win.
+    spr_path = os.path.join(obor, 'source/gamelib/sprite.c')
+    spr = read(spr_path)
+    spr = strict_replace(
+        spr,
+        '#include "sprite.h"\n',
+        '#include "sprite.h"\n'
+        '/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- defined in openbor.c */\n'
+        'extern unsigned int _mister_tb0_fast;\n'
+        'extern unsigned int _mister_tb0_slow;\n',
+        'TEMPORARY DIAG: [TB0] sprite.c externs', count=1)
+    spr = strict_replace(
+        spr,
+        "    // no scale, no shift, no flip, no fill, so use common method\n"
+        "    if(!drawmethod->water.watermode && drawmethod->scalex == 256 && "
+        "drawmethod->scaley == 256 && !drawmethod->flipy && !drawmethod->shiftx && "
+        "drawmethod->fillcolor == TRANSPARENT_IDX && !drawmethod->rotate)\n"
+        "    {\n",
+        "    // no scale, no shift, no flip, no fill, so use common method\n"
+        "    if(!drawmethod->water.watermode && drawmethod->scalex == 256 && "
+        "drawmethod->scaley == 256 && !drawmethod->flipy && !drawmethod->shiftx && "
+        "drawmethod->fillcolor == TRANSPARENT_IDX && !drawmethod->rotate)\n"
+        "    {\n"
+        "        _mister_tb0_fast++;  /* TEMPORARY DIAG [TB0] offloadable */\n",
+        'TEMPORARY DIAG: [TB0] fast-path counter')
+    spr = strict_replace(
+        spr,
+        "    gfx.sprite = frame;\n",
+        "    _mister_tb0_slow++;  /* TEMPORARY DIAG [TB0] CPU-only fallback */\n"
+        "    gfx.sprite = frame;\n",
+        'TEMPORARY DIAG: [TB0] fallback counter', count=1)
+    write(spr_path, spr)
     print("  TEMPORARY DIAG [CMP]/[SCR] inserted (compositing split) -- REVERT AFTER MEASURED")
 
     # -- Step 15 (2026-05-26): Path 1 reorder of normal_find_target() loop body.
