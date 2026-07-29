@@ -100,71 +100,47 @@ A rule requiring a band to be a multiple of `H / gcd(H, 224)` is therefore **unu
 for 960x475 and 432x243 the minimum legal band is the entire frame. See
 `tierb_phase1_architecture.md` section 8 for the corrected, fully general rule.
 
-## Full PAK lists for the non-default tiers
+## Full PAK lists (generated from the verified scan)
 
-**1600x900** — Lust Rush
+Every resolution except the 283-PAK 320x240 default, which is everything not listed here.
 
-**960x540** — Faderhead's Fist Full of Fuck You · Monster Girl Dimensions · Samurai
-Warriors · Streets of Rage 4 - Silent Storm [Demo]
+**1600x900 (1)** — Lust Rush
 
-**960x480 / 960x475** — Bad Ass Babes Episode One · Dragon Ball Z Tournament (475) ·
-He-Man and the Masters of the Universe
+**960x540 (4)** — Faderhead's Fist Full of Fuck You · Monster Girl Dimensions · Samurai Warriors · Streets of Rage 4 - Silent Storm [Demo]
 
-**800x480** — Kung Fu Masters and the Wrath of the Gods
-**720x480** — Urban Lockdown
-**640x640** — Ruins of the Deep · Secrets of the Deep
-**640x360** — Bearz · Rocko's Modern Life
-**500x650** — Xelam
-**480x360** — Final Fight - Revival of Rage
-**432x243** — Mortal Kombat Outworld Assassins
-**400x300** — Gunman
-**384x224** — Street Fighter '89 - The Final Fight [Demo]
-**336x240** — Guardians of the Hood II
-**256x224** — Legend of the Double Dragon · Ultimate Double Dragon
-**240x224** — Final Double Dragon
-**240x200** — TMNT - Fall of the Foot Clan DX [Demo]
+**960x480 (2)** — Bad Ass Babes Episode One · He-Man and the Masters of the Universe
 
-**640x480 (46)** — Aliens Clash · Barshen Bash · Barshen Below · Barshen Border · Barshen
-Breakout · Bird Bunch · Blue Bullet Bintang · Braller · BroomStickBot · Cherry On Top ·
-Coin Champion · Cyber Robot · Double Dragon Reloaded Alternate · Double Dragon Revival ·
-Eerie Erratic Expedition · Egi The Egg · Escape From Guha · Final Fight Special Edition ·
-Fire Leaf Water · Fruits Frenzy · Fruits Survivors · Go Bat · Happy Heart · Honeybee
-Harvest · Immortal Monster · Langit Lands · Last Life · Lift · Minetroid · Nightmare on Elm
-Street - Dreams of Rage · Pew Pew Dadu · Plump on the Stump · Project Moon [Demo] · Puzzle
-Puss · Raider & Reaper · Raiders Rush · Rainbow · Robo Magi · Robz Rush · Scorer Horror ·
-Snail N Turtle · Steampunk Raiders · Tabib · Tanks Vs Tanks · Teenage Mutant Ninja Turtles
-(NOT TMNT-RP) · Way of Martial Arts
+**960x475 (1)** — Dragon Ball Z Tournament
 
-**480x272 (94)** — A Saga de Ryu · Art Of Figting - Trouble In South Town · Art of Fighting
-- Beats of Rage Remix III · Avengers - United Battle Force · Bad School Girls ·
-BattleManiacs Bare Knuckle · Beat 'Em Up Ultimate Alliance · Bishojo Dimensional Chaos ·
-Briga de Rua · Briga de Rua 2 - Vanessa · Briga de Rua 3 - Killer Instinct · Burning Fox,
-The · Capcom Pocket Brawl [Beta] · City of Kaos, The · Cosmic Damage · Demon's Hand [Demo]
-· Dragon Ball Z - Attack of Saiyans · Dungeons & Dragons - Knights & Dragons Final Cut ·
-Dungeons & Dragons - Knights & Dragons The Endless Quest · Escape of the Ages · Evil Dead ·
-Fatal Fury Final · Fighting Street · Final Fight - Heroes · Final Fight Alpha · Final Fight
-Boss · Final Fight Gold Champion Edition · Fire Hearts · Fists of Legendary Heroes · GI Joe
-- Attack On Cobra Island · Garou - Rage of the Wolves · Golden Axe Legend · Golden Axe
-Returns · Gudule · Gudule - Fist in ya Face! · Hiryu No Ken [Demo] · Hokuto no Ken Fury
-Road · Ikari Warriors 2010 + Mutation Nation · Justice League Legacy · Justice League
-United · King of Fighters Zillion, The - Another Road · King of Fighters, The - Beat 'Em Up
-Plus · Legend of Korr - Path of Destruction · M@skaku, The - Wonder Momo '09 · Martial
-Masters - New Legend · Marvel - Infinity War · Marvel First Alliance · Marvel First
-Alliance 2 · Marvel War of the Gems · Marvel vs Capcom · Masters Of The Universe - Eternian
-Battle · Metal Slug Beat Em Up · Monster Jam [Demo] · Mortal Kombat - The Chosen One ·
-Ninja - Stealth Assassins · Ogres Mayhem · POW 2010 · Pocket Dimensional Clash 2 · Pokemon
-Rumble 2D · Rage Force Briga De Rua · Red Earth · Rescue Command - Against the Amazon Girls
-· Rescue Command Ep. 1 - Escaping from Bad Girls Island · Rescue Command Ep. 2 Attack on
-Amazon Island · Resident Evil Survive · Retro Gamer Adventure · S.C.U. - Special Criminal
-Unit · Sega Brawlers Megamix · Simpsons, The - Treehouse of Horror · Snestalgia · Sonic
-Adventure - Revolution · Sonic Defense · Sonic Super Jam · Street Fighter Taiwan · Street
-Fighter Vs. The King of Fighters · Streets of Rage 2X · Streets of Rage Furia Massiva ·
-Streets of Rage Legacy · Streets of Rage X2 Megamix · Streets of Vendetta - Cracoland War ·
-Super Fightin' Spirit · Super Final Fight Gold · Super Final Fight Gold Plus LNS · Super
-Mario Brawl · Super Universe Brawl · Symphonia Battalion - Well Fight Together · Tekken -
-The Devils Rage · The Suffering In Me [Beta Demo] · Touhou Madness Wrath · Touhou Shooter ·
-Ultimate Super Mega Beatdown · Vermilion Sword - The Legend Of Calibur · X-Men Hunter for
-Mutants · XuanYuan Sword
+**640x640 (2)** — Ruins of the Deep · Secrets of the Deep
+
+**800x480 (1)** — Kung Fu Masters and the Wrath of the Gods
+
+**720x480 (1)** — Urban Lockdown
+
+**500x650 (1)** — Xelam
+
+**640x480 (46)** — Aliens Clash · Barshen Bash · Barshen Below · Barshen Border · Barshen Breakout · Bird Bunch · Blue Bullet Bintang · Braller · BroomStickBot · Cherry On Top · Coin Champion · Cyber Robot · Double Dragon Reloaded Alternate · Double Dragon Revival · Eerie Erratic Expedition · Egi The Egg · Escape From Guha · Final Fight Special Edition · Fire Leaf Water · Fruits Frenzy · Fruits Survivors · Go Bat · Happy Heart · Honeybee Harvest · Immortal Monster · Langit Lands · Last Life · Lift · Minetroid · Nightmare on Elm Street - Dreams of Rage · Pew Pew Dadu · Plump on the Stump · Project Moon [Demo] · Puzzle Puss · Raider & Reaper · Raiders Rush · Rainbow · Robo Magi · Robz Rush · Scorer Horror · Snail N Turtle · Steampunk Raiders · Tabib · Tanks Vs Tanks · Teenage Mutant Ninja Turtles · Way of Martial Arts
+
+**640x360 (2)** — Bearz · Rocko's Modern Life
+
+**480x360 (1)** — Final Fight - Revival of Rage
+
+**480x272 (97)** — A Saga de Ryu · Art Of Figting - Trouble In South Town · Art of Fighting - Beats of Rage Remix III · Avengers - United Battle Force · Bad School Girls · BattleManiacs Bare Knuckle · Beat 'Em Up  Ultimate Alliance · Bishojo Dimensional Chaos · Briga de Rua · Briga de Rua 2 - Vanessa · Briga de Rua 3 - Killer Instinct · Burning Fox, The · Capcom Pocket Brawl [Beta] · City of Kaos, The · Cosmic Damage · Demon's Hand [Demo] · Dragon Ball Z - Attack of Saiyans · Dungeons & Dragons - Knights & Dragons Final Cut · Dungeons & Dragons - Knights & Dragons The Endless Quest · Escape From Cartoon Hell · Escape of the Ages · Evil Dead · Fatal Fury Final · Fighting Street · Final Fight - Heroes · Final Fight Alpha · Final Fight Boss · Final Fight Gold Champion Edition · Fire Hearts · Fists of Legendary Heroes · GI Joe - Attack On Cobra Island · Garou - Rage of the Wolves · God of War · Golden Axe Legend · Golden Axe Returns · Gudule · Gudule - Fist in ya Face! · Hiryu No Ken [Demo] · Hokuto no Ken Fury Road · Ikari Warriors 2010 + Mutation Nation · Justice League Legacy · Justice League United · King of Fighters Zillion, The  - Another Road · King of Fighters, The - Beat 'Em Up Plus · Legend of Korr - Path of Destruction · M@skaku, The - Wonder Momo '09 · Martial Masters - New Legend · Marvel - Infinity War · Marvel First Alliance · Marvel First Alliance 2 · Marvel War of the Gems · Marvel vs Capcom · Masters Of The Universe - Eternian Battle · Metal Slug Beat Em Up · Monster Jam [Demo] · Mortal Kombat - The Chosen One · Ninja - Stealth Assassins · Ogres Mayhem · POW 2010 · Pocket Dimensional Clash 2 · Pokemon Rumble 2D · Rage Force Briga De Rua · Red Earth · Rescue Command - Against the Amazon Girls · Rescue Command Ep. 1 - Escaping from Bad Girls Island · Rescue Command Ep. 2 Attack on Amazon Island · Resident Evil Survive · Retro Gamer Adventure · S.C.U. - Special Criminal Unit · Sega Brawlers Megamix · Shiva & Lisa 3 · Simpsons, The - Treehouse of Horror · Snestalgia · Sonic Adventure - Revolution · Sonic Defense · Sonic Super Jam · Street Fighter Taiwan · Street Fighter Vs. The King of Fighters · Streets of Rage 2X · Streets of Rage Furia Massiva · Streets of Rage Legacy · Streets of Rage X2 Megamix · Streets of Vendetta - Cracoland War · Super Fightin' Spirit · Super Final Fight Gold · Super Final Fight Gold Plus LNS · Super Mario Brawl · Super Universe Brawl · Symphonia Battalion - Well Fight Together · Tekken - The Devils Rage · The Beast Within - Divine Comedy · The Suffering In Me [Beta Demo] · Touhou Madness Wrath · Touhou Shooter · Vermilion Sword - The Legend Of Calibur · X-Men Hunter for Mutants · XuanYuan Sword
+
+**400x300 (1)** — Gunman
+
+**432x243 (1)** — Mortal Kombat Outworld Assassins
+
+**384x224 (1)** — Street Fighter '89 - The Final Fight [Demo]
+
+**336x240 (1)** — Guardians of the Hood II
+
+**256x224 (2)** — Legend of the Double Dragon · Ultimate Double Dragon
+
+**240x224 (1)** — Final Double Dragon
+
+**240x200 (1)** — Teenage Mutant Ninja Turtles - Fall of the Foot Clan DX [Demo]
 
 ## Tier-B band geometry, verified against every resolution
 
