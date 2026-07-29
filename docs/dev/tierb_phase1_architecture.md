@@ -43,6 +43,7 @@ loop** — audits repeat until a full cycle reports zero bugs AND zero concerns 
 | Patch content must be ASCII-only | apply-patches encoding safety | all `sp_new` strings ASCII |
 | "All patches applied" does not mean the patch is in the binary | the dropped `write(ob_path, ob)` regression | new patches added to the post-apply integrity gate's signature list |
 | The documented optimisation target is often STALE | collision grid + putscreen, both closed this week | every number in this doc is measured on the current shipped engine |
+| Price a design against the real DISTRIBUTION, not one example | the 450-PAK census broke this doc's first band rule (section 8.1) | band geometry verified against all 20 distinct resolutions |
 | Never take a perf decision from QEMU timings | collision bench `tight` variant | all timing decisions from the A9 or from RTL analysis |
 
 ## 4. Architecture overview
@@ -200,44 +201,97 @@ list per band**, with the per-band `src_addr` already seeked and `n_rows` alread
 The FPGA walks band 0's list to `END_BAND`, then band 1's, sequentially. No indirection,
 no random access, no `linetab` walk in hardware.
 
-## 8. Band geometry — **band height is per-PAK, NOT a constant**
+## 8. Band geometry — **a band is a whole number of OUTPUT rows**
 
-This is a Phase 1 finding that corrects the Phase 0b working assumption of "30 lines".
+> **This section was rewritten after checking the first draft against the full 450-PAK
+> resolution census (`pak_dimension_census.md`). The first rule was wrong for 8 PAKs and
+> impossible for 3.** Recorded here deliberately: the census is what caught it, and the
+> lesson is the same one that closed the collision grid and putscreen — price a design
+> against the real distribution, not against the one example in front of you.
 
-The shipped downscaler (`native_video_writer.c`) derives each output row's source span as
+### 8.1 The rule that does NOT work
+
+The shipped downscaler derives each output row's source span as
 
 ```
   yy0 = (y     * src_h) / out_h
   yy1 = ((y+1) * src_h) / out_h        vcnt = yy1 - yy0
 ```
 
-A band is only legal if it contains **whole output rows**, i.e. its source-line count `B`
-must satisfy `B * out_h / src_h` integral. With `out_h = 224`:
+The first draft required a band's *source-line count* `B` to be a multiple of
+`src_h / gcd(src_h, 224)`. Against the census that is unusable:
+
+| PAK | `src_h` | minimum legal band under the bad rule | |
+|---|---:|---:|---|
+| Dragon Ball Z Tournament (960x475) | 475 | **475 lines = the entire frame** | impossible |
+| Mortal Kombat Outworld Assassins (432x243) | 243 | **243 lines = the entire frame** | impossible |
+| Xelam (500x650) | 650 | 325 lines (162,500 px) | impossible |
+| Lust Rush (1600x900) | 900 | 225 lines (360,000 px) | impossible |
+| 960x540 (4 PAKs) | 540 | 135 lines (129,600 px) | absurd |
+| Gunman (400x300) | 300 | 75 lines (30,000 px) | wasteful |
+
+**8 PAKs broken, 3 of them fatally.** Heights 475 and 243 are coprime with 224, so
+`gcd = 1` and the "minimum band" is the whole frame.
+
+### 8.2 The rule that does work
+
+Invert it. **A band is a whole number of OUTPUT rows; the ARM derives the source range**
+using the same floor formula the downscaler already uses:
 
 ```
-  B must be a multiple of  src_h / gcd(src_h, 224)
+  band k covers output rows [ k*R, (k+1)*R )
+      src_y0 = floor( k*R     * src_h / out_h )
+      src_y1 = floor( (k+1)*R * src_h / out_h )
 ```
 
-| PAK native | `src_h` | gcd(src_h,224) | minimum legal band | chosen band | bands/frame | output rows/band |
-|---|---|---|---|---|---|---|
-| He-Man | 480 | 32 | 15 | **30** | 16 | 14 |
-| ATOV etc. | 240 | 16 | 15 | **30** | 8 | 28 |
-| Avengers / PDC2 | 272 | 16 | **17** | **34** | 8 | 28 |
+Exact by construction. No divisibility constraint, no gcd, no alignment. Source lines per
+band vary by +/-1, which is fine because the FPGA already takes the band's source-line
+count as a per-band parameter.
 
-So **30 is correct for 480 and 240 but WRONG for 272** — a 272-tall PAK needs multiples of
-17. The ARM computes the band height at PAK load and passes it in the frame header; the
-FPGA treats it as a parameter. Getting this wrong would tear the picture at every band
-boundary on 480x272 PAKs, which is exactly the class of bug the audit loop exists to catch.
-
-**Band buffer sizing** is therefore set by the worst case, 34 lines:
+`R` is chosen per PAK at load time as the largest value whose worst-case band fits the
+band buffer, which is sized in **pixels**, not lines:
 
 ```
-  36 lines (rounded) x 960 px x 16 bits = 552,960 bits = 67.5 KB
-  as 32-bit-wide M10K (320 words each):  36*960/2 / 320 = 54 M10K single
-  double-buffered:                       108 M10K  =  22% of the 486 free
+  BAND_BUDGET_PX = 32,768        (64 KB, 51 M10K single, 102 M10K double = 21% of the 486 free)
+  R = max { r : max_k [ floor((k+1)*r*H/224) - floor(k*r*H/224) ] * W  <=  BAND_BUDGET_PX }
 ```
 
-Double buffering lets the compositor fill band N+1 while the downscaler drains band N.
+Verified across every distinct resolution in the census:
+
+| PAK native | R (output rows/band) | src lines | band px | bands/frame |
+|---|---:|---:|---:|---:|
+| 1600x900 (Lust Rush) | 4 | 17 | 27,200 | 56 |
+| 960x540 | 14 | 34 | 32,640 | 16 |
+| **960x480 (He-Man)** | **15** | **33** | **31,680** | **15** |
+| 960x475 (DBZ Tournament) | 16 | 34 | 32,640 | 14 |
+| 800x480 | 18 | 39 | 31,200 | 13 |
+| 720x480 | 21 | 45 | 32,400 | 11 |
+| 640x640 | 17 | 49 | 31,360 | 14 |
+| 640x480 (46 PAKs) | 23 | 50 | 32,000 | 10 |
+| 640x360 (Bearz) | 31 | 50 | 32,000 | 8 |
+| 500x650 (Xelam) | 22 | 64 | 32,000 | 11 |
+| 480x360 | 42 | 68 | 32,640 | 6 |
+| 480x272 (94 PAKs) | 56 | 68 | 32,640 | 4 |
+| 432x243 (MK Outworld) | 69 | 75 | 32,400 | 4 |
+| 400x300 (Gunman) | 60 | 81 | 32,400 | 4 |
+| 384x224 | 85 | 85 | 32,640 | 3 |
+| 336x240 | 90 | 96 | 32,256 | 3 |
+| 320x240 (286 PAKs) | 95 | 102 | 32,640 | 3 |
+| 256x224 | 128 | 128 | 32,768 | 2 |
+| 240x224 | 136 | 136 | 32,640 | 2 |
+| 240x200 | 153 | 136 | 32,640 | 2 |
+
+**All 450 PAKs fit, including the 1600-wide outlier** — a wide PAK simply gets fewer output
+rows per band. That also closes the "width > 960" open item: no capability gate is needed
+for width, because the budget is in pixels.
+
+Double buffering (102 M10K) lets the compositor fill band N+1 while the downscaler drains
+band N.
+
+### 8.3 Consequence for the downscaler
+Because every band ends on an output-row boundary, the vertical box accumulator never has
+to carry across a band boundary. `vcnt` still varies per output row (2 or 3 for He-Man) and
+comes from the same floor formula.
 
 ## 9. Functional blocks
 
@@ -387,12 +441,15 @@ Mitigation ladder, in order:
 ### 14.2 Open items requiring resolution before Phase 2
 - **Reserved-region base and size must be VERIFIED**, not assumed (section 6).
 - **Blend-mode scope must be MEASURED**, not guessed (section 9.4, Phase 1b).
-- **Band height per PAK** must be computed from `src_h / gcd(src_h, 224)` (section 8) and
-  unit-tested for every PAK height in the 450-PAK library, not just 480.
+- ~~Band height per PAK~~ -> **CLOSED by the census** (section 8): a band is a whole number
+  of OUTPUT rows, `R` chosen per PAK from a pixel budget. Verified against all 20 distinct
+  resolutions in `pak_dimension_census.md`.
+- ~~Widths above 960~~ -> **CLOSED by the census**: max width in the library is 1600 (Lust
+  Rush), and because the band budget is in PIXELS a wide PAK simply gets fewer output rows
+  per band (R=4, 56 bands/frame). No width capability gate needed.
 - **Sprite arena exhaustion** behaviour: fall back to `malloc` + CPU-only marking. Needs a
-  measured headroom figure (46,001 KB observed on He-Man; is any PAK larger?).
-- **Widths above 960** are unsupported by the band buffer; the capability gate must detect
-  and fall back, and the library must be scanned for any such PAK.
+  measured headroom figure (46,001 KB observed on He-Man; is any PAK larger? Note Lust Rush
+  is 4.7x He-Man's pixel area, so it is the obvious candidate to measure).
 
 ### 14.3 Accepted consequences
 - +1 frame of latency (section 10).
