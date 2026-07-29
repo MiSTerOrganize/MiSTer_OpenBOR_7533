@@ -38,22 +38,33 @@
  *   grid+tight : both. Measured because "fewer candidates AND fewer checks"
  *                sounds strictly better -- it is not; see FINDINGS below.
  *
- * 🛑🛑 FIELD VERDICT 2026-07-28: **DO NOT BUILD THE ENGINE PATCH.** The grid is
- * real and 3.91x on this bench, but an in-engine [ARR] probe on the heaviest
- * PAK in the library (Justice League Legacy, 52 s load) measured what actually
- * happens on hardware:
+ * 🛑🛑 FIELD VERDICT 2026-07-28: **DO NOT BUILD THE ENGINE PATCH. CLOSED.**
+ * The grid is real and 3.91x on this bench, but an in-engine [ARR] probe
+ * measured what actually happens on hardware, on the two worst cases in a
+ * 450-PAK library:
  *
- *     ent_max avg 9-11, PEAK 18          <- the whole question
- *     arrange = 1.7-2.5% of frame typical, 4.9% worst observed
- *              (129-386 us/frame), frame 7.4-8.3 ms at 120-135 fps
+ *   PAK                     peak ent_max   arrange % of frame   frame / fps
+ *   Justice League Legacy        18         1.7-2.5% (4.9% max)   8 ms / 120-135
+ *   He-Man                       28         1.1-2.1%             27 ms / 35-39
  *
- * Real entity counts are ~18 at peak -- BELOW this bench's smallest data point
- * (N=50). At N=18 the entire ent_list fits in L1 and the linear scan is close
- * to free; the grid's per-pass build + 3-way merge would cost more than it
- * saves, so the measured 2.61x-3.91x (N=50-400) simply does not apply. And
- * arrange_ents CONTAINS gravity/move/bind, so the collision share of that
- * 1.7-2.5% is smaller still. Best case the grid would return well under 1% of
- * a frame that is already running at twice 60 fps.
+ * He-Man was the decisive test: a library-wide static scan (tools/harness/
+ * pak_groupscan.c) of all 450 PAKs showed it is the MOST structurally uncapped
+ * game present -- 71 level sections at groupmax 999/9999, median cap 999, where
+ * the library's median cap is 4. If the single most uncapped game peaks at 28
+ * live entities, the ceiling is a level-design convention, not something the
+ * engine forbids and PAKs happen to avoid.
+ *
+ * Both peaks sit BELOW this bench's smallest data point (N=50). At N=18-28 the
+ * entire ent_list fits in L1 and the linear scan is close to free; the grid's
+ * per-pass build + 3-way merge would cost more than it saves, so the measured
+ * 2.61x-3.91x (N=50-400) simply does not apply. And arrange_ents CONTAINS
+ * gravity/move/bind, so collision's share of that 1-2% is smaller still. Best
+ * case the grid returns well under 1% of frame.
+ *
+ * Note what He-Man also proves: at 35-39 fps its frame is ~27 ms and arrange is
+ * ~0.4 ms of it. Entity logic is NOT why heavy PAKs are slow -- the other
+ * ~26.6 ms is sprite compositing. That is the lever (#FPS_BUCKETS.md Tier-B),
+ * not this bucket.
  *
  * WHY THE BENCH LOOKED SO PROMISING: it swept N=50-400, a regime no real PAK
  * reaches. Step 14's B+E cull (2026-05-26) had already taken this bucket's win;
