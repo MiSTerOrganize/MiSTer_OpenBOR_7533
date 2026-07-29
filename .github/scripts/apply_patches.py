@@ -3512,10 +3512,15 @@ endif
         "                {\n"
         "                    unsigned int _tot = _mister_tb0_fast + _mister_tb0_slow;\n"
         "                    unsigned int _fpct = _tot ? (_mister_tb0_fast * 1000u) / _tot : 0u;\n"
-        "                    printf(\"[TB0] sprite working set=%u KB (%u sprites) | blits fast=%u slow=%u (fast %u.%u%% -- Tier-B ceiling)\\n\",\n"
+        "                    unsigned int _tms = _mister_tb0_fast_ms + _mister_tb0_slow_ms;\n"
+        "                    unsigned int _ftpct = _tms ? (_mister_tb0_fast_ms * 1000u) / _tms : 0u;\n"
+        "                    printf(\"[TB0] sprite working set=%u KB (%u sprites) | blits fast=%u slow=%u (fast %u.%u%% by COUNT)\\n\",\n"
         "                           _mister_tb0_sprite_bytes / 1024u, _mister_tb0_sprite_count,\n"
         "                           _mister_tb0_fast, _mister_tb0_slow,\n"
         "                           _fpct / 10u, _fpct % 10u);\n"
+        "                    printf(\"[TBT] putsprite TIME: fast=%ums slow=%ums (fast %u.%u%% by TIME <- the real Tier-B ceiling)\\n\",\n"
+        "                           _mister_tb0_fast_ms, _mister_tb0_slow_ms,\n"
+        "                           _ftpct / 10u, _ftpct % 10u);\n"
         "                }\n"
         "                _mister_arr_ms = 0; _mister_arr_ticks = 0; _mister_arr_ent_sum = 0;\n"
         "                _mister_cmp_spriteq_ms = 0; _mister_cmp_putsprite_ms = 0; _mister_cmp_putscreen_ms = 0;\n"
@@ -3558,7 +3563,10 @@ endif
         "unsigned int _mister_tb0_sprite_bytes = 0;   /* total RLE sprite bytes malloc'd  */\n"
         "unsigned int _mister_tb0_sprite_count = 0;   /* how many sprites loaded          */\n"
         "unsigned int _mister_tb0_fast = 0;           /* blits taking the offloadable path*/\n"
-        "unsigned int _mister_tb0_slow = 0;           /* blits needing scale/rot/water/etc*/\n",
+        "unsigned int _mister_tb0_slow = 0;           /* blits needing scale/rot/water/etc*/\n"
+        "int _mister_tb0_is_slow = 0;                 /* which path the last blit took    */\n"
+        "unsigned int _mister_tb0_fast_ms = 0;        /* TIME in the offloadable path      */\n"
+        "unsigned int _mister_tb0_slow_ms = 0;        /* TIME in the CPU-only fallback     */\n",
         'TEMPORARY DIAG: [TB0] globals (declared early, before loadsprite)')
 
     cmp_globals_new = (
@@ -3630,7 +3638,10 @@ endif
         'extern unsigned int _mister_cmp_putscreen_ms;\n'
         'extern unsigned int _mister_cmp_other_ms;\n'
         'extern unsigned int _mister_cmp_putsprite_n;\n'
-        'extern unsigned int _mister_cmp_putscreen_n;\n',
+        'extern unsigned int _mister_cmp_putscreen_n;\n'
+        'extern int _mister_tb0_is_slow;\n'
+        'extern unsigned int _mister_tb0_fast_ms;\n'
+        'extern unsigned int _mister_tb0_slow_ms;\n',
         'TEMPORARY DIAG: spriteq.c timer.h + externs')
     spq = strict_replace(
         spq,
@@ -3639,7 +3650,17 @@ endif
         "            {   /* TEMPORARY DIAG */\n"
         "                unsigned int _t0 = timer_gettick();\n"
         "                putsprite(x, y, order[i]->frame, screen, &(order[i]->drawmethod));\n"
-        "                _mister_cmp_putsprite_ms += timer_gettick() - _t0;\n"
+        "                {   /* TEMPORARY DIAG [TB0] attribute this sprite to its path. */\n"
+        "                    /* Reuses the SAME timer pair rather than adding one inside*/\n"
+        "                    /* putsprite_ex: a sub-microsecond fast blit would be      */\n"
+        "                    /* materially inflated by its own instrumentation, biasing */\n"
+        "                    /* the ratio toward 'offload is worth more'. Same estimator*/\n"
+        "                    /* for both buckets, so the RATIO is unbiased.             */\n"
+        "                    unsigned int _dt = timer_gettick() - _t0;\n"
+        "                    _mister_cmp_putsprite_ms += _dt;\n"
+        "                    if(_mister_tb0_is_slow) _mister_tb0_slow_ms += _dt;\n"
+        "                    else                    _mister_tb0_fast_ms += _dt;\n"
+        "                }\n"
         "                _mister_cmp_putsprite_n++;\n"
         "            }\n"
         "            break;\n",
@@ -3715,7 +3736,8 @@ endif
         '#include "sprite.h"\n'
         '/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- defined in openbor.c */\n'
         'extern unsigned int _mister_tb0_fast;\n'
-        'extern unsigned int _mister_tb0_slow;\n',
+        'extern unsigned int _mister_tb0_slow;\n'
+        'extern int _mister_tb0_is_slow;\n',
         'TEMPORARY DIAG: [TB0] sprite.c externs', count=1)
     spr = strict_replace(
         spr,
@@ -3729,12 +3751,14 @@ endif
         "drawmethod->scaley == 256 && !drawmethod->flipy && !drawmethod->shiftx && "
         "drawmethod->fillcolor == TRANSPARENT_IDX && !drawmethod->rotate)\n"
         "    {\n"
-        "        _mister_tb0_fast++;  /* TEMPORARY DIAG [TB0] offloadable */\n",
+        "        _mister_tb0_fast++;  /* TEMPORARY DIAG [TB0] offloadable */\n"
+        "        _mister_tb0_is_slow = 0;\n",
         'TEMPORARY DIAG: [TB0] fast-path counter')
     spr = strict_replace(
         spr,
         "    gfx.sprite = frame;\n",
         "    _mister_tb0_slow++;  /* TEMPORARY DIAG [TB0] CPU-only fallback */\n"
+        "    _mister_tb0_is_slow = 1;\n"
         "    gfx.sprite = frame;\n",
         'TEMPORARY DIAG: [TB0] fallback counter', count=1)
     write(spr_path, spr)
