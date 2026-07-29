@@ -20,6 +20,31 @@ set +e
 # set +e otherwise limps on and fails much later with a confusing message).
 require_file() { [ -f "$1" ] || { echo "ERROR: $2" >&2; exit 1; }; }
 
+# fetch <url> <outfile> [alt_url] -- download with retries AND an integrity
+# check. Existence is not enough: a PARTIAL download leaves the file present,
+# so `require_file` passes and `tar` then dies with "Error is not recoverable",
+# which is how a flaky mirror produced two hard CI failures on 2026-07-29 (the
+# zlib tarball both times). Validate the gzip, delete partials, retry, and only
+# then give up.
+fetch() {
+    _url="$1"; _out="$2"; _alt="${3:-}"
+    _try=1
+    while [ $_try -le 3 ]; do
+        rm -f "$_out"
+        if wget -q -O "$_out" "$_url" && gzip -t "$_out" 2>/dev/null; then return 0; fi
+        echo "  fetch: attempt $_try for $_out failed or corrupt"
+        if [ -n "$_alt" ]; then
+            rm -f "$_out"
+            if wget -q -O "$_out" "$_alt" && gzip -t "$_out" 2>/dev/null; then return 0; fi
+            echo "  fetch: attempt $_try for $_out (mirror) failed or corrupt"
+        fi
+        _try=$((_try + 1))
+        sleep 3
+    done
+    echo "ERROR: could not fetch a VALID $_out after 3 attempts (url=$_url)" >&2
+    exit 1
+}
+
 SDL_PREFIX=/tmp/sdl2
 
 apt-get update -qq
@@ -37,8 +62,7 @@ apt-get clean
 # instability (DCurrent reverted past this version).
 echo "=== Building SDL 2.0.8 ==="
 cd /tmp
-wget -q https://www.libsdl.org/release/SDL2-2.0.8.tar.gz
-require_file SDL2-2.0.8.tar.gz "SDL2 download failed"
+fetch https://www.libsdl.org/release/SDL2-2.0.8.tar.gz SDL2-2.0.8.tar.gz
 tar xzf SDL2-2.0.8.tar.gz
 cd SDL2-2.0.8
 
@@ -81,8 +105,7 @@ test -f $SDL_PREFIX/lib/libSDL2.a || { echo "ERROR: SDL2 build/install failed �
 # ── Build SDL2_gfx 1.0.4 ─────────────────────────────────────────
 echo "=== Building SDL2_gfx 1.0.4 ==="
 cd /tmp
-wget -q https://www.ferzkopp.net/Software/SDL2_gfx/SDL2_gfx-1.0.4.tar.gz
-require_file SDL2_gfx-1.0.4.tar.gz "SDL2_gfx download failed"
+fetch https://www.ferzkopp.net/Software/SDL2_gfx/SDL2_gfx-1.0.4.tar.gz SDL2_gfx-1.0.4.tar.gz
 tar xzf SDL2_gfx-1.0.4.tar.gz
 cd SDL2_gfx-1.0.4
 ./autogen.sh 2>/dev/null
@@ -104,8 +127,7 @@ test -f $SDL_PREFIX/lib/libSDL2_gfx.a || { echo "ERROR: SDL2_gfx build/install f
 # ── Build libogg 1.3.5 ───────────────────────────────────────────
 echo "=== Building libogg ==="
 cd /tmp
-wget -q https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz
-require_file libogg-1.3.5.tar.gz "libogg download failed"
+fetch https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz libogg-1.3.5.tar.gz
 tar xzf libogg-1.3.5.tar.gz
 cd libogg-1.3.5
 ./configure --prefix=$SDL_PREFIX --disable-shared --enable-static --quiet
@@ -115,8 +137,7 @@ make install --quiet
 # ── Build libvorbis 1.3.7 ────────────────────────────────────────
 echo "=== Building libvorbis ==="
 cd /tmp
-wget -q https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz
-require_file libvorbis-1.3.7.tar.gz "libvorbis download failed"
+fetch https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz libvorbis-1.3.7.tar.gz
 tar xzf libvorbis-1.3.7.tar.gz
 cd libvorbis-1.3.7
 ./configure --prefix=$SDL_PREFIX --disable-shared --enable-static --with-ogg=$SDL_PREFIX --quiet
@@ -130,8 +151,7 @@ rm -rf libogg-1.3.5 libogg-1.3.5.tar.gz
 # ── Build zlib 1.2.13 ────────────────────────────────────────────
 echo "=== Building zlib ==="
 cd /tmp
-wget -q https://zlib.net/fossils/zlib-1.2.13.tar.gz || wget -q https://github.com/madler/zlib/releases/download/v1.2.13/zlib-1.2.13.tar.gz
-if [ ! -f zlib-1.2.13.tar.gz ]; then echo "ERROR: zlib download failed"; exit 1; fi
+fetch https://zlib.net/fossils/zlib-1.2.13.tar.gz zlib-1.2.13.tar.gz https://github.com/madler/zlib/releases/download/v1.2.13/zlib-1.2.13.tar.gz
 tar xzf zlib-1.2.13.tar.gz
 cd zlib-1.2.13
 ./configure --prefix=$SDL_PREFIX --static
@@ -141,8 +161,7 @@ make install --quiet
 # ── Build libpng 1.6.39 ──────────────────────────────────────────
 echo "=== Building libpng ==="
 cd /tmp
-wget -q https://download.sourceforge.net/libpng/libpng-1.6.39.tar.gz
-require_file libpng-1.6.39.tar.gz "libpng download failed"
+fetch https://download.sourceforge.net/libpng/libpng-1.6.39.tar.gz libpng-1.6.39.tar.gz
 tar xzf libpng-1.6.39.tar.gz
 cd libpng-1.6.39
 CPPFLAGS="-I$SDL_PREFIX/include" LDFLAGS="-L$SDL_PREFIX/lib" \
