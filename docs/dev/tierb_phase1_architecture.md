@@ -449,7 +449,28 @@ Mitigation ladder, in order:
   per band (R=4, 56 bands/frame). No width capability gate needed.
 - **Sprite arena exhaustion** behaviour: fall back to `malloc` + CPU-only marking. Needs a
   measured headroom figure (46,001 KB observed on He-Man; is any PAK larger? Note Lust Rush
-  is 4.7x He-Man's pixel area, so it is the obvious candidate to measure).
+  is 3.12x He-Man's pixel area, so it is the obvious candidate to measure).
+
+### 14.2b 🛑 THE BANDWIDTH BUDGET WAS SIZED FROM ONE PAK -- Lust Rush is the outlier
+Phase 0b's headline "133 MB/s = 31% of the conservative ceiling" was computed from He-Man's
+MEASURED sprite coverage (1.16 Mpx/frame = 2.52x its screen). Scaling that overdraw ratio by
+area across the census gives:
+
+| PAK / group | screen px | bg | sprites | out | TOTAL MB/s | |
+|---|---:|---:|---:|---:|---:|---|
+| **Lust Rush 1600x900** | 1,440,000 | 172.6 | 217.4 | 8.6 | **398.6** | 🛑 **92% of the 433 conservative ceiling** |
+| 960x540 (4 PAKs) | 518,400 | 62.1 | 78.3 | 8.6 | 149.0 | ok |
+| **He-Man 960x480** | 460,800 | 55.2 | 69.6 | 8.6 | **133.4** | ok (the measured anchor) |
+| 640x480 (46 PAKs) | 307,200 | 36.8 | 46.4 | 8.6 | 91.8 | ok |
+| 480x272 (97 PAKs) | 130,560 | 15.6 | 19.7 | 8.6 | 44.0 | ok |
+| 320x240 (283 PAKs) | 76,800 | 9.2 | 11.6 | 8.6 | 29.4 | ok |
+
+**Only Lust Rush is anywhere near the ceiling**, and it is a single PAK at 3.12x He-Man's
+area. Everything else has 3x margin or better. Options, to settle in Phase 2: measure Lust
+Rush's real overdraw (it may be far below He-Man's 2.52x -- a 1600x900 cart is unlikely to
+also carry 2.5x overdraw); lean on the 591 MB/s good-burst figure rather than 433; or let
+the capability gate route it to CPU. Do NOT treat 398.6 as measured -- only the He-Man row
+is anchored in data; every other row scales one PAK's overdraw ratio by area.
 
 ### 14.3 Accepted consequences
 - +1 frame of latency (section 10).
