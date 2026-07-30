@@ -148,7 +148,7 @@ audio ring pointers, BUF0/BUF1, cart data, audio ring). Tier-B adds three region
 The sprite arena is a **relocation, not a duplication** — the 46,001 KB working set is
 already heap-resident today, so total RAM use is unchanged (Phase 0 finding 2). The ARM
 reaches it by `mmap`ing `/dev/mem` exactly as `native_video_writer.c` already does for
-`0x3A000000`, and runs a bump allocator inside it. If the pool is exhausted or the mapping
+`0x3A000000`, and runs an allocator inside it (**with free/reuse -- NOT a bump allocator**; `model_cache[]` entries unload, see 14.4.4). If the pool is exhausted or the mapping
 fails, sprite allocation falls back to `malloc` and those sprites are marked CPU-only —
 a defense-in-depth gate, not an error path.
 
@@ -521,27 +521,52 @@ several**; do that before treating any as permanently uncovered.
    **Lust Rush** (the only uncovered resolution).
 5. **The 19 without traces**: re-scan first, then on-device verify whatever still will not run.
 
-### 14.4.4 ARENA SIZING WAS WRONG -- 64 MB is far too small
-Measured across 435 PAKs (`pak_blend_runtime_2026-07-29.tsv`, `spritekb`):
+### 14.4.4 ARENA SIZING -- THE MEASUREMENT IS A LOWER BOUND, DO NOT SIZE FROM IT
+
+The 900-frame bot scan measured, across 435 PAKs:
 
 ```
-  largest 150.5 MB (Dragon Ball Z Tournament, 848 sprites)  median 2.8 MB  mean 7.4 MB
-  Sonic Super Jam 129.7 | Beat Em Up Ultimate Alliance 89.9 | Ogres Mayhem 79.8
-  Mortal Kombat - The Chosen One 72.0 | DBZ Attack of Saiyans 63.8
+  largest OBSERVED 150.5 MB (Dragon Ball Z Tournament)   median 2.8 MB   mean 7.4 MB
 ```
 
-| arena | PAKs that would NOT fit |
-|---:|---|
-| 64 MB (this doc's proposal) | **5** |
-| 96 MB | 2 |
-| 128 MB | 2 |
-| 160 MB | 0 |
+🛑 **That is NOT the maximum working set, and sizing the arena from it would be wrong.**
+OpenBOR loads models **on demand** via `load_cached_model()` into `model_cache[]` (each entry
+carries an `unload` flag), so the working set grows as new characters and levels are reached
+and can shrink again. A 900-frame run from boot only ever samples early content. Compare
+PAK file size against the measured working set:
 
-He-Man's 46 MB is **not** the worst case -- it is 3.3x smaller than the largest. The
-reserved region below the existing window (`0x30000000..0x3A000000`) is ~160 MB, so 150.5 MB
-only just fits. **Response: size the arena to whatever the region allows AND keep the
-per-PAK fallback** -- a PAK whose working set does not fit takes the CPU path and is
-slower, never broken. That satisfies the contract regardless of the final number.
+| PAK | file | observed working set | fraction |
+|---|---:|---:|---:|
+| **Ultimate Double Dragon** | **1.31 GB** | **20.4 MB** | **1.5%** |
+| Sonic Super Jam | 0.72 GB | 129.7 MB | 17.7% |
+| Crisis Evil Bootleg | 0.71 GB | 16.0 MB | 2.2% |
+| Vermilion Sword | 0.71 GB | 9.5 MB | 1.3% |
+| Ogres Mayhem | 0.56 GB | 79.8 MB | 13.9% |
+| Streets of Rage Zombies | 0.58 GB | 6.3 MB | 1.1% |
+
+The sampled fraction ranges **1.1% to 17.7%** and is uncorrelated with file size, so the true
+maximum is unknown and could be far above 150 MB. **The earlier claim that a 160 MB arena
+leaves "0 PAKs that would not fit" is RETRACTED.**
+
+#### The design response -- make arena size a PERFORMANCE question, not a CORRECTNESS one
+Two requirements fall out, and together they satisfy the no-regression contract regardless
+of what the true maximum turns out to be:
+
+1. **Per-SPRITE arena-exhaustion fallback, not per-PAK.** When the arena is full, the next
+   sprite allocation falls back to `malloc` and that sprite is marked CPU-only. A PAK with a
+   huge working set then loses offload *progressively* -- it never breaks, and never fails
+   to load. Sizing becomes tuning.
+2. **The arena needs a real allocator with free/reuse, NOT the bump allocator this document
+   proposed in section 6.** Because `model_cache[]` entries can be *unloaded*, a bump
+   allocator would never reclaim their sprites; over a long session with many
+   load/unload cycles the arena would fill even when the instantaneous working set is small,
+   and every later sprite would permanently fall back to CPU.
+
+#### To actually size it (Phase 2 work)
+The honest measurement is a static upper bound: sum the decoded pixel area of every sprite
+image in each PAK from image headers only (bounded, header-only reads, same pattern as
+`pak_videoscan.py`). That covers all 450 including Ultimate Double Dragon and Lust Rush,
+which the runtime scan cannot reach.
 
 ### 14.4.5 THE BANDWIDTH SCARE WAS AN ARTEFACT -- resolution is not the driver
 Section 14.2b estimated Lust Rush at 398.6 MB/s by scaling He-Man's overdraw by area.
