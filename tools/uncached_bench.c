@@ -37,6 +37,7 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
+#include <malloc.h>
 #include <string.h>
 #include <stdint.h>
 #include <fcntl.h>
@@ -197,6 +198,11 @@ static double t_rows(volatile unsigned char *b, unsigned n)
 
 int main(void)
 {
+    /* Line-buffer immediately: the first two runs died with SIGBUS and their
+     * block-buffered stdout was LOST, so nothing showed where they died. */
+    setvbuf(stdout, NULL, _IOLBF, 0);
+    setvbuf(stderr, NULL, _IOLBF, 0);
+
     /* Refuse to run while a hybrid binary could be using the region. */
     if (system("pidof OpenBOR_7533 >/dev/null 2>&1 || pidof OpenBOR_4086 >/dev/null 2>&1") == 0) {
         fprintf(stderr, "REFUSING: an OpenBOR binary is running; it may own 0x%lX.\n"
@@ -204,17 +210,25 @@ int main(void)
         return 2;
     }
 
+    fprintf(stderr, "[bc] start
+");
     g_bytes = ARENA_BYTES;
     g_rows  = g_bytes / (ROW_W + 64);
     if (g_rows < 16) g_rows = 16;
 
     /* --- cached reference: ordinary malloc --- */
+    fprintf(stderr, "[bc] alloc cached
+");
     unsigned char *cached = memalign(64, g_bytes);
     if (!cached) { perror("memalign"); return 1; }
     memset(cached, 0, g_bytes);
+    fprintf(stderr, "[bc] build cached
+");
     unsigned rows_c = build_rle(cached, g_bytes, g_rows);
 
     /* --- uncached: /dev/mem, exactly how native_video_writer.c maps DDR3 --- */
+    fprintf(stderr, "[bc] open /dev/mem
+");
     int fd = open("/dev/mem", O_RDWR | O_SYNC);
     if (fd < 0) { perror("open /dev/mem (run as root)"); return 1; }
     volatile unsigned char *unc = mmap(NULL, g_bytes, PROT_READ | PROT_WRITE,
@@ -223,8 +237,12 @@ int main(void)
 
     /* MUST run before anything writes the mapping: the first version of this
      * bench died with SIGBUS inside build_rle. */
+    fprintf(stderr, "[bc] mmap ok, probing
+");
     probe_alignment(unc);
 
+    fprintf(stderr, "[bc] build uncached
+");
     unsigned rows_u = build_rle(unc, g_bytes, g_rows);
 
     printf("Tier-B C2 -- uncached DDR3 arena vs cached malloc\n");
