@@ -64,9 +64,13 @@ static double now_ms(void)
  * sprite.c::encodesprite actually emits. */
 static unsigned build_rle(volatile unsigned char *buf, unsigned bytes, unsigned rows)
 {
-    unsigned char *b = (unsigned char *)buf;      /* built via a cached alias */
-    int32_t *linetab = (int32_t *)b;
-    unsigned char *d = b + rows * sizeof(int32_t);
+    /* EVERYTHING stays volatile. Casting volatile away here is what made v3
+     * still SIGBUS: with -O2 -mfpu=neon GCC vectorises a 16-byte store loop
+     * into a wide UNALIGNED store, which faults on strongly-ordered memory
+     * (proved by probe_alignment). volatile forces byte-at-a-time stores. */
+    volatile unsigned char *b = buf;
+    volatile int32_t *linetab = (volatile int32_t *)b;   /* base is page-aligned */
+    volatile unsigned char *d = b + rows * sizeof(int32_t);
     unsigned r, x;
 
     for (r = 0; r < rows; r++) {
