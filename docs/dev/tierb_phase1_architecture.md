@@ -578,6 +578,7 @@ from it for many `(sum, n)`. The 16bpp path does **not** clamp to 255; the 32bpp
 
    | link | value | source |
    |---|---|---|
+   | `getVideoSurface` hands over `vscreen->data`, not `screen->pixels` | **confirmed** | its `bscreen` branch is dead -- see the second measurement below |
    | `offsetof(s_screen, data)` | **20** | `types.h:97-108`; `magic/width/height/pixelformat` (4 each) + `palette` (4). Measured, not counted by hand |
    | 20 mod 16 | **4** | -- |
    | glibc arm32 `MALLOC_ALIGNMENT` | **8** (`2 * SIZE_SZ`) | so any `malloc` base is 0 or 8 mod 16 |
@@ -598,10 +599,50 @@ from it for many `(sum, n)`. The 16bpp path does **not** clamp to 255; the 32bpp
    VERDICT: downscale variant 1 is UNREACHABLE on this allocator.
    ```
 
+   **The second measurement -- which surface is even handed over.** The alignment argument
+   only applies if `getVideoSurface` takes its `else` branch. It has a `bscreen` branch
+   (`sdl/videocommon.c`) that returns `screen->pixels` instead, and `bscreen` is allocated
+   in exactly two places (`:38-59`):
+
+   | condition | status |
+   |---|---|
+   | `videomodes.pixel == 1` | **false** -- the Path-B 16-bit vscreen makes `pixel = 2` |
+   | `savedata.swfilter && (savedata.hwscale >= 2.0 \|\| savedata.fullscreen)` | **false on every config on the device** |
+
+   `s_savedata` (`engine/source/savedata.h`) sums to **exactly 324 bytes** on arm32 -- which
+   is the size of the current-era `.cfg` files, so `savesettings` writes the struct raw and
+   its fields decode at fixed offsets (`swfilter` 272, `fullscreen` 288, `hwscale` 316).
+   Decoding **all 16** OpenBOR configs on the device:
+
+   ```
+   324-byte OpenBOR configs scanned : 16
+   with swfilter != 0               : 0
+   with bscreen actually LIVE       : 0
+   ```
+
+   The decode is trustworthy rather than "it read zeros": the fields VARY across files
+   (A Tale of Vengeance has `fullscreen = 1`, AvP Aftermath `0`; `usegl`/`hwfilter`/`vsync`
+   are all 1), so real data is being read at those offsets. And the values cannot drift at
+   runtime: `swfilter`/`hwscale`/`fullscreen` are set only from the engine's video-options
+   menu (`openbor.c:50151+`), which lives in the stock pause menu -- and
+   `patches/pausemenu_patch.c` replaces that wholesale with an Options submenu of
+   **Music Volume / SFX Volume / Back**. The video options are unreachable on MiSTer.
+
    **Consequence: the 282 320-wide PAKs (63% of the library) are served by variant 5**,
    the general per-column box -- with `x0 = x`, `x1 = x+1`, so `hcnt = 1` and the box is
    vertical-only. The FPGA must reproduce **that**, not the NN row pick. Variant 1 is dead
    code in the ship build and needs no RTL at all.
+
+   🛑 **One narrow residual, and it is design-relevant: `swfilter` is PER-PAK.** Each PAK
+   has its own `.cfg`, so a config imported from a PC OpenBOR install could carry
+   `swfilter != 0` -- and A Tale of Vengeance already has `fullscreen = 1`, so for that PAK
+   the condition would flip and `getVideoSurface` would hand over a **doubled-width**
+   `screen->pixels` (640 for a 320-wide PAK), routing the frame to **variant 3** instead.
+   This does not threaten the conclusion above, but it settles a design question: the
+   downscale variant is a **per-PAK, runtime-resolved property, not a static one**. That is
+   why consequence 2 stands even though the alignment term turned out constant -- the ARM
+   must evaluate the real condition per frame and encode the answer, and the FPGA must
+   never infer the variant from width.
 
    🛑 **Keep an assertion `pitch % 16 == 0`.** The whole result rests on the pitch
    being 16-aligned; a future non-aligned pitch would make the residue vary per ROW and
