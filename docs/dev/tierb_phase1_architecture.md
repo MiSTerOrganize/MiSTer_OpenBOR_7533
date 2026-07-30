@@ -79,7 +79,10 @@ Key properties:
 
 - **The band buffer is on-chip.** This is what makes the bandwidth budget close
   (133 MB/s vs 369 MB/s for a DDR3-resident framebuffer). See Phase 0b.
-- **The ARM never reads back composited pixels.** It writes a display list and forgets.
+- **The ARM reads back composited pixels on SEVEN known paths** (pause, main-menu return,
+  screenshot, fade, debug overlay, and a second compositing path in `update_loading`).
+  Those frames run in **CPU-COMPOSITE mode** -- see section 9.7. The earlier claim that
+  the ARM never reads back was FALSE and is what review finding C3 caught.
 - **Z-order is exact** because fallbacks are rasterised to a scratch buffer and submitted
   as ordinary `LINEAR` commands in their correct slot — the FPGA executes one strictly
   ordered list per band.
@@ -356,6 +359,62 @@ RGB565 + colour key, and the ARM emits a `LINEAR` command in the sprite's correc
 The CPU keeps only the rasterisation cost — which is precisely the 28.8% already accounted
 for in the payoff arithmetic (section 15).
 
+## 9.7 CPU-COMPOSITE frame mode -- the C3 resolution
+
+Tier-B's first draft asserted the ARM never reads the composited frame. **That is false.**
+Enumerated exhaustively from pristine v7533 `openbor.c` (every read of `vscreen` as a
+source, plus every `copyscreen`/`putscreen` touching it):
+
+| site | function | operation | why it reads the composited frame |
+|---|---|---|---|
+| `openbor.c:21659` | `pausemenu()` | `copyscreen(pausebuffer, vscreen)` | snapshots the live frame to draw the menu over. **Our `pausemenu_patch.c:70` does the same** |
+| `openbor.c:21619` | `backto_mainmenu()` | `copyscreen(pausebuffer, vscreen)` | same snapshot on menu return |
+| `openbor.c:45856` | `update()` | `screenshot(vscreen, getpal, 1)` | user + script-triggered capture (`openborscript.c:12148`) |
+| `openbor.c:45940` | `fade_out()` | `copyscreen(fbuffer, vscreen)` | captures the frame to fade FROM |
+| `openbor.c:45945` | `fade_out()` | `putscreen(vscreen, fbuffer, &dm)` | writes the faded result BACK |
+| `openbor.c:45869-45870` | `update()` | `screen_printf(vscreen, ...)` | draws debug text ONTO the composited frame |
+| `openbor.c:22651-22667` | `update_loading()` | `putscreen` + `spriteq_draw` + `video_copy_screen` | 🛑 **a SECOND compositing + present path** the design never accounted for |
+
+### The mechanism
+A per-frame **`CPU_COMPOSITE`** flag in the frame header. When set, the ARM composites into
+`vscreen` and writes the output framebuffer itself exactly as it does today, and the FPGA
+**does not composite** -- it only scans out. When clear, the FPGA owns the frame.
+
+This is cheap because **not one of these paths is performance-critical**: pause and the
+main-menu return are static screens, fades are brief, screenshots are one-shot, the debug
+overlay is developer-only, and the loading bar is already I/O-bound.
+
+### Entry triggers (the ARM must set the flag BEFORE the frame it needs)
+1. **Pause entry / main-menu return** -- one CPU-composited frame before the snapshot. The
+   game state is frozen, so re-compositing it yields the identical image; the whole time the
+   menu is up stays in CPU mode (it composites into `pausebuffer`, not `vscreen`).
+2. **`fade_out()` / fade-in** -- CPU mode for the duration of the fade loop.
+3. **Screenshot** -- one CPU frame, then capture.
+4. **Debug overlay enabled** -- CPU mode for as long as it is on, since `screen_printf`
+   writes onto the composited frame.
+5. **`update_loading()`** -- CPU mode throughout. This path composites and presents on its
+   own, outside the main `update()` flow.
+
+### Consequences that must be designed, not assumed
+- **Mode changes must be atomic with the frame.** A frame that is half CPU-composited and
+  half FPGA-composited is a torn frame. The flag rides in the header alongside the sequence
+  number and is subject to the same publish-ordering rule (finding M5).
+- **The FPGA must quiesce cleanly** on entering CPU mode -- finish or abandon the band in
+  flight, and not write the framebuffer the ARM is now writing. This is the same quiesce
+  protocol finding C8 requires for PAK load / hot-swap / reset.
+- **`vscreen` must still exist and still be composited-into on CPU frames**, so the 16-bit
+  vscreen allocation and the whole CPU compositing path stay in the binary. Tier-B does not
+  remove them; it bypasses them on gameplay frames only.
+- **This is a THIRD gate condition** beyond the per-sprite and per-PAK gates: a per-FRAME
+  gate. Section 14.4.1's table is extended accordingly.
+
+### Verification
+Every one of the seven paths gets an explicit on-device check in the Phase 6 regression set
+(pause, menu return, screenshot, fade in/out, debug overlay, loading bar), because a black
+pause snapshot is exactly the class of bug that shipped before -- CLAUDE.md records it for
+the PIXEL_32 pausebuffer, and `pausemenu_patch.c:66-67` carries the comment explaining that
+`copyscreen` early-returns on a format mismatch.
+
 ## 10. Ownership and sync protocol
 
 | | today | after Tier-B |
@@ -494,6 +553,7 @@ any PAK is *no speedup* -- never a regression. Every gate defaults to CPU on dou
 | sprite working set exceeds the arena | CPU for that PAK (see 14.4.4) |
 | PAK width exceeds the band buffer | CPU for that PAK |
 | anything the software model has not proven identical | CPU |
+| **the frame will be read back or written by the ARM** (pause, menu return, screenshot, fade, debug overlay, loading bar) | **CPU-COMPOSITE frame, section 9.7** |
 
 ### 14.4.2 The regression net ALREADY EXISTS -- 431 golden traces
 `#Golden_Traces/OpenBOR_7533/` holds **one `.trace` per PAK for 431 of the 450**, each
