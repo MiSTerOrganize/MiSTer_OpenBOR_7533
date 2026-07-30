@@ -43,6 +43,8 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <time.h>
+#include <signal.h>
+#include <setjmp.h>
 
 #define ARENA_PHYS   0x3A080000UL   /* cart staging -- idle when no cart loads  */
 #define ARENA_BYTES  (256u * 1024u) /* clear of the audio ring at 0x3A0D0000    */
@@ -67,19 +69,64 @@ static unsigned build_rle(volatile unsigned char *buf, unsigned bytes, unsigned 
     unsigned r, x;
 
     for (r = 0; r < rows; r++) {
-        linetab[r] = (int32_t)((size_t)d - (size_t)&linetab[r]);
+        {   /* aligned u32 store is legal; keep it explicit */
+            int32_t off = (int32_t)((size_t)d - (size_t)&linetab[r]);
+            linetab[r] = off;
+        }
         for (x = 0; x + 24 < ROW_W;) {
             if ((size_t)(d - b) + 32 >= bytes) break;
+            unsigned k;
             *d++ = 8;                      /* clearcount: 8 transparent   */
             *d++ = 16;                     /* viscount:   16 opaque       */
-            memset(d, (r ^ x) & 0xFE, 16); /* the pixel bytes             */
-            d += 16;
+            /* byte-wise: memset is ILLEGAL on strongly-ordered memory when
+             * unaligned (see probe_alignment) */
+            for (k = 0; k < 16; k++) *d++ = (unsigned char)((r ^ x ^ k) & 0xFE);
             x += 24;
         }
         if ((size_t)(d - b) + 2 >= bytes) { rows = r + 1; break; }
         *d++ = 0xFF;                       /* end of row                  */
     }
     return rows;
+}
+
+/* --- alignment probe -------------------------------------------------------
+ * The first run of this bench died with SIGBUS while BUILDING the stream in the
+ * uncached mapping. On ARM, /dev/mem + O_SYNC gives strongly-ordered (device)
+ * memory, and unaligned multi-byte access to device memory FAULTS -- so libc
+ * memset/memcpy, which happily use unaligned word/NEON stores, are illegal
+ * there. That is a Tier-B finding in its own right: `encodesprite` builds a
+ * sprite with `memcpy(data, src + x0, x - x0)` at arbitrary byte offsets, so it
+ * cannot write into an uncached arena as-is.
+ * This probe reports exactly which access classes survive. */
+static volatile sig_atomic_t g_sigbus;
+static sigjmp_buf g_jb;
+static void on_bus(int sig) { (void)sig; g_sigbus = 1; siglongjmp(g_jb, 1); }
+
+#define TRY(label, stmt)                                                      \
+    do {                                                                      \
+        g_sigbus = 0;                                                         \
+        if (sigsetjmp(g_jb, 1) == 0) { stmt; printf("  %-34s OK\n", label); }  \
+        else printf("  %-34s SIGBUS\n", label);                               \
+    } while (0)
+
+static void probe_alignment(volatile unsigned char *u)
+{
+    struct sigaction sa, old;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_handler = on_bus;
+    sigaction(SIGBUS, &sa, &old);
+
+    printf("uncached access probe (/dev/mem O_SYNC = strongly-ordered):\n");
+    TRY("byte store, any offset",        *(volatile unsigned char *)(u + 3) = 0xA5);
+    TRY("u32 store, 4-byte aligned",     *(volatile uint32_t *)(u + 8) = 0x12345678u);
+    TRY("u32 store, UNALIGNED (+1)",     *(volatile uint32_t *)(u + 9) = 0x12345678u);
+    TRY("memset 16 B, aligned",          memset((void *)(u + 64), 0x5A, 16));
+    TRY("memset 16 B, UNALIGNED (+1)",   memset((void *)(u + 65), 0x5A, 16));
+    TRY("memcpy 16 B, UNALIGNED (+1)",   { unsigned char t[16]; memcpy((void *)(u + 97), t, 16); });
+    TRY("byte loop 16 B, unaligned",     { int i; for (i = 0; i < 16; i++) u[129 + i] = (unsigned char)i; });
+    printf("\n");
+
+    sigaction(SIGBUS, &old, NULL);
 }
 
 /* Walk it the way the decoder does. volatile so nothing is optimised away. */
@@ -173,6 +220,11 @@ int main(void)
     volatile unsigned char *unc = mmap(NULL, g_bytes, PROT_READ | PROT_WRITE,
                                        MAP_SHARED, fd, ARENA_PHYS);
     if (unc == MAP_FAILED) { perror("mmap"); close(fd); return 1; }
+
+    /* MUST run before anything writes the mapping: the first version of this
+     * bench died with SIGBUS inside build_rle. */
+    probe_alignment(unc);
+
     unsigned rows_u = build_rle(unc, g_bytes, g_rows);
 
     printf("Tier-B C2 -- uncached DDR3 arena vs cached malloc\n");
