@@ -364,17 +364,49 @@ Worst realistic case ~10 distinct palettes per band x 16 bands x 64 beats = 10,2
 per frame = **0.6% of the clock budget** and 4.9 MB/s. Reload-on-change is therefore
 sufficient; a 2-4 entry palette cache is the escape hatch if measurement disagrees.
 
-### 9.5 Blend unit
-RGB565 in, RGB565 out. Unpack 5/6/5, blend, repack.
+### 9.5 Blend unit -- the ship build uses LUTs, so the FPGA must too (M3, M2, M16)
 
-**Scope is deliberately NOT frozen in this document.** The engine's 16-bit build has a set
-of LUT-accelerated blend modes plus alpha levels, and implementing all of them in RTL
-before knowing which ones He-Man actually uses would be building on an assumption. The
-existing `[BLD]`/`[BAL]`/`[A15]` probes already produce a blend-mode and alpha-level
-histogram. **Phase 1b: run them on He-Man + Avengers + PDC2 and implement only the modes
-that appear**; everything else routes to the CPU fallback via the `LINEAR` path. Cost
-estimate for the common alpha blend: 3 multipliers per pixel per operand, so ~12 DSPs at
-2 px/clock, against 77 free.
+**M3: every `blend_*16` has TWO paths and the ship build takes the LUT one.**
+```c
+unsigned short blend_screen16(unsigned short c1, unsigned short c2) {
+    unsigned char *tbl;
+    if((tbl = blendtables[BLEND_SCREEN])) return _color16(tbl[_ri], tbl[_gi], tbl[_bi]);
+    return _color16(_screen16(...), _screen16(...), _screen16(...));   /* arithmetic */
+}
+```
+`apply_patches.py` populates five of them: SCREEN, MULTIPLY, OVERLAY, HARDLIGHT, DODGE.
+`tables[BLEND_HALF] = NULL`, so HALF alone takes the arithmetic path. Specifying "unpack
+5/6/5, blend, repack" would have reproduced the path the ship build **does not run**.
+
+**This makes the blend unit simpler and bit-exact by construction.** The LUT indices are
+```
+  _ri = (r1<<5)|r2            0..1023      (5-bit x 5-bit)
+  _bi = (b1<<5)|b2            0..1023      shares the same range as _ri
+  _gi = ((g1<<6)|g2) + 1024   1024..5119   (6-bit x 6-bit)
+```
+so one mode's table is **5,120 bytes**, and all five are **25 KB = ~20 M10K** -- trivially
+on-chip. The FPGA does a table lookup per channel and is byte-identical to the CPU with
+**no divides and no DSPs**. HALF is a plain average, a shift and an add.
+
+🛑 **Operand order is load-bearing.** OVERLAY, HARDLIGHT and DODGE are **not commutative**;
+the call is `blendfp(src, dest)` -- source high, destination low. Swapping them silently
+changes every blended pixel.
+
+**M2: `alpha` alone does NOT determine the blend function.** `getblendfunction16` also reads
+two globals: `tintmode > 0` replaces *any* mode with `blend_tint16` (a composition of two
+modes over `tintcolor`), and `usechannel` turns mode 6 into `blend_rgbchannel16`. Both are
+script-mutable per sprite, and they are mutually exclusive (`if` / `else if`). The gate
+"mode outside 1..6 -> CPU" would have passed a tinted sprite to the FPGA to be rendered with
+the plain mode -- **a gate that offloads something not identical**, precisely the class
+14.4.1 claims is impossible. **Fix: `tintmode > 0` and (`alpha == 6 && usechannel`) are both
+offload-gate conditions -> CPU.** The ARM evaluates them when building the command, exactly
+as it resolves the palette (9.3).
+
+**M16: the blend scope is measured over the library, not three PAKs.** Freezing scope from
+He-Man/Avengers/PDC2 is the one-example fallacy this document's own lesson table forbids and
+that the census has already caught twice. Because all five LUTs cost only ~20 M10K total,
+**the scope question mostly dissolves: implement all six.** Phase 1b's histogram now serves
+to prioritise verification order, not to decide what exists.
 
 ### 9.6 Downscaler -- FIVE shipped variants, not one box (the C4 resolution)
 
@@ -692,6 +724,116 @@ with an ARM-side timeout on the ack so a wedged compositor degrades to CPU_COMPO
 than hanging the engine. This is the same lifecycle discipline the rest of the core already
 has, and the design previously addressed **none** of these events.
 
+### 9.14 Remaining MAJOR-finding resolutions (M1, M4-M14, M17, M18)
+
+**M1 -- band clamps: VERIFIED, table unchanged.** The shipped per-row span applies three
+clamps the draft omitted (`if(yy1<=yy0) yy1=yy0+1; if(yy1>H) yy1=H; if(yy0>=H) yy0=H-1`).
+Re-deriving `R` for all 20 census resolutions **with** the clamps and testing whether any
+band's first source row was already consumed by its predecessor: **zero overlaps, and every
+`R`/lines/band-px/bands value is identical to section 8.2's table.** The concern was
+legitimate; the outcome is clean. The clamped form is now the normative definition.
+
+**M4 -- 🛑 blended fallbacks CANNOT be `LINEAR`; this is a real hole.** Rasterising a sprite
+standalone into scratch loses the *destination* operand, so a fallback that blends cannot be
+reduced to a source bitmap. Worse, the fallback set is exactly the blend-heavy one: OpenBOR
+shadows are **scaled AND alpha-blended**, and `water` *displaces destination content*, so it
+is not a source rasterisation at all. **"Z-order is exact" holds only for OPAQUE fallbacks.**
+Resolution -- a fourth gate tier:
+
+| fallback kind | handling |
+|---|---|
+| opaque (no blend fp) | rasterise to scratch, submit as `LINEAR` in its z-slot |
+| blended, but the mode is one the FPGA implements | submit as `LINEAR` **carrying `blend_mode`**; the FPGA blends it against the band exactly like a sprite |
+| water / displacement, or any mode the FPGA lacks | 🛑 **the whole FRAME falls back to CPU_COMPOSITE (9.10)** |
+
+The third row is the honest one: some frames simply cannot be split, and forcing them would
+break z-order. Frequency must be measured before Phase 2 -- if water-using PAKs are common,
+they lose the offload entirely, which is a performance answer, not a correctness one.
+
+**M5 -- torn header reads.** The 4-qword header is published with the sequence number LAST
+and a `__sync_synchronize()` before it (the shipped writer already does this at
+`native_video_writer.c:723` for exactly this reason). The FPGA reads the sequence number
+first, then the body, then **re-reads the sequence number and discards the frame if it
+changed**. Without that, geometry from frame N can pair with a sequence from N+1.
+
+**M6 -- command volume.** Folded into 9.12: the bound is computed **per PAK** from its band
+count (2 for 240x200, 56 for Lust Rush), and overflow falls back rather than truncating.
+
+**M7 -- the encoding could not express variable band geometry.** Section 8.2 says source
+lines vary +/-1 per band and claimed a per-band parameter that did not exist. **Added: a
+per-band descriptor** ahead of each band's command list --
+`{ src_y0, src_lines, out_y0, out_rows, cmd_count }` -- so the FPGA never derives geometry
+from the global header, and `vcnt` per output row comes from the descriptor plus the
+clamped formula. `END_BAND` remains the list terminator.
+
+**M8 -- 🛑 flipx is NOT "a signed step".** `putsprite_flip_` mirrors the clip logic in a way
+an implementer will get wrong from that description. Verbatim differences:
+
+| | forward | flipped |
+|---|---|---|
+| loop | `while(lx < xmax)`, `lx += count` | `while(lx > xmin)`, `lx -= count` |
+| skip-run exit | `if(lx >= xmax) break` | `if(lx <= xmin) break` -- **different inclusivity** |
+| run fully outside | `if((lx+count) <= xmin) skip` | `if((lx-count) >= xmax) skip` -- **xmax plays xmin's role** |
+| partial clip | `if(lx < xmin) { diff = lx-xmin; lx = xmin; }` | `if(lx > xmax) { diff = lx-xmax; lx = xmax; }` |
+| other edge | `if((lx+count) > xmax) count = xmax-lx` | `if((lx-count) < xmin) count = lx-xmin` |
+| write | `memcpy(dest+lx, data, count)` forward | `dest[--lx] = *data++` **backward, byte at a time** |
+
+The RTL must implement both as distinct clip paths, not one path with a sign flip.
+
+**M9 -- clipping must never skip bytes.** Consequence 1 of section 5 depends on rows being a
+contiguous stream. **Normative: always consume every row to its `0xFF` terminator; clipping
+suppresses WRITES only.** Skipping a clipped run's bytes desynchronises the stream and every
+subsequent row of that sprite.
+
+**M10 / M11 -- memory map.** The 64 MB arena and the scratch pinned at `0x34000000` are
+withdrawn; sizing is per 9.9.3 (a duplicate of the eligible subset) with scratch now
+**per-slot x3** (9.12). Region evidence is no longer inferred from `ddram.sv`: `/proc/iomem`
+shows System RAM is `00000000-1fefffff` (~511 MB), so ~513 MB above `0x1FF00000` is outside
+Linux's map. **Still owed before Phase 2: enumerate every existing consumer of that space**
+(ascal `vbuf` with `RAMBASE 0x20000000`, `ddr_svc`/`ram2`, the legacy `ddram` master, and the
+core's own `0x3A000000` window) and their extents -- the reviewer is right that "confirm base
+and size" understated the job.
+
+**M12 -- the CDC table was cargo-culted.** The row flagged as the Option Y trap is **not a
+pulse crossing**: the sequence number is read from DDR3 by `ddr_clk` logic, and what crosses
+to `clk_vid` today is `frame_ready_reg`, a **level**, via 2-FF -- levels need no widening.
+Replaced with the crossings that actually exist: (a) compositor->`clk_vid` framebuffer-valid
+and buffer index -- **eliminated entirely by 9.11**, since the compositor writes `ctrl_word`
+and the reader's existing sync is reused unchanged; (b) reset synchronisation for the new
+block; (c) band-buffer and any new FIFO `aclr` sequencing, which must hold clear for 8 cycles
+like the existing `fifo_aclr_cnt`; (d) `quiesce_req`/`quiesce_ack`, a level handshake, 2-FF
+each way. **No new fast->slow pulse crossing is introduced.**
+
+**M13 -- ">= 2 px/clock" for BLENDED pixels.** Blending is read-modify-write on the band
+buffer, so 2 px/clk needs two reads *and* two writes per cycle. M10K is dual-port, giving one
+read + one write per port per cycle. Resolution: **bank the band buffer by x-parity** (even/odd
+columns in separate M10Ks), so a 2-pixel span hits two banks and each does its own RMW. An
+RLE run starting at an arbitrary `dst_x` therefore needs a one-pixel alignment step at the run
+head; the steady state is 2 px/clk. Opaque runs need no read at all and are write-only.
+This is a **structural requirement on the band buffer**, not a tuning knob.
+
+**M14 -- what "ZERO changed traces" actually means.** Golden traces are
+`FRAME:VIDEOCRC:AUDIOCRC` from the **headless** build, which has no FPGA -- so rung 2 of
+14.4.3 compares the **software model** against the shipped CPU compositor, and the CRC surface
+must be the composited `vscreen` (stated normatively here). The +1 frame of latency (section
+10) exists only on hardware and would re-index `FRAME:` for any on-device comparison, so the
+model runs **synchronously** and the trace gate is model-vs-CPU, never hardware-vs-golden.
+Hardware verification is the Phase 6 on-device set, judged visually and by `[DCV16]`.
+
+**M17 -- fallback scratch writes were unbudgeted.** The fallback previously wrote its output
+into a cached `vscreen`; under Tier-B it writes into DDR3 scratch. Per 9.9 that scratch is
+**mapped uncached**, and 9.9's measurement shows uncached *reads* at 22x -- writes are far
+cheaper (write-combining) but are **not free and are not yet measured**. Added to the open
+items: measure an uncached-write rasterise before Phase 2, and if it is material, place the
+scratch in cached memory and have the ARM copy it across, or fall the frame back.
+
+**M18 -- a 4th PLL output is not free.** `OpenBOR.sdc` matches counter names **by literal
+string** (`general[0]`, `general[2]`). Regenerating `pll.v` from 3 outputs to 4 re-rolls
+placement on a design whose worst path is **+0.128 ns**. Normative: if a separate blitter
+clock is ever adopted, (a) verify the generated counter names and update the SDC, (b) re-run
+the SEED ladder **with** the extra output, and (c) treat any `pll_hdmi` regression as
+blocking. **Default position: run the compositor on `clk_sys` and add no PLL output at all.**
+
 ## 10. Ownership and sync protocol
 
 | | today | after Tier-B |
@@ -832,6 +974,11 @@ any PAK is *no speedup* -- never a regression. Every gate defaults to CPU on dou
 | PAK width exceeds the band buffer | CPU for that PAK |
 | anything the software model has not proven identical | CPU |
 | **the frame will be read back or written by the ARM** (pause, menu return, screenshot, fade, debug overlay, loading bar) | **CPU-COMPOSITE frame, section 9.10** |
+| **`tintmode > 0`, or `alpha == 6 && usechannel`** (M2 -- the blend fn is not what `alpha` says) | CPU |
+| `frame->palette == NULL`, or a non-NULL `frame->mask` (C5) | CPU |
+| a **blended** fallback whose mode the FPGA lacks, or any **water/displacement** sprite (M4) | **CPU-COMPOSITE frame** |
+| the frame's **downscaler variant** is one the RTL does not reproduce bit-exactly (C4) | **CPU-COMPOSITE frame** |
+| the frame needs **more commands than a ring slot holds** (M6/C7) | **CPU-COMPOSITE frame** |
 
 ### 14.4.2 The regression net ALREADY EXISTS -- 431 golden traces
 `#Golden_Traces/OpenBOR_7533/` holds **one `.trace` per PAK for 431 of the 450**, each
