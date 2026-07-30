@@ -477,6 +477,95 @@ is anchored in data; every other row scales one PAK's overdraw ratio by area.
 - Two rendering paths coexist permanently (FPGA fast path + CPU fallback), which is a
   maintenance cost accepted in exchange for never regressing an unsupported PAK.
 
+## 14.4 NO BROKEN PAKs -- the all-450 no-regression contract (user directive)
+
+**Requirement: all 450 PAKs must still work and play after Tier-B. No broken PAKs, no
+regressions.** A hard gate, and it shapes the design, not just the testing.
+
+### 14.4.1 The design property that makes it achievable
+**The capability gate is CONSERVATIVE by construction: offload only what is provably
+byte-identical, route everything else to the existing CPU path.** Then the worst case for
+any PAK is *no speedup* -- never a regression. Every gate defaults to CPU on doubt:
+
+| condition | action |
+|---|---|
+| blend mode outside 1..6 (incl. the 5 PAKs declaring alpha>6) | CPU |
+| sprite needs scale / rotate / water / flipy / shiftx / fill | CPU (the measured 29%) |
+| sprite working set exceeds the arena | CPU for that PAK (see 14.4.4) |
+| PAK width exceeds the band buffer | CPU for that PAK |
+| anything the software model has not proven identical | CPU |
+
+### 14.4.2 The regression net ALREADY EXISTS -- 431 golden traces
+`#Golden_Traces/OpenBOR_7533/` holds **one `.trace` per PAK for 431 of the 450**, each
+`FRAME:VIDEOCRC:AUDIOCRC` over 120 presented frames from boot, **100% deterministic**
+(synthetic clock via `OB_TEST`). Re-scan after a change and diff = an exact blast-radius
+list. **Tier-B's required result is ZERO changed traces.**
+
+Coverage by resolution: **every resolution is fully covered except 1600x900 (Lust Rush),
+which has ZERO** -- plus small gaps (480x272 90/97, 320x240 274/283, 640x480 45/46,
+960x540 3/4). 19 PAKs lack a trace, almost all the known script-compile-fail (ec=1) class.
+Two engine crash bugs were fixed 2026-07-23, so **a re-scan on current main may recover
+several**; do that before treating any as permanently uncovered.
+
+### 14.4.3 The verification ladder (mechanical unless stated)
+1. **Phase 2 (ARM-side): re-run the 431 traces, require ZERO diffs.** Phase 2 builds the
+   display list and discards it, so by construction nothing may change -- this proves the
+   new ARM code is side-effect-free.
+2. **Software model of the FPGA compositor, run headless in place of the CPU compositor
+   across all 431, require ZERO diffs.** The load-bearing rung: it validates band geometry,
+   blend math, the downscaler, z-order and the capability gate over the WHOLE library
+   before any RTL exists and without hardware.
+3. **RTL verified against that model** (standard practice -- the model is the reference).
+4. **On-device**: the locked palette trio (ATOV / TMNT-RP / a modern PAK) + **Bearz** (sole
+   OVERLAY user at 14.7% of its pixels, and a mixed 1-and-2-tap vertical box) + He-Man +
+   **Lust Rush** (the only uncovered resolution).
+5. **The 19 without traces**: re-scan first, then on-device verify whatever still will not run.
+
+### 14.4.4 ARENA SIZING WAS WRONG -- 64 MB is far too small
+Measured across 435 PAKs (`pak_blend_runtime_2026-07-29.tsv`, `spritekb`):
+
+```
+  largest 150.5 MB (Dragon Ball Z Tournament, 848 sprites)  median 2.8 MB  mean 7.4 MB
+  Sonic Super Jam 129.7 | Beat Em Up Ultimate Alliance 89.9 | Ogres Mayhem 79.8
+  Mortal Kombat - The Chosen One 72.0 | DBZ Attack of Saiyans 63.8
+```
+
+| arena | PAKs that would NOT fit |
+|---:|---|
+| 64 MB (this doc's proposal) | **5** |
+| 96 MB | 2 |
+| 128 MB | 2 |
+| 160 MB | 0 |
+
+He-Man's 46 MB is **not** the worst case -- it is 3.3x smaller than the largest. The
+reserved region below the existing window (`0x30000000..0x3A000000`) is ~160 MB, so 150.5 MB
+only just fits. **Response: size the arena to whatever the region allows AND keep the
+per-PAK fallback** -- a PAK whose working set does not fit takes the CPU path and is
+slower, never broken. That satisfies the contract regardless of the final number.
+
+### 14.4.5 THE BANDWIDTH SCARE WAS AN ARTEFACT -- resolution is not the driver
+Section 14.2b estimated Lust Rush at 398.6 MB/s by scaling He-Man's overdraw by area.
+**Measured** per-PAK overdraw (415 PAKs) shows that model is wrong:
+
+```
+  measured overdraw: max 38.56x   median 1.05x   mean 1.99x
+  He-Man is 1.55x -- not the 2.52x the estimate assumed, so even the anchor was off
+```
+
+Recomputed with real overdraw, **NO PAK exceeds the 433 MB/s conservative ceiling**:
+
+| MB/s | overdraw | res | PAK |
+|---:|---:|---|---|
+| **325.9** | **38.56x** | 480x272 | Ninja - Stealth Assassins |
+| 248.2 | 5.71x | 960x540 | SoR4 Silent Storm [Demo] |
+| 230.5 | 8.71x | 720x480 | Urban Lockdown |
+| 189.9 | 21.17x | 480x272 | Masters of the Universe - Eternian Battle |
+| 106.7 | 1.55x | 960x480 | He-Man |
+| median 26.3 | | | |
+
+**The worst case is a 480x272 PAK with 38x overdraw, not the 1600x900 one.** Bandwidth
+tracks OVERDRAW, not screen size. Section 14.2b's table is SUPERSEDED by this one.
+
 ## 15. Success criteria
 
 | criterion | target | source |
@@ -488,6 +577,7 @@ is anchored in data; every other row scales one PAK's overdraw ratio by area.
 | compositing rate | >= 2 px/clock | per-band cycle counters |
 | timing | all clocks >= +0.1 ns, `pll_hdmi` >= +0.3 ns preferred | `OpenBOR.sta.summary` |
 | audit | one full cycle reporting **zero bugs, zero concerns** | section 13 phase 7 |
+| **no broken PAKs** | **ZERO changed golden traces across all 431** | section 14.4 |
 | fallback | every unsupported PAK renders exactly as it does today | phase 6 regression |
 
 ## 16. Rollback

@@ -1,450 +1,450 @@
-Adventure of Nick & Dum-Dum, The	0	[TBB] fast=4310 slow=0 m0=3556 m1=0 m2=754 m3=0 m4=0 m5=0 m6=0 m7=0 p0=106985217 p1=0 p2=1075204 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=754 frames=900
-Airgallet Fighters Wing	0	[TBB] fast=4242 slow=0 m0=4242 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=313111244 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2134 frames=900
-2nenBgumi Gikotaku Seinsei Gaiden	0	[TBB] fast=2114 slow=0 m0=1367 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=178661904 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900
-AA Shadow Gaiden	0	[TBB] fast=2447 slow=725 m0=2447 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=74598737 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1873 frames=900
-A Tale of Vengeance	0	[TBB] fast=3507 slow=2279 m0=3507 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=283674653 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2279 frames=900
-A Saga de Ryu	0	[TBB] fast=2910 slow=1480 m0=2338 m1=0 m2=572 m3=0 m4=0 m5=0 m6=0 m7=0 p0=70560537 p1=0 p2=701272 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2052 frames=900
+Adventure of Nick & Dum-Dum, The	0	[TBB] fast=4310 slow=0 m0=3556 m1=0 m2=754 m3=0 m4=0 m5=0 m6=0 m7=0 p0=106984494 p1=0 p2=1075204 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=754 frames=900 spritekb=1087 sprites=262 vw=320 vh=240
+2nenBgumi Gikotaku Seinsei Gaiden	0	[TBB] fast=2110 slow=0 m0=1363 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=177517044 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900 spritekb=1581 sprites=688 vw=320 vh=240
+Airgallet Fighters Wing	0	[TBB] fast=4066 slow=0 m0=4066 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=302126422 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2038 frames=900 spritekb=2406 sprites=255 vw=320 vh=240
+AA Shadow Gaiden	0	[TBB] fast=2448 slow=726 m0=2448 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=74597108 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1874 frames=900 spritekb=985 sprites=533 vw=320 vh=240
+A Tale of Vengeance	0	[TBB] fast=3507 slow=2279 m0=3507 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=283674265 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2279 frames=900 spritekb=7783 sprites=1388 vw=320 vh=240
+A Saga de Ryu	0	[TBB] fast=2910 slow=1480 m0=2338 m1=0 m2=572 m3=0 m4=0 m5=0 m6=0 m7=0 p0=70561268 p1=0 p2=701272 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2052 frames=900 spritekb=9222 sprites=1535 vw=480 vh=272
 Art Of Figting - Trouble In South Town	1	NO_TBB_LINE
-Alien vs Predator Aftermath	0	[TBB] fast=1888 slow=0 m0=1158 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=28460781 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=944 frames=900
-Armored Warriors Cyberbots	0	[TBB] fast=3947 slow=785 m0=3947 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=339005553 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2893 frames=900
-Aliens Clash	0	[TBB] fast=2496 slow=0 m0=2496 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=126251802 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1642 frames=900
-Arcaders - The Beat 'Em Up	0	[TBB] fast=958 slow=0 m0=958 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=11201156 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=824 frames=900
-Armored Stronghold	0	[TBB] fast=3407 slow=2513 m0=3407 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=29548940 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2513 frames=900
+Alien vs Predator Aftermath	0	[TBB] fast=1888 slow=0 m0=1158 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=28467975 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=944 frames=900 spritekb=2232 sprites=471 vw=320 vh=240
+Armored Warriors Cyberbots	0	[TBB] fast=3947 slow=785 m0=3947 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=339013737 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2893 frames=900 spritekb=2074 sprites=320 vw=320 vh=240
+Armored Stronghold	0	[TBB] fast=3408 slow=2514 m0=3408 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=29564767 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2514 frames=900 spritekb=575 sprites=407 vw=320 vh=240
+Arcaders - The Beat 'Em Up	0	[TBB] fast=958 slow=0 m0=958 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=11201156 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=824 frames=900 spritekb=169 sprites=198 vw=320 vh=240
+Aliens Clash	0	[TBB] fast=2490 slow=0 m0=2490 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=125942997 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1639 frames=900 spritekb=693 sprites=54 vw=640 vh=480
 Avengers - United Battle Force	1	NO_TBB_LINE
-Art of Fighting - Beats of Rage Remix III	0	[TBB] fast=3710 slow=1484 m0=3710 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=33526966 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2226 frames=900
-Asterix and Caesars Challenge	0	[TBB] fast=2638 slow=0 m0=1928 m1=0 m2=710 m3=0 m4=0 m5=0 m6=0 m7=0 p0=153597266 p1=0 p2=531080 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1667 frames=900
-Balance of Power	0	[TBB] fast=4926 slow=0 m0=4171 m1=0 m2=755 m3=0 m4=0 m5=0 m6=0 m7=0 p0=163881384 p1=0 p2=564740 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2890 frames=900
-Bad School Girls	0	[TBB] fast=4231 slow=801 m0=3821 m1=0 m2=383 m3=0 m4=0 m5=0 m6=27 m7=0 p0=637872300 p1=0 p2=76600000 p3=0 p4=0 p5=0 p6=3525120 p7=0 tint=0 chan=0 remap=2316 frames=900
-Bad Ass Babes Episode One	0	[TBB] fast=1724 slow=760 m0=1724 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=335256183 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=241 frames=900
+Art of Fighting - Beats of Rage Remix III	0	[TBB] fast=3710 slow=1484 m0=3710 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=32914102 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2226 frames=900 spritekb=9819 sprites=1494 vw=480 vh=272
+Asterix and Caesars Challenge	0	[TBB] fast=2638 slow=0 m0=1928 m1=0 m2=710 m3=0 m4=0 m5=0 m6=0 m7=0 p0=153592258 p1=0 p2=531080 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1667 frames=900 spritekb=524 sprites=174 vw=320 vh=240
+Balance of Power	0	[TBB] fast=4928 slow=0 m0=4172 m1=0 m2=756 m3=0 m4=0 m5=0 m6=0 m7=0 p0=163901210 p1=0 p2=565488 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2891 frames=900 spritekb=6385 sprites=1112 vw=320 vh=240
+Bad School Girls	0	[TBB] fast=4238 slow=802 m0=3828 m1=0 m2=384 m3=0 m4=0 m5=0 m6=26 m7=0 p0=639285693 p1=0 p2=76800000 p3=0 p4=0 p5=0 p6=3394560 p7=0 tint=0 chan=0 remap=2318 frames=900 spritekb=4735 sprites=961 vw=480 vh=272
+Bad Ass Babes Episode One	0	[TBB] fast=1724 slow=760 m0=1724 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=335256183 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=241 frames=900 spritekb=21008 sprites=1041 vw=960 vh=480
 Bare Knuckle VACUUM	1	NO_TBB_LINE
-Bare Knuckle - The Next Generation	0	[TBB] fast=2260 slow=0 m0=1511 m1=0 m2=749 m3=0 m4=0 m5=0 m6=0 m7=0 p0=13551668 p1=0 p2=299600 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=749 frames=900
-Bare Knuckle 6 - Turn The Tide	0	[TBB] fast=2778 slow=42 m0=2157 m1=621 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=21432923 p1=47692800 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2694 frames=900
-Barshen Bash	0	[TBB] fast=15151 slow=0 m0=15151 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1338777469 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3346 frames=900
-Barshen Below	0	[TBB] fast=15202 slow=0 m0=15202 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1017206468 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5509 frames=900
-Barshen Border	0	[TBB] fast=17944 slow=0 m0=17944 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=713837060 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8272 frames=900
-Barshen Breakout	0	[TBB] fast=12896 slow=0 m0=12896 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=441857386 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4030 frames=900
-Batman - Savage Dawn	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Batman Gotham Knights	0	[TBB] fast=2754 slow=0 m0=1814 m1=144 m2=796 m3=0 m4=0 m5=0 m6=0 m7=0 p0=29048999 p1=814464 p2=1123496 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=945 frames=900
-Batman Vs. The Teenage Mutant Ninja Turtles	0	[TBB] fast=2934 slow=0 m0=2934 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=149564057 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2167 frames=900
-Battle Arena Toshinden Origin	0	[TBB] fast=1538 slow=732 m0=1538 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=24615605 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=732 frames=900
-BattleManiacs Bare Knuckle	0	[TBB] fast=29575 slow=2273 m0=29031 m1=0 m2=544 m3=0 m4=0 m5=0 m6=0 m7=0 p0=96417278 p1=0 p2=387392 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3324 frames=900
-Battletoads & Double Dragon IV - The Return of the Dark Forces	0	[TBB] fast=14731 slow=1651 m0=14077 m1=0 m2=654 m3=0 m4=0 m5=0 m6=0 m7=0 p0=363203838 p1=0 p2=282528 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2632 frames=900
-Battletoads Double Dragon - The T-Bird Mission	0	[TBB] fast=14662 slow=1504 m0=14662 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=190764749 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1504 frames=900
-Battletoads	0	[TBB] fast=23157 slow=0 m0=19268 m1=0 m2=3889 m3=0 m4=0 m5=0 m6=0 m7=0 p0=321540006 p1=0 p2=2061460 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4070 frames=900
-Bearz	0	[TBB] fast=11580 slow=1836 m0=10352 m1=0 m2=471 m3=757 m4=0 m5=0 m6=0 m7=0 p0=900069213 p1=0 p2=173799 p3=155033600 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5171 frames=900
-Beast and Blanka in the Violent World	0	[TBB] fast=2420 slow=0 m0=1651 m1=0 m2=769 m3=0 m4=0 m5=0 m6=0 m7=0 p0=49046727 p1=0 p2=788994 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1357 frames=900
-Beats of Rage - Alliance Super Sayan	0	[TBB] fast=2886 slow=0 m0=1935 m1=164 m2=787 m3=0 m4=0 m5=0 m6=0 m7=0 p0=20551145 p1=0 p2=588676 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=951 frames=900
-Beats Of Rage Xtra	0	[TBB] fast=2486 slow=0 m0=1615 m1=124 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=16841358 p1=701344 p2=558756 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=871 frames=900
-Beats of Rage Remix - Ladies Edition	0	[TBB] fast=1821 slow=855 m0=1821 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=47090873 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=855 frames=900
-Beats of Rage Remix - Rhythm of Destruction	0	[TBB] fast=2316 slow=0 m0=1479 m1=107 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=17090072 p1=605192 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=837 frames=900
-Beats of Rage	0	[TBB] fast=2486 slow=0 m0=1615 m1=124 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=16838145 p1=701344 p2=558756 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=871 frames=900
-Bird Bunch	0	[TBB] fast=9672 slow=806 m0=8866 m1=0 m2=806 m3=0 m4=0 m5=0 m6=0 m7=0 p0=329955512 p1=0 p2=120900 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4030 frames=900
-Bishojo Dimensional Chaos	0	[TBB] fast=2378 slow=0 m0=1594 m1=0 m2=784 m3=0 m4=0 m5=0 m6=0 m7=0 p0=62546237 p1=0 p2=804384 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1270 frames=900
-Bleach	0	[TBB] fast=788 slow=0 m0=788 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1174728 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=788 frames=900
-Beat 'Em Up  Ultimate Alliance	0	[TBB] fast=28252 slow=3827 m0=18324 m1=4756 m2=3760 m3=0 m4=0 m5=0 m6=1412 m7=0 p0=482654961 p1=15820012 p2=806490 p3=0 p4=0 p5=0 p6=12655552 p7=0 tint=39 chan=0 remap=27312 frames=900
-Blue Bullet Bintang	0	[TBB] fast=12035 slow=601 m0=12035 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=630468276 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1011 frames=900
-Bombeiro Mascarado - Herois Das Ruas	0	[TBB] fast=6327 slow=2535 m0=6327 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=162614844 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3285 frames=900
-Braller	0	[TBB] fast=8283 slow=0 m0=8283 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=353391486 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3326 frames=900
-Briga de Rua 2 - Vanessa	0	[TBB] fast=1529 slow=1424 m0=1529 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=4532279 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1161 frames=900
-Briga de Rua 3 - Killer Instinct	0	[TBB] fast=1551 slow=0 m0=1532 m1=0 m2=0 m3=0 m4=0 m5=0 m6=19 m7=0 p0=34871952 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1532 frames=900
-Briga de Rua	0	[TBB] fast=1889 slow=1224 m0=1889 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=247439817 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1501 frames=900
-BroomStickBot	0	[TBB] fast=18675 slow=0 m0=18675 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=676446062 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=1494 chan=0 remap=9711 frames=900
-Bruce Lee - Revenge of the Dragon	0	[TBB] fast=1493 slow=1058 m0=1406 m1=0 m2=87 m3=0 m4=0 m5=0 m6=0 m7=0 p0=14466670 p1=0 p2=89262 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1145 frames=900
-Burn Kingdom	0	[TBB] fast=1828 slow=0 m0=1061 m1=0 m2=767 m3=0 m4=0 m5=0 m6=0 m7=0 p0=97935765 p1=0 p2=786942 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=767 frames=900
-Cadillacs & Dinosaurs Warriors	0	[TBB] fast=3550 slow=0 m0=2063 m1=0 m2=1487 m3=0 m4=0 m5=0 m6=0 m7=0 p0=41029313 p1=0 p2=1232372 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1775 frames=900
-Capcom Pocket Brawl [Beta]	0	[TBB] fast=6806 slow=1008 m0=6806 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=265171822 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4790 frames=900
-Captain Commando and the Avengers	0	[TBB] fast=1505 slow=743 m0=1505 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=82600098 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=997 frames=900
-Burning Fox, The	0	[TBB] fast=11 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=11 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=44 p7=0 tint=0 chan=11 remap=0 frames=900
-CastleVania Pulse Of Animosity	0	[TBB] fast=1199 slow=0 m0=1199 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=90531615 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=767 frames=900
-Castlevania - Symphony of Destruction	0	[TBB] fast=3598 slow=0 m0=2120 m1=0 m2=1478 m3=0 m4=0 m5=0 m6=0 m7=0 p0=13189552 p1=0 p2=740032 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1478 frames=900
-Castlevania Dracula LCD Chronicles Deluxe Edition	0	[TBB] fast=5253 slow=0 m0=5253 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=118015995 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3815 frames=900
-Castlevania Legacy of Dracula	0	[TBB] fast=7203 slow=0 m0=7203 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=263641422 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=6283 frames=900
-Castlevania Moonlight Nocturine	0	[TBB] fast=2217 slow=767 m0=2217 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=32160341 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=767 frames=900
-Chaves Streets	0	[TBB] fast=2348 slow=0 m0=1542 m1=0 m2=806 m3=0 m4=0 m5=0 m6=0 m7=0 p0=15010697 p1=0 p2=1149356 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=806 frames=900
-Chaotix Rage	0	[TBB] fast=985 slow=743 m0=985 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=21119779 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=743 frames=900
-Cherry On Top	0	[TBB] fast=4806 slow=0 m0=4806 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=348217560 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2744 frames=900
-Chrono Killer	0	[TBB] fast=871 slow=0 m0=871 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=39399500 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900
-City of Heroes	0	[TBB] fast=1914 slow=753 m0=1914 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=291333280 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=753 frames=900
-ClaFan - Classic Fantasy	0	[TBB] fast=5967 slow=559 m0=5967 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=260442070 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5551 frames=900
-ClaFan - Classic Fantasy Advanced [Alpha Demo]	0	[TBB] fast=327 slow=327 m0=327 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=430289 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=327 frames=900
-City of Kaos, The	0	[TBB] fast=8 slow=0 m0=8 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=235008 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8 frames=900
-Coin Champion	0	[TBB] fast=15271 slow=0 m0=15271 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=220461377 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=9765 frames=900
-Code Name - Sailor V	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Cosmic Damage	0	[TBB] fast=1469 slow=764 m0=1469 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=45594356 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=905 frames=900
-Cowboys Unison	0	[TBB] fast=649 slow=649 m0=649 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=10543746 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=649 frames=900
-Crime Buster	0	[TBB] fast=1629 slow=747 m0=1629 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=31500577 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1335 frames=900
-Contra - Locked 'N Loaded	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Crisis Evil - Countdown to Oblivion	0	[TBB] fast=1752 slow=0 m0=1003 m1=0 m2=749 m3=0 m4=0 m5=0 m6=0 m7=0 p0=31734441 p1=0 p2=1456056 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=749 frames=900
-Crisis Evil 2 Remake	0	[TBB] fast=1888 slow=0 m0=1158 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=14460223 p1=0 p2=1419120 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900
-Crisis Evil 3 - Santiago Infected	0	[TBB] fast=1481 slow=0 m0=811 m1=0 m2=670 m3=0 m4=0 m5=0 m6=0 m7=0 p0=14958903 p1=0 p2=1302480 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=670 frames=900
-Crisis Evil Remake	0	[TBB] fast=1879 slow=0 m0=1130 m1=0 m2=749 m3=0 m4=0 m5=0 m6=0 m7=0 p0=70811844 p1=0 p2=1068074 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=876 frames=900
-Crisis Evil 4 - The Night Slashers [Beta]	0	[TBB] fast=8178 slow=718 m0=8178 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=583296479 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3152 frames=900
-Cyber Robot	0	[TBB] fast=12406 slow=0 m0=12406 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1033019336 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=806 frames=900
-Dante Must Kill	0	[TBB] fast=1966 slow=0 m0=1199 m1=0 m2=767 m3=0 m4=0 m5=0 m6=0 m7=0 p0=73877754 p1=0 p2=786942 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=911 frames=900
-Crisis Evil Bootleg - Resident Evil 2	0	[TBB] fast=2458 slow=1999 m0=2458 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=139084974 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2305 frames=900
+Bare Knuckle - The Next Generation	0	[TBB] fast=2262 slow=0 m0=1512 m1=0 m2=750 m3=0 m4=0 m5=0 m6=0 m7=0 p0=13554055 p1=0 p2=300000 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=750 frames=900 spritekb=3817 sprites=1249 vw=320 vh=240
+Bare Knuckle 6 - Turn The Tide	0	[TBB] fast=2786 slow=42 m0=2163 m1=623 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=21486510 p1=47846400 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2702 frames=900 spritekb=10883 sprites=1864 vw=320 vh=240
+Barshen Bash	0	[TBB] fast=15149 slow=0 m0=15149 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1338755713 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3344 frames=900 spritekb=831 sprites=58 vw=640 vh=480
+Barshen Below	0	[TBB] fast=15602 slow=0 m0=15602 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1017320576 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5911 frames=900 spritekb=566 sprites=120 vw=640 vh=480
+Barshen Border	0	[TBB] fast=17945 slow=0 m0=17945 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=713845548 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8273 frames=900 spritekb=135 sprites=70 vw=640 vh=480
+Barshen Breakout	0	[TBB] fast=12896 slow=0 m0=12896 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=441807214 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4030 frames=900 spritekb=324 sprites=121 vw=640 vh=480
+Batman - Savage Dawn	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=137 sprites=161 vw=320 vh=240
+Batman Gotham Knights	0	[TBB] fast=2760 slow=0 m0=1818 m1=144 m2=798 m3=0 m4=0 m5=0 m6=0 m7=0 p0=29140165 p1=814464 p2=1125548 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=948 frames=900 spritekb=2724 sprites=424 vw=320 vh=240
+Batman Vs. The Teenage Mutant Ninja Turtles	0	[TBB] fast=2947 slow=0 m0=2947 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=149635139 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2180 frames=900 spritekb=830 sprites=320 vw=320 vh=240
+Battle Arena Toshinden Origin	0	[TBB] fast=1538 slow=732 m0=1538 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=24584530 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=732 frames=900 spritekb=7840 sprites=1273 vw=320 vh=240
+BattleManiacs Bare Knuckle	0	[TBB] fast=29581 slow=2273 m0=29077 m1=0 m2=504 m3=0 m4=0 m5=0 m6=0 m7=0 p0=96384958 p1=0 p2=376992 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3317 frames=900 spritekb=7214 sprites=2410 vw=480 vh=272
+Battletoads & Double Dragon IV - The Return of the Dark Forces	0	[TBB] fast=14731 slow=1651 m0=14077 m1=0 m2=654 m3=0 m4=0 m5=0 m6=0 m7=0 p0=363203838 p1=0 p2=282528 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2632 frames=900 spritekb=1704 sprites=879 vw=320 vh=240
+Battletoads Double Dragon - The T-Bird Mission	0	[TBB] fast=14662 slow=1504 m0=14662 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=190764553 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1504 frames=900 spritekb=1618 sprites=849 vw=320 vh=240
+Battletoads	0	[TBB] fast=23156 slow=0 m0=19267 m1=0 m2=3889 m3=0 m4=0 m5=0 m6=0 m7=0 p0=321198696 p1=0 p2=2061460 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4069 frames=900 spritekb=1832 sprites=754 vw=320 vh=240
+Bearz	0	[TBB] fast=11580 slow=1834 m0=10352 m1=0 m2=471 m3=757 m4=0 m5=0 m6=0 m7=0 p0=900064013 p1=0 p2=173799 p3=155033600 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5171 frames=900 spritekb=4154 sprites=767 vw=640 vh=360
+Beast and Blanka in the Violent World	0	[TBB] fast=2420 slow=0 m0=1651 m1=0 m2=769 m3=0 m4=0 m5=0 m6=0 m7=0 p0=49043468 p1=0 p2=788994 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1357 frames=900 spritekb=975 sprites=279 vw=320 vh=240
+Beats Of Rage Xtra	0	[TBB] fast=2486 slow=0 m0=1615 m1=124 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=16839580 p1=701344 p2=558756 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=871 frames=900 spritekb=6482 sprites=1422 vw=320 vh=240
+Beats of Rage - Alliance Super Sayan	0	[TBB] fast=2886 slow=0 m0=1935 m1=164 m2=787 m3=0 m4=0 m5=0 m6=0 m7=0 p0=20540924 p1=0 p2=588676 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=951 frames=900 spritekb=3929 sprites=864 vw=320 vh=240
+Beats of Rage Remix - Ladies Edition	0	[TBB] fast=1827 slow=855 m0=1827 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=47361517 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=855 frames=900 spritekb=3012 sprites=1011 vw=320 vh=240
+Beats of Rage Remix - Rhythm of Destruction	0	[TBB] fast=2316 slow=0 m0=1479 m1=107 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=17093664 p1=605192 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=837 frames=900 spritekb=3588 sprites=798 vw=320 vh=240
+Beats of Rage	0	[TBB] fast=2486 slow=0 m0=1615 m1=124 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=16838145 p1=701344 p2=558756 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=871 frames=900 spritekb=2498 sprites=574 vw=320 vh=240
+Bird Bunch	0	[TBB] fast=9830 slow=806 m0=9024 m1=0 m2=806 m3=0 m4=0 m5=0 m6=0 m7=0 p0=330015512 p1=0 p2=120900 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4188 frames=900 spritekb=67 sprites=43 vw=640 vh=480
+Bishojo Dimensional Chaos	0	[TBB] fast=2373 slow=0 m0=1589 m1=0 m2=784 m3=0 m4=0 m5=0 m6=0 m7=0 p0=62177250 p1=0 p2=804384 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1267 frames=900 spritekb=5595 sprites=933 vw=480 vh=272
+Bleach	0	[TBB] fast=788 slow=0 m0=788 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1174728 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=788 frames=900 spritekb=514 sprites=253 vw=320 vh=240
+Beat 'Em Up  Ultimate Alliance	0	[TBB] fast=28164 slow=3807 m0=18272 m1=4736 m2=3744 m3=0 m4=0 m5=0 m6=1412 m7=0 p0=480734367 p1=15754878 p2=802662 p3=0 p4=0 p5=0 p6=12655552 p7=0 tint=40 chan=0 remap=27228 frames=900 spritekb=92012 sprites=6645 vw=480 vh=272
+Blue Bullet Bintang	0	[TBB] fast=12431 slow=606 m0=12431 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=630495876 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1407 frames=900 spritekb=47 sprites=40 vw=640 vh=480
+Bombeiro Mascarado - Herois Das Ruas	0	[TBB] fast=6327 slow=2535 m0=6327 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=162614844 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3285 frames=900 spritekb=23441 sprites=1572 vw=320 vh=240
+Braller	0	[TBB] fast=8271 slow=0 m0=8271 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=353371426 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3314 frames=900 spritekb=76 sprites=24 vw=640 vh=480
+Briga de Rua 2 - Vanessa	0	[TBB] fast=1529 slow=1424 m0=1529 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=4529908 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1161 frames=900 spritekb=8984 sprites=940 vw=480 vh=272
+Briga de Rua 3 - Killer Instinct	0	[TBB] fast=1555 slow=0 m0=1536 m1=0 m2=0 m3=0 m4=0 m5=0 m6=19 m7=0 p0=34952184 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1536 frames=900 spritekb=22066 sprites=2376 vw=480 vh=272
+Briga de Rua	0	[TBB] fast=1890 slow=1224 m0=1890 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=247440007 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1502 frames=900 spritekb=10498 sprites=1254 vw=480 vh=272
+BroomStickBot	0	[TBB] fast=18675 slow=0 m0=18675 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=676446062 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=1494 chan=0 remap=9711 frames=900 spritekb=1148 sprites=68 vw=640 vh=480
+Bruce Lee - Revenge of the Dragon	0	[TBB] fast=1493 slow=1058 m0=1406 m1=0 m2=87 m3=0 m4=0 m5=0 m6=0 m7=0 p0=14467739 p1=0 p2=89262 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1145 frames=900 spritekb=3186 sprites=739 vw=320 vh=240
+Burn Kingdom	0	[TBB] fast=1832 slow=0 m0=1063 m1=0 m2=769 m3=0 m4=0 m5=0 m6=0 m7=0 p0=97955746 p1=0 p2=788994 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=769 frames=900 spritekb=9165 sprites=1721 vw=320 vh=240
+Cadillacs & Dinosaurs Warriors	0	[TBB] fast=3550 slow=0 m0=2063 m1=0 m2=1487 m3=0 m4=0 m5=0 m6=0 m7=0 p0=41035202 p1=0 p2=1232372 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1775 frames=900 spritekb=1188 sprites=438 vw=320 vh=240
+Capcom Pocket Brawl [Beta]	0	[TBB] fast=6805 slow=1008 m0=6805 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=264955733 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4789 frames=900 spritekb=1642 sprites=426 vw=480 vh=272
+Captain Commando and the Avengers	0	[TBB] fast=1509 slow=744 m0=1509 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=82917034 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=999 frames=900 spritekb=2140 sprites=599 vw=320 vh=240
+Burning Fox, The	0	[TBB] fast=10 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=10 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=40 p7=0 tint=0 chan=10 remap=0 frames=900 spritekb=23213 sprites=1271 vw=480 vh=272
+CastleVania Pulse Of Animosity	0	[TBB] fast=1199 slow=0 m0=1199 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=90534018 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=767 frames=900 spritekb=546 sprites=521 vw=320 vh=240
+Castlevania - Symphony of Destruction	0	[TBB] fast=3600 slow=0 m0=2121 m1=0 m2=1479 m3=0 m4=0 m5=0 m6=0 m7=0 p0=13190662 p1=0 p2=740780 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1479 frames=900 spritekb=747 sprites=355 vw=320 vh=240
+Castlevania Legacy of Dracula	0	[TBB] fast=7203 slow=0 m0=7203 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=263632964 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=6283 frames=900 spritekb=5752 sprites=1065 vw=320 vh=240
+Castlevania Dracula LCD Chronicles Deluxe Edition	0	[TBB] fast=5261 slow=0 m0=5261 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=118207883 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3821 frames=900 spritekb=8675 sprites=1531 vw=320 vh=240
+Castlevania Moonlight Nocturine	0	[TBB] fast=2207 slow=767 m0=2207 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=31942885 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=767 frames=900 spritekb=839 sprites=656 vw=320 vh=240
+Chaves Streets	0	[TBB] fast=2348 slow=0 m0=1542 m1=0 m2=806 m3=0 m4=0 m5=0 m6=0 m7=0 p0=15010697 p1=0 p2=1149356 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=806 frames=900 spritekb=618 sprites=147 vw=320 vh=240
+Chaotix Rage	0	[TBB] fast=986 slow=744 m0=986 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=21121418 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=744 frames=900 spritekb=2774 sprites=1370 vw=320 vh=240
+Cherry On Top	0	[TBB] fast=4806 slow=0 m0=4806 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=348217560 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2744 frames=900 spritekb=83 sprites=52 vw=640 vh=480
+Chrono Killer	0	[TBB] fast=871 slow=0 m0=871 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=39398814 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900 spritekb=1513 sprites=461 vw=320 vh=240
+City of Heroes	0	[TBB] fast=1914 slow=753 m0=1914 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=291330449 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=753 frames=900 spritekb=19470 sprites=1593 vw=320 vh=240
+ClaFan - Classic Fantasy	0	[TBB] fast=5967 slow=559 m0=5967 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=260442070 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5551 frames=900 spritekb=659 sprites=785 vw=320 vh=240
+ClaFan - Classic Fantasy Advanced [Alpha Demo]	0	[TBB] fast=327 slow=327 m0=327 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=430289 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=327 frames=900 spritekb=387 sprites=384 vw=320 vh=240
+City of Kaos, The	0	[TBB] fast=8 slow=0 m0=8 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=235008 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8 frames=900 spritekb=6489 sprites=1494 vw=480 vh=272
+Coin Champion	0	[TBB] fast=15266 slow=0 m0=15266 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=220370207 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=9760 frames=900 spritekb=48 sprites=18 vw=640 vh=480
+Code Name - Sailor V	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=1189 sprites=433 vw=320 vh=240
+Cosmic Damage	0	[TBB] fast=1469 slow=764 m0=1469 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=45598697 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=905 frames=900 spritekb=2695 sprites=1567 vw=480 vh=272
+Contra - Locked 'N Loaded	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=869 sprites=923 vw=320 vh=240
+Cowboys Unison	0	[TBB] fast=649 slow=649 m0=649 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=10544610 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=649 frames=900 spritekb=447 sprites=242 vw=320 vh=240
+Crime Buster	0	[TBB] fast=1623 slow=747 m0=1623 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=31332258 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1331 frames=900 spritekb=7062 sprites=1690 vw=320 vh=240
+Crisis Evil - Countdown to Oblivion	0	[TBB] fast=1754 slow=0 m0=1004 m1=0 m2=750 m3=0 m4=0 m5=0 m6=0 m7=0 p0=31741535 p1=0 p2=1458000 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=750 frames=900 spritekb=2045 sprites=180 vw=320 vh=240
+Crisis Evil 2 Remake	0	[TBB] fast=1888 slow=0 m0=1158 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=14457600 p1=0 p2=1419120 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900 spritekb=4017 sprites=895 vw=320 vh=240
+Crisis Evil 3 - Santiago Infected	0	[TBB] fast=1481 slow=0 m0=811 m1=0 m2=670 m3=0 m4=0 m5=0 m6=0 m7=0 p0=14956947 p1=0 p2=1302480 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=670 frames=900 spritekb=2612 sprites=367 vw=320 vh=240
+Crisis Evil Remake	0	[TBB] fast=1885 slow=0 m0=1133 m1=0 m2=752 m3=0 m4=0 m5=0 m6=0 m7=0 p0=70807690 p1=0 p2=1072352 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=879 frames=900 spritekb=3331 sprites=438 vw=320 vh=240
+Crisis Evil 4 - The Night Slashers [Beta]	0	[TBB] fast=8176 slow=718 m0=8176 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=583133749 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3150 frames=900 spritekb=29980 sprites=4572 vw=320 vh=240
+Cyber Robot	0	[TBB] fast=12405 slow=0 m0=12405 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1033020048 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=806 frames=900 spritekb=401 sprites=60 vw=640 vh=480
+Crisis Evil Bootleg - Resident Evil 2	0	[TBB] fast=2459 slow=2000 m0=2459 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=139086961 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2306 frames=900 spritekb=16382 sprites=6567 vw=320 vh=240
+Dante Must Kill	0	[TBB] fast=1966 slow=0 m0=1199 m1=0 m2=767 m3=0 m4=0 m5=0 m6=0 m7=0 p0=74057023 p1=0 p2=786942 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=911 frames=900 spritekb=3423 sprites=457 vw=320 vh=240
 Darkstalkers	1	NO_TBB_LINE
-Denjin Makai Zero	0	[TBB] fast=1106 slow=784 m0=1106 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=97927142 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=784 frames=900
-Demon's Hand [Demo]	0	[TBB] fast=1045 slow=763 m0=1045 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=51543006 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=763 frames=900
-Dojo Crasher	0	[TBB] fast=2871 slow=0 m0=1748 m1=0 m2=1123 m3=0 m4=0 m5=0 m6=0 m7=0 p0=7207218 p1=0 p2=1094254 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1123 frames=900
-Doom Ultra-Violence	0	[TBB] fast=6709 slow=0 m0=4569 m1=1041 m2=1099 m3=0 m4=0 m5=0 m6=0 m7=0 p0=26224551 p1=0 p2=822052 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3181 frames=900
-Double Dragon - Unleashed	0	[TBB] fast=3174 slow=0 m0=1874 m1=0 m2=1300 m3=0 m4=0 m5=0 m6=0 m7=0 p0=95700001 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1300 frames=900
+Demon's Hand [Demo]	0	[TBB] fast=1046 slow=764 m0=1046 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=51547570 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=764 frames=900 spritekb=4261 sprites=1498 vw=480 vh=272
+Denjin Makai Zero	0	[TBB] fast=1106 slow=784 m0=1106 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=97927028 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=784 frames=900 spritekb=5019 sprites=1083 vw=320 vh=240
+Dojo Crasher	0	[TBB] fast=2873 slow=0 m0=1749 m1=0 m2=1124 m3=0 m4=0 m5=0 m6=0 m7=0 p0=7212798 p1=0 p2=1095002 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1124 frames=900 spritekb=2764 sprites=670 vw=320 vh=240
+Doom Ultra-Violence	0	[TBB] fast=6709 slow=0 m0=4569 m1=1041 m2=1099 m3=0 m4=0 m5=0 m6=0 m7=0 p0=26225252 p1=0 p2=822052 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3181 frames=900 spritekb=630 sprites=264 vw=320 vh=240
+Double Dragon - Unleashed	0	[TBB] fast=3174 slow=0 m0=1874 m1=0 m2=1300 m3=0 m4=0 m5=0 m6=0 m7=0 p0=95699312 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1300 frames=900 spritekb=556 sprites=246 vw=320 vh=240
 Double Dragon 4	1	NO_TBB_LINE
-Double Dragon 3 - The Rosetta Stone	0	[TBB] fast=2893 slow=0 m0=2147 m1=0 m2=746 m3=0 m4=0 m5=0 m6=0 m7=0 p0=138284008 p1=0 p2=193960 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1213 frames=900
-Double Dragon Bangaihen	0	[TBB] fast=3147 slow=712 m0=3147 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=155510096 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2173 frames=900
-Double Dragon Evil Forces Expand	0	[TBB] fast=4763 slow=0 m0=4763 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=215045920 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2543 frames=900
-Double Dragon Extreme	0	[TBB] fast=2260 slow=0 m0=1337 m1=0 m2=923 m3=0 m4=0 m5=0 m6=0 m7=0 p0=67097018 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=923 frames=900
-Double Dragon - Zhao Yun	0	[TBB] fast=636 slow=0 m0=636 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=975598 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=636 frames=900
-Double Dragon Genesis	0	[TBB] fast=2487 slow=767 m0=2487 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=131262215 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1799 frames=900
-Double Dragon Gaiden	0	[TBB] fast=359 slow=359 m0=359 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=4078240 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=359 frames=900
-Double Dragon III - Rosetta Stone Remake	0	[TBB] fast=2607 slow=0 m0=1644 m1=0 m2=963 m3=0 m4=0 m5=0 m6=0 m7=0 p0=124111152 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=963 frames=900
-Double Dragon Gold	0	[TBB] fast=3399 slow=0 m0=3399 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=133378192 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3069 frames=900
-Double Dragon Remix	0	[TBB] fast=4187 slow=0 m0=4187 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=53220213 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3473 frames=900
-Double Dragon Renegade	0	[TBB] fast=2004 slow=0 m0=1249 m1=0 m2=755 m3=0 m4=0 m5=0 m6=0 m7=0 p0=79622390 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=755 frames=900
-Double Dragon Reloaded Alternate	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Double Dragon Revolution	0	[TBB] fast=2114 slow=0 m0=1367 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=87965176 p1=0 p2=194220 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=871 frames=900
-Double Dragon Revolution 2	0	[TBB] fast=2050 slow=0 m0=1332 m1=0 m2=718 m3=0 m4=0 m5=0 m6=0 m7=0 p0=100279362 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=718 frames=900
-Double Dragon SNK Final Edition	0	[TBB] fast=1355 slow=867 m0=1355 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=115762142 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=989 frames=900
-Double Dragon Revival	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Double Dragon Zero	0	[TBB] fast=3452 slow=770 m0=3452 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=179077469 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2558 frames=900
-Dragon Ball Z Gold	0	[TBB] fast=6000 slow=0 m0=4230 m1=0 m2=1770 m3=0 m4=0 m5=0 m6=0 m7=0 p0=165552100 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3738 frames=900
-Dragon Ball Z - Attack of Saiyans	0	[TBB] fast=8524 slow=0 m0=7315 m1=1209 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=473323268 p1=46468323 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4081 frames=900
-Dragon Ball Z Tournament	0	[TBB] fast=3620 slow=0 m0=2848 m1=0 m2=772 m3=0 m4=0 m5=0 m6=0 m7=0 p0=413019499 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=519 frames=900
-Dragon Ball	0	[TBB] fast=6000 slow=0 m0=4230 m1=0 m2=1770 m3=0 m4=0 m5=0 m6=0 m7=0 p0=164351234 p1=0 p2=1075584 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3738 frames=900
+Double Dragon 3 - The Rosetta Stone	0	[TBB] fast=2893 slow=0 m0=2147 m1=0 m2=746 m3=0 m4=0 m5=0 m6=0 m7=0 p0=138285568 p1=0 p2=193960 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1213 frames=900 spritekb=440 sprites=209 vw=320 vh=240
+Double Dragon Bangaihen	0	[TBB] fast=3147 slow=712 m0=3147 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=155510132 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2173 frames=900 spritekb=3326 sprites=1766 vw=320 vh=240
+Double Dragon Evil Forces Expand	0	[TBB] fast=4763 slow=0 m0=4763 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=215049760 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2543 frames=900 spritekb=780 sprites=342 vw=320 vh=240
+Double Dragon - Zhao Yun	0	[TBB] fast=638 slow=0 m0=638 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=977182 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=638 frames=900 spritekb=45584 sprites=4267 vw=320 vh=240
+Double Dragon Extreme	0	[TBB] fast=2260 slow=0 m0=1337 m1=0 m2=923 m3=0 m4=0 m5=0 m6=0 m7=0 p0=67097018 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=923 frames=900 spritekb=729 sprites=341 vw=320 vh=240
+Double Dragon Genesis	0	[TBB] fast=2487 slow=767 m0=2487 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=131262215 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1799 frames=900 spritekb=4620 sprites=1785 vw=320 vh=240
+Double Dragon Gaiden	0	[TBB] fast=359 slow=359 m0=359 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=4078240 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=359 frames=900 spritekb=3990 sprites=1718 vw=320 vh=240
+Double Dragon Gold	0	[TBB] fast=3399 slow=0 m0=3399 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=133371802 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3069 frames=900 spritekb=2858 sprites=1120 vw=320 vh=240
+Double Dragon III - Rosetta Stone Remake	0	[TBB] fast=2609 slow=0 m0=1645 m1=0 m2=964 m3=0 m4=0 m5=0 m6=0 m7=0 p0=124112560 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=964 frames=900 spritekb=719 sprites=479 vw=320 vh=240
+Double Dragon Remix	0	[TBB] fast=4189 slow=0 m0=4189 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=53294964 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3474 frames=900 spritekb=1262 sprites=1136 vw=320 vh=240
+Double Dragon Renegade	0	[TBB] fast=2004 slow=0 m0=1249 m1=0 m2=755 m3=0 m4=0 m5=0 m6=0 m7=0 p0=79621940 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=755 frames=900 spritekb=544 sprites=246 vw=320 vh=240
+Double Dragon Reloaded Alternate	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=21095 sprites=3100 vw=640 vh=480
+Double Dragon Revolution	0	[TBB] fast=2114 slow=0 m0=1367 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=87965176 p1=0 p2=194220 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=871 frames=900 spritekb=536 sprites=235 vw=320 vh=240
+Double Dragon Revolution 2	0	[TBB] fast=2050 slow=0 m0=1332 m1=0 m2=718 m3=0 m4=0 m5=0 m6=0 m7=0 p0=100279909 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=718 frames=900 spritekb=2515 sprites=1357 vw=320 vh=240
+Double Dragon SNK Final Edition	0	[TBB] fast=1350 slow=866 m0=1350 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=115044796 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=987 frames=900 spritekb=10863 sprites=1097 vw=320 vh=240
+Double Dragon Revival	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=12259 sprites=2148 vw=640 vh=480
+Double Dragon Zero	0	[TBB] fast=3452 slow=770 m0=3452 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=179076632 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2558 frames=900 spritekb=9869 sprites=1664 vw=320 vh=240
+Dragon Ball Z Gold	0	[TBB] fast=6000 slow=0 m0=4230 m1=0 m2=1770 m3=0 m4=0 m5=0 m6=0 m7=0 p0=165552528 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3738 frames=900 spritekb=1086 sprites=363 vw=320 vh=240
+Dragon Ball Z - Attack of Saiyans	0	[TBB] fast=8529 slow=0 m0=7323 m1=1206 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=474644528 p1=46465800 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4078 frames=900 spritekb=65356 sprites=984 vw=480 vh=272
+Dragon Ball Z Tournament	0	[TBB] fast=3626 slow=0 m0=2853 m1=0 m2=773 m3=0 m4=0 m5=0 m6=0 m7=0 p0=413777840 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=520 frames=900 spritekb=154131 sprites=848 vw=960 vh=475
+Dragon Ball	0	[TBB] fast=6000 slow=0 m0=4230 m1=0 m2=1770 m3=0 m4=0 m5=0 m6=0 m7=0 p0=164351803 p1=0 p2=1075584 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3738 frames=900 spritekb=969 sprites=377 vw=320 vh=240
 Dungeons & Dragons - Rise Of Warduke	1	NO_TBB_LINE
-Dungeons & Dragons - Knights & Dragons Final Cut	0	[TBB] fast=3588 slow=0 m0=3426 m1=0 m2=162 m3=0 m4=0 m5=0 m6=0 m7=0 p0=381024204 p1=0 p2=169290 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2210 frames=900
-Dragons of Rage EX	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Dynamic Edge	0	[TBB] fast=1317 slow=761 m0=1317 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=86745520 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=900 frames=900
-Dungeons & Dragons - Knights & Dragons The Endless Quest	0	[TBB] fast=3566 slow=0 m0=3404 m1=0 m2=162 m3=0 m4=0 m5=0 m6=0 m7=0 p0=379472540 p1=0 p2=169290 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2206 frames=900
-Dungeons & Dragons - The Animated Series	0	[TBB] fast=8476 slow=8226 m0=8476 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=191941025 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5440 frames=900
-Dynasty Assassin	0	[TBB] fast=3908 slow=2858 m0=3908 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=299724287 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2858 frames=900
-Ed Edd n Eddy - Nightmare on Ed Street	0	[TBB] fast=1715 slow=0 m0=1025 m1=0 m2=690 m3=0 m4=0 m5=0 m6=0 m7=0 p0=10475186 p1=0 p2=298080 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=690 frames=900
-Eerie Erratic Expedition	0	[TBB] fast=19649 slow=605 m0=19649 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1000419210 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3822 frames=900
-EightMan	0	[TBB] fast=7397 slow=0 m0=6090 m1=0 m2=1307 m3=0 m4=0 m5=0 m6=0 m7=0 p0=36528097 p1=0 p2=914348 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2418 frames=900
-Egi The Egg	0	[TBB] fast=11130 slow=0 m0=11130 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=268827180 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8386 frames=900
-Einbein - Einvines Weekday	0	[TBB] fast=1258 slow=724 m0=1258 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=61644952 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=724 frames=900
-El Chapulin Colorado	0	[TBB] fast=1317 slow=141 m0=1317 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=220089019 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=903 frames=900
-Elfen Lied	0	[TBB] fast=1832 slow=0 m0=1063 m1=0 m2=769 m3=0 m4=0 m5=0 m6=0 m7=0 p0=45852968 p1=0 p2=575212 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=769 frames=900
-Escape From Cartoon Hell	0	[TBB] fast=1490 slow=0 m0=745 m1=0 m2=745 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3828292 p1=0 p2=557260 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=745 frames=900
-Escape From Guha	0	[TBB] fast=13803 slow=0 m0=13803 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=429553444 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=7667 frames=900
-Escape of the Ages	0	[TBB] fast=4535 slow=0 m0=3729 m1=0 m2=806 m3=0 m4=0 m5=0 m6=0 m7=0 p0=172231915 p1=0 p2=602888 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3177 frames=900
-Eternal Champions - The Thin Strings of Fate	0	[TBB] fast=4068 slow=1188 m0=4068 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=211005444 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2388 frames=900
-Evil Dead 2	0	[TBB] fast=1654 slow=0 m0=1654 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=79346129 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1358 frames=900
-Evil Dead	0	[TBB] fast=11505 slow=4602 m0=10738 m1=0 m2=767 m3=0 m4=0 m5=0 m6=0 m7=0 p0=660755160 p1=0 p2=122474560 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=6903 frames=900
-Evil Splatter	0	[TBB] fast=1515 slow=0 m0=1515 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=66511355 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1259 frames=900
-Fatal Fury Final	0	[TBB] fast=10485 slow=3280 m0=8356 m1=2129 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=159704995 p1=5635206 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=7947 frames=900
-Fatal Fury ReBout	0	[TBB] fast=2119 slow=0 m0=2012 m1=107 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=21719504 p1=107 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1477 frames=900
-Faderhead's Fist Full of Fuck You	0	[TBB] fast=201 slow=0 m0=201 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=16340800 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=201 frames=900
-Fatal fury Rebout 2	0	[TBB] fast=1748 slow=0 m0=1748 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=236607795 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1127 frames=900
-Fearless Warriors, The	0	[TBB] fast=2238 slow=0 m0=1491 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=50274836 p1=0 p2=388440 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1119 frames=900
-Fighters Rage 3 (Napalm Hack)	0	[TBB] fast=3219 slow=1899 m0=3219 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=164687279 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1899 frames=900
-Fighting Street	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Final Double Dragon	0	[TBB] fast=1902 slow=696 m0=1902 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=160135870 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1098 frames=900
-Final Fantasy 1	0	[TBB] fast=1747 slow=0 m0=1747 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=19393060 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1497 frames=900
-Final Fantasy 7 Advance	0	[TBB] fast=1916 slow=0 m0=1092 m1=0 m2=824 m3=0 m4=0 m5=0 m6=0 m7=0 p0=34121572 p1=0 p2=1175024 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=824 frames=900
-Final Fight - Last Round	0	[TBB] fast=1918 slow=0 m0=1211 m1=0 m2=707 m3=0 m4=0 m5=0 m6=0 m7=0 p0=33964112 p1=0 p2=180992 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1043 frames=900
-Final Fight - Heroes	0	[TBB] fast=11059 slow=4087 m0=11059 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=443267358 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5415 frames=900
-Final Fight & Cadillacs 2	0	[TBB] fast=9387 slow=326 m0=7249 m1=1812 m2=326 m3=0 m4=0 m5=0 m6=0 m7=0 p0=583598653 p1=30017496 p2=140832 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=7757 frames=900
-Final Fight - Revival of Rage	0	[TBB] fast=14255 slow=640 m0=7984 m1=3071 m2=3200 m3=0 m4=0 m5=0 m6=0 m7=0 p0=575423727 p1=7719867 p2=6180480 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=10226 frames=900
-Final Fight Apocalypse - 1st Edition	0	[TBB] fast=1866 slow=0 m0=1119 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=55188428 p1=0 p2=766422 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900
-Final Fight Apocalypse - 2nd Edition	0	[TBB] fast=1605 slow=0 m0=1605 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=124249966 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=789 frames=900
-Final Fight Alpha	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Final Fight DC Alteration	0	[TBB] fast=8995 slow=4864 m0=8995 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=303529325 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8077 frames=900
-Final Fight Boss	0	[TBB] fast=8069 slow=0 m0=5246 m1=0 m2=2823 m3=0 m4=0 m5=0 m6=0 m7=0 p0=92148745 p1=0 p2=1171890 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3257 frames=900
-Final Fight And Cadillacs	0	[TBB] fast=4012 slow=300 m0=3712 m1=300 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=511208082 p1=29152500 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3262 frames=900
-Final Fight Luta	0	[TBB] fast=1966 slow=0 m0=1199 m1=0 m2=767 m3=0 m4=0 m5=0 m6=0 m7=0 p0=259259827 p1=0 p2=1491048 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=767 frames=900
-Final Fight PC - SNES Version	0	[TBB] fast=4194 slow=2420 m0=4194 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=135494784 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3226 frames=900
-Final Fight Gold Champion Edition	0	[TBB] fast=3804 slow=0 m0=2613 m1=0 m2=1191 m3=0 m4=0 m5=0 m6=0 m7=0 p0=105625401 p1=0 p2=450198 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1902 frames=900
-Final Fight Special Edition	0	[TBB] fast=2114 slow=0 m0=1367 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=41092268 p1=0 p2=191232 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1119 frames=900
-Final Fight Vs The King of Fighters	0	[TBB] fast=2610 slow=0 m0=1739 m1=124 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=18290650 p1=701344 p2=766422 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=995 frames=900
-Final Rage Chaos	0	[TBB] fast=2972 slow=0 m0=2206 m1=0 m2=766 m3=0 m4=0 m5=0 m6=0 m7=0 p0=68154739 p1=0 p2=196096 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1630 frames=900
-Final fight X	0	[TBB] fast=3534 slow=0 m0=3534 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=168707699 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2748 frames=900
-Fire Emblem - Castle Defense	0	[TBB] fast=1487 slow=0 m0=1487 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=17606844 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1055 frames=900
-Fire Leaf Water	0	[TBB] fast=10342 slow=0 m0=10342 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=150052740 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4754 frames=900
-First Fight	0	[TBB] fast=1637 slow=1383 m0=1637 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=47038825 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1383 frames=900
-Fists of Legendary Heroes	0	[TBB] fast=1003 slow=127 m0=1003 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=110536086 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=749 frames=900
-Fire Hearts	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Fruits Frenzy	0	[TBB] fast=9197 slow=0 m0=9197 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=381126642 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=1540 chan=0 remap=4179 frames=900
-Fruits Survivors	0	[TBB] fast=2403 slow=165 m0=2403 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=250666500 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1743 frames=900
-GG' Girls	0	[TBB] fast=1869 slow=0 m0=1869 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=112145146 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1427 frames=900
+Dungeons & Dragons - Knights & Dragons Final Cut	0	[TBB] fast=3616 slow=0 m0=3454 m1=0 m2=162 m3=0 m4=0 m5=0 m6=0 m7=0 p0=384931774 p1=0 p2=169290 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2230 frames=900 spritekb=15554 sprites=2602 vw=480 vh=272
+Dungeons & Dragons - Knights & Dragons The Endless Quest	0	[TBB] fast=3607 slow=0 m0=3445 m1=0 m2=162 m3=0 m4=0 m5=0 m6=0 m7=0 p0=384510633 p1=0 p2=169290 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2230 frames=900 spritekb=15554 sprites=2602 vw=480 vh=272
+Dragons of Rage EX	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=5616 sprites=993 vw=320 vh=240
+Dungeons & Dragons - The Animated Series	0	[TBB] fast=8552 slow=8304 m0=8552 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=193684597 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5486 frames=900 spritekb=3197 sprites=1336 vw=320 vh=240
+Dynamic Edge	0	[TBB] fast=1322 slow=762 m0=1322 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=87351680 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=902 frames=900 spritekb=5372 sprites=1517 vw=320 vh=240
+Dynasty Assassin	0	[TBB] fast=3910 slow=2860 m0=3910 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=299733403 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2860 frames=900 spritekb=1408 sprites=550 vw=320 vh=240
+Ed Edd n Eddy - Nightmare on Ed Street	0	[TBB] fast=1715 slow=0 m0=1025 m1=0 m2=690 m3=0 m4=0 m5=0 m6=0 m7=0 p0=10475186 p1=0 p2=298080 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=690 frames=900 spritekb=397 sprites=216 vw=320 vh=240
+Eerie Erratic Expedition	0	[TBB] fast=19653 slow=603 m0=19653 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1000789576 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3826 frames=900 spritekb=47 sprites=37 vw=640 vh=480
+EightMan	0	[TBB] fast=7397 slow=0 m0=6090 m1=0 m2=1307 m3=0 m4=0 m5=0 m6=0 m7=0 p0=36533833 p1=0 p2=914348 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2418 frames=900 spritekb=3223 sprites=922 vw=320 vh=240
+Egi The Egg	0	[TBB] fast=11132 slow=0 m0=11132 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=268790782 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8388 frames=900 spritekb=111 sprites=59 vw=640 vh=480
+Einbein - Einvines Weekday	0	[TBB] fast=1260 slow=726 m0=1260 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=61645880 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=726 frames=900 spritekb=857 sprites=522 vw=320 vh=240
+El Chapulin Colorado	0	[TBB] fast=1316 slow=142 m0=1316 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=220073366 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=902 frames=900 spritekb=415 sprites=271 vw=320 vh=240
+Elfen Lied	0	[TBB] fast=1832 slow=0 m0=1063 m1=0 m2=769 m3=0 m4=0 m5=0 m6=0 m7=0 p0=45849594 p1=0 p2=575212 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=769 frames=900 spritekb=746 sprites=229 vw=320 vh=240
+Escape From Cartoon Hell	0	[TBB] fast=1492 slow=0 m0=746 m1=0 m2=746 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3833332 p1=0 p2=558008 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=746 frames=900 spritekb=3185 sprites=417 vw=480 vh=272
+Escape From Guha	0	[TBB] fast=13803 slow=0 m0=13803 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=429553444 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=7667 frames=900 spritekb=50 sprites=24 vw=640 vh=480
+Escape of the Ages	0	[TBB] fast=4528 slow=0 m0=3722 m1=0 m2=806 m3=0 m4=0 m5=0 m6=0 m7=0 p0=172015390 p1=0 p2=602888 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3173 frames=900 spritekb=8374 sprites=485 vw=480 vh=272
+Eternal Champions - The Thin Strings of Fate	0	[TBB] fast=4067 slow=1187 m0=4067 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=210957692 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2387 frames=900 spritekb=10815 sprites=2426 vw=320 vh=240
+Evil Dead 2	0	[TBB] fast=1654 slow=0 m0=1654 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=79346157 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1358 frames=900 spritekb=2249 sprites=324 vw=320 vh=240
+Evil Dead	0	[TBB] fast=11505 slow=4602 m0=10738 m1=0 m2=767 m3=0 m4=0 m5=0 m6=0 m7=0 p0=660755160 p1=0 p2=122474560 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=6903 frames=900 spritekb=6599 sprites=726 vw=480 vh=272
+Evil Splatter	0	[TBB] fast=1515 slow=0 m0=1515 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=66511355 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1259 frames=900 spritekb=2872 sprites=401 vw=320 vh=240
+Fatal Fury Final	0	[TBB] fast=10491 slow=3280 m0=8356 m1=2135 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=159705851 p1=5655782 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=7953 frames=900 spritekb=5236 sprites=983 vw=480 vh=272
+Fatal Fury ReBout	0	[TBB] fast=2121 slow=0 m0=2014 m1=107 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=21731103 p1=107 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1479 frames=900 spritekb=1844 sprites=431 vw=320 vh=240
+Fatal fury Rebout 2	0	[TBB] fast=1749 slow=0 m0=1749 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=236612090 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1128 frames=900 spritekb=3193 sprites=672 vw=320 vh=240
+Faderhead's Fist Full of Fuck You	0	[TBB] fast=201 slow=0 m0=201 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=16340800 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=201 frames=900 spritekb=24650 sprites=753 vw=960 vh=540
+Fearless Warriors, The	0	[TBB] fast=2238 slow=0 m0=1491 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=50274836 p1=0 p2=388440 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1119 frames=900 spritekb=2033 sprites=512 vw=320 vh=240
+Fighters Rage 3 (Napalm Hack)	0	[TBB] fast=3491 slow=1904 m0=3491 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=165735077 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2062 frames=900 spritekb=12957 sprites=2275 vw=320 vh=240
+Fighting Street	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=1987 sprites=577 vw=480 vh=272
+Final Double Dragon	0	[TBB] fast=1906 slow=697 m0=1906 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=160509701 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1100 frames=900 spritekb=3447 sprites=1632 vw=240 vh=224
+Final Fantasy 1	0	[TBB] fast=1739 slow=0 m0=1739 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=19249280 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1491 frames=900 spritekb=257 sprites=90 vw=320 vh=240
+Final Fantasy 7 Advance	0	[TBB] fast=1916 slow=0 m0=1092 m1=0 m2=824 m3=0 m4=0 m5=0 m6=0 m7=0 p0=34121572 p1=0 p2=1175024 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=824 frames=900 spritekb=897 sprites=230 vw=320 vh=240
+Final Fight - Heroes	0	[TBB] fast=11059 slow=4087 m0=11059 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=443267358 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5415 frames=900 spritekb=13073 sprites=1820 vw=480 vh=272
+Final Fight & Cadillacs 2	0	[TBB] fast=9437 slow=328 m0=7289 m1=1820 m2=328 m3=0 m4=0 m5=0 m6=0 m7=0 p0=613492928 p1=30067737 p2=141696 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=7797 frames=900 spritekb=27253 sprites=4961 vw=320 vh=240
+Final Fight - Last Round	0	[TBB] fast=1902 slow=0 m0=1197 m1=0 m2=705 m3=0 m4=0 m5=0 m6=0 m7=0 p0=33326382 p1=0 p2=180480 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1033 frames=900 spritekb=2166 sprites=643 vw=320 vh=240
+Final Fight - Revival of Rage	0	[TBB] fast=14247 slow=642 m0=8002 m1=3035 m2=3210 m3=0 m4=0 m5=0 m6=0 m7=0 p0=576584438 p1=7587075 p2=6199794 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=10211 frames=900 spritekb=14896 sprites=3268 vw=480 vh=360
+Final Fight Apocalypse - 1st Edition	0	[TBB] fast=1869 slow=0 m0=1122 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=55604716 p1=0 p2=766422 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900 spritekb=1373 sprites=364 vw=320 vh=240
+Final Fight Alpha	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=11550 sprites=1525 vw=480 vh=272
+Final Fight Apocalypse - 2nd Edition	0	[TBB] fast=1605 slow=0 m0=1605 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=124250976 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=789 frames=900 spritekb=2964 sprites=782 vw=320 vh=240
+Final Fight DC Alteration	0	[TBB] fast=8996 slow=4865 m0=8996 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=303537783 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8078 frames=900 spritekb=10971 sprites=1983 vw=320 vh=240
+Final Fight Boss	0	[TBB] fast=8188 slow=0 m0=5323 m1=0 m2=2865 m3=0 m4=0 m5=0 m6=0 m7=0 p0=93656832 p1=0 p2=1188760 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3306 frames=900 spritekb=16127 sprites=3509 vw=480 vh=272
+Final Fight And Cadillacs	0	[TBB] fast=4243 slow=320 m0=3923 m1=320 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=544904216 p1=31096000 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3443 frames=900 spritekb=12564 sprites=3275 vw=320 vh=240
+Final Fight Luta	0	[TBB] fast=1966 slow=0 m0=1199 m1=0 m2=767 m3=0 m4=0 m5=0 m6=0 m7=0 p0=259275741 p1=0 p2=1491048 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=767 frames=900 spritekb=2147 sprites=428 vw=320 vh=240
+Final Fight Gold Champion Edition	0	[TBB] fast=3842 slow=0 m0=2641 m1=0 m2=1201 m3=0 m4=0 m5=0 m6=0 m7=0 p0=106865069 p1=0 p2=453978 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1921 frames=900 spritekb=5809 sprites=1542 vw=480 vh=272
+Final Fight PC - SNES Version	0	[TBB] fast=4194 slow=2420 m0=4194 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=135494784 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3226 frames=900 spritekb=2602 sprites=1002 vw=320 vh=240
+Final Fight Vs The King of Fighters	0	[TBB] fast=2610 slow=0 m0=1739 m1=124 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=18293932 p1=701344 p2=766422 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=995 frames=900 spritekb=2547 sprites=560 vw=320 vh=240
+Final Fight Special Edition	0	[TBB] fast=2107 slow=0 m0=1361 m1=0 m2=746 m3=0 m4=0 m5=0 m6=0 m7=0 p0=40790421 p1=0 p2=190976 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1115 frames=900 spritekb=2446 sprites=992 vw=640 vh=480
+Final Rage Chaos	0	[TBB] fast=2972 slow=0 m0=2206 m1=0 m2=766 m3=0 m4=0 m5=0 m6=0 m7=0 p0=68154398 p1=0 p2=196096 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1630 frames=900 spritekb=1283 sprites=443 vw=320 vh=240
+Final fight X	0	[TBB] fast=3534 slow=0 m0=3534 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=168707675 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2748 frames=900 spritekb=2404 sprites=845 vw=320 vh=240
+Fire Emblem - Castle Defense	0	[TBB] fast=1492 slow=0 m0=1492 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=17720668 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1057 frames=900 spritekb=2607 sprites=1101 vw=320 vh=240
+Fire Leaf Water	0	[TBB] fast=10346 slow=0 m0=10346 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=150052740 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4758 frames=900 spritekb=91 sprites=29 vw=640 vh=480
+First Fight	0	[TBB] fast=1638 slow=1384 m0=1638 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=47048013 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1384 frames=900 spritekb=1010 sprites=333 vw=320 vh=240
+Fists of Legendary Heroes	0	[TBB] fast=1004 slow=127 m0=1004 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=110548870 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=750 frames=900 spritekb=2961 sprites=718 vw=480 vh=272
+Fire Hearts	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=5030 sprites=1301 vw=480 vh=272
+Fruits Frenzy	0	[TBB] fast=9153 slow=0 m0=9153 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=379261540 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=1532 chan=0 remap=4161 frames=900 spritekb=53 sprites=35 vw=640 vh=480
+Fruits Survivors	0	[TBB] fast=2336 slow=165 m0=2336 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=250646328 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1676 frames=900 spritekb=567 sprites=182 vw=640 vh=480
 GI Joe - Attack On Cobra Island	1	NO_TBB_LINE
-Ghouls 'N Ghosts Returns	0	[TBB] fast=2634 slow=0 m0=1864 m1=0 m2=770 m3=0 m4=0 m5=0 m6=0 m7=0 p0=201085650 p1=0 p2=200200 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=770 frames=900
-Garou - Rage of the Wolves	0	[TBB] fast=3105 slow=790 m0=3105 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=179515095 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2179 frames=900
-Girls Special II, The	0	[TBB] fast=2914 slow=0 m0=2173 m1=0 m2=741 m3=0 m4=0 m5=0 m6=0 m7=0 p0=240312224 p1=0 p2=554268 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1099 frames=900
-Girls Special III, The	0	[TBB] fast=2035 slow=0 m0=1937 m1=0 m2=98 m3=0 m4=0 m5=0 m6=0 m7=0 p0=157545866 p1=0 p2=100548 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1251 frames=900
-Go Bat	0	[TBB] fast=14956 slow=7750 m0=14956 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=830159096 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=307 chan=0 remap=10215 frames=900
-Girls Special, The	0	[TBB] fast=2732 slow=0 m0=2334 m1=0 m2=398 m3=0 m4=0 m5=0 m6=0 m7=0 p0=37265648 p1=0 p2=432626 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1339 frames=900
-God Of War - Ragnarok	0	[TBB] fast=1274 slow=1426 m0=1274 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=136392063 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=182 frames=900
-God of War	0	[TBB] fast=11343 slow=0 m0=6392 m1=0 m2=1564 m3=0 m4=0 m5=2346 m6=1041 m7=0 p0=643454974 p1=0 p2=675648 p3=0 p4=0 p5=57258880 p6=13324800 p7=0 tint=0 chan=0 remap=3128 frames=900
+GG' Girls	0	[TBB] fast=1875 slow=0 m0=1875 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=112370322 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1431 frames=900 spritekb=9617 sprites=1002 vw=320 vh=240
+Garou - Rage of the Wolves	0	[TBB] fast=3104 slow=789 m0=3104 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=179510729 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2178 frames=900 spritekb=8333 sprites=1192 vw=480 vh=272
+Ghouls 'N Ghosts Returns	0	[TBB] fast=2634 slow=0 m0=1864 m1=0 m2=770 m3=0 m4=0 m5=0 m6=0 m7=0 p0=201083178 p1=0 p2=200200 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=770 frames=900 spritekb=759 sprites=377 vw=320 vh=240
+Girls Special II, The	0	[TBB] fast=2926 slow=0 m0=2183 m1=0 m2=743 m3=0 m4=0 m5=0 m6=0 m7=0 p0=241339944 p1=0 p2=555764 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1103 frames=900 spritekb=14242 sprites=2455 vw=320 vh=240
+Girls Special III, The	0	[TBB] fast=2049 slow=0 m0=1950 m1=0 m2=99 m3=0 m4=0 m5=0 m6=0 m7=0 p0=158182899 p1=0 p2=101574 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1257 frames=900 spritekb=16880 sprites=2621 vw=320 vh=240
+Go Bat	0	[TBB] fast=14952 slow=7744 m0=14952 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=830632891 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=307 chan=0 remap=10211 frames=900 spritekb=59 sprites=40 vw=640 vh=480
+Girls Special, The	0	[TBB] fast=2732 slow=0 m0=2334 m1=0 m2=398 m3=0 m4=0 m5=0 m6=0 m7=0 p0=37265648 p1=0 p2=432626 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1339 frames=900 spritekb=18418 sprites=3920 vw=320 vh=240
+God Of War - Ragnarok	0	[TBB] fast=1281 slow=1425 m0=1281 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=137137967 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=183 frames=900 spritekb=444 sprites=220 vw=320 vh=240
+God of War	0	[TBB] fast=11351 slow=0 m0=6397 m1=0 m2=1564 m3=0 m4=0 m5=2346 m6=1044 m7=0 p0=643856666 p1=0 p2=675648 p3=0 p4=0 p5=57269440 p6=13363200 p7=0 tint=0 chan=0 remap=3128 frames=900 spritekb=9177 sprites=1039 vw=480 vh=272
 Golden Axe Myth	1	NO_TBB_LINE
-Godzilla - Ultraman - Gamera! All Out Monster War!	0	[TBB] fast=8827 slow=0 m0=4931 m1=0 m2=3896 m3=0 m4=0 m5=0 m6=0 m7=0 p0=245075245 p1=0 p2=1618866 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4241 frames=900
+Godzilla - Ultraman - Gamera! All Out Monster War!	0	[TBB] fast=8827 slow=0 m0=4931 m1=0 m2=3896 m3=0 m4=0 m5=0 m6=0 m7=0 p0=245074797 p1=0 p2=1618866 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4241 frames=900 spritekb=1618 sprites=657 vw=320 vh=240
 Golden Axe Remake - Special Edition	1	NO_TBB_LINE
-Golden Axe Curse of Death Adder	0	[TBB] fast=1016 slow=2514 m0=889 m1=0 m2=0 m3=0 m4=0 m5=0 m6=127 m7=0 p0=53570251 p1=0 p2=0 p3=0 p4=0 p5=0 p6=7667520 p7=0 tint=0 chan=0 remap=635 frames=900
-Golden Axe Genesis	0	[TBB] fast=3693 slow=2001 m0=3693 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=179844098 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2847 frames=900
-Golden Axe Legend	0	[TBB] fast=4006 slow=2709 m0=4006 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=223973387 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2815 frames=900
-Guardian Heroes Warpath	0	[TBB] fast=1287 slow=888 m0=1287 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=70456879 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1021 frames=900
-Guardians of the Requiem - The Warriors of God	0	[TBB] fast=600 slow=600 m0=600 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=9504040 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=600 frames=900
-Guardians of the Hood II	0	[TBB] fast=4743 slow=1781 m0=2647 m1=1572 m2=262 m3=0 m4=0 m5=0 m6=262 m7=0 p0=1002400835 p1=31397914 p2=51894864 p3=0 p4=0 p5=0 p6=4259354 p7=0 tint=0 chan=0 remap=3957 frames=900
-Golden Axe Returns	0	[TBB] fast=5401 slow=2530 m0=5401 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=105646421 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4324 frames=900
-Gudule - Fist in ya Face!	0	[TBB] fast=2960 slow=0 m0=1623 m1=0 m2=1337 m3=0 m4=0 m5=0 m6=0 m7=0 p0=82294559 p1=0 p2=1000076 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1337 frames=900
-Gudule	0	[TBB] fast=5741 slow=0 m0=5741 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=119115390 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4129 frames=900
-Guilty Gear - The Crusades	0	[TBB] fast=1754 slow=0 m0=1004 m1=0 m2=750 m3=0 m4=0 m5=0 m6=0 m7=0 p0=37154382 p1=0 p2=1069500 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=750 frames=900
-Gunman	0	[TBB] fast=22378 slow=0 m0=22378 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=81182747 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8554 frames=900
-Gunslingers Unison	0	[TBB] fast=1416 slow=0 m0=708 m1=0 m2=708 m3=0 m4=0 m5=0 m6=0 m7=0 p0=9578720 p1=0 p2=74340 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=708 frames=900
-Gunstar Heroes Z	0	[TBB] fast=872 slow=738 m0=872 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=21864305 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=738 frames=900
-Halloween - The Wrath of Michael Myers	0	[TBB] fast=6014 slow=1364 m0=5084 m1=558 m2=186 m3=0 m4=0 m5=0 m6=186 m7=0 p0=367389548 p1=39437952 p2=14284800 p3=0 p4=0 p5=0 p6=744000000 p7=0 tint=0 chan=0 remap=5642 frames=900
-Happy Heart	0	[TBB] fast=21462 slow=0 m0=21462 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=947243318 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=6437 frames=900
-Hatchet Ninjaz	0	[TBB] fast=1781 slow=0 m0=1051 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=48813848 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900
-He-Man and the Masters of the Universe	0	[TBB] fast=12326 slow=453 m0=11612 m1=714 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=309814761 p1=334356204 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=2730 chan=0 remap=10541 frames=900
-Heaven's Anime Girls	0	[TBB] fast=2012 slow=885 m0=2012 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=88862621 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1529 frames=900
-Hentai City	0	[TBB] fast=1368 slow=0 m0=684 m1=0 m2=684 m3=0 m4=0 m5=0 m6=0 m7=0 p0=4059689 p1=0 p2=701784 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=684 frames=900
-Hiryu No Ken [Demo]	0	[TBB] fast=2485 slow=741 m0=2485 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=74404140 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2267 frames=900
-Head Hunters	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Honeybee Harvest	0	[TBB] fast=4666 slow=386 m0=4666 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=131592248 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2350 frames=900
-Hulk vs. Streets of Rage	0	[TBB] fast=2164 slow=0 m0=1358 m1=0 m2=806 m3=0 m4=0 m5=0 m6=0 m7=0 p0=109035074 p1=0 p2=602888 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=806 frames=900
-Hokuto no Ken Fury Road	0	[TBB] fast=4795 slow=3465 m0=4795 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=267437424 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3939 frames=900
-Hyper Final Fight 1	0	[TBB] fast=2102 slow=0 m0=1372 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=36322359 p1=0 p2=186880 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1158 frames=900
-Hyper Final Fight 2	0	[TBB] fast=2858 slow=0 m0=2111 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=64032244 p1=0 p2=191232 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1615 frames=900
-Hyper Final Fight 3 - Return of the Black	0	[TBB] fast=1349 slow=744 m0=1349 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=60617051 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=865 frames=900
-Immortal Monster	0	[TBB] fast=12410 slow=0 m0=12410 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=570735864 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5962 frames=900
-Ikari Warriors 2010 + Mutation Nation	0	[TBB] fast=271 slow=271 m0=271 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=2466642 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=271 frames=900
-Joe and Mac - Caveman Ninja	0	[TBB] fast=1883 slow=0 m0=1132 m1=0 m2=751 m3=0 m4=0 m5=0 m6=0 m7=0 p0=71015181 p1=0 p2=561748 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=751 frames=900
-Joker	0	[TBB] fast=2735 slow=0 m0=2735 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=158317278 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1201 frames=900
-Jaspion	0	[TBB] fast=370 slow=0 m0=370 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=90142730 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Kill Bill - Volume 1	0	[TBB] fast=2316 slow=0 m0=1265 m1=321 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=13731549 p1=1964520 p2=546040 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900
-Infinity Beat 'Em Up	0	[TBB] fast=2075 slow=0 m0=1391 m1=0 m2=684 m3=0 m4=0 m5=0 m6=0 m7=0 p0=53054017 p1=0 p2=65664 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1088 frames=900
-Kill Ryu 1	0	[TBB] fast=1248 slow=0 m0=624 m1=0 m2=624 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3701523 p1=0 p2=640224 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=624 frames=900
-Justice League United	0	[TBB] fast=1506 slow=0 m0=1506 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=4424606 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1506 frames=900
-Kill Ryu 2	0	[TBB] fast=1244 slow=0 m0=622 m1=0 m2=622 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3689211 p1=0 p2=638172 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=622 frames=900
-Kill Ryu Turbo	0	[TBB] fast=3279 slow=0 m0=2228 m1=0 m2=1051 m3=0 m4=0 m5=0 m6=0 m7=0 p0=58349561 p1=0 p2=1155794 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1907 frames=900
-Justice League Legacy	0	[TBB] fast=1442 slow=0 m0=1442 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=6809374 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1442 frames=900
-Kingdom Hearts	0	[TBB] fast=2219 slow=767 m0=2219 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=169729784 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1251 frames=900
-Kirby Blast	0	[TBB] fast=3472 slow=0 m0=2666 m1=0 m2=806 m3=0 m4=0 m5=0 m6=0 m7=0 p0=12605018 p1=0 p2=209560 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1550 frames=900
+Golden Axe Curse of Death Adder	0	[TBB] fast=1016 slow=2516 m0=889 m1=0 m2=0 m3=0 m4=0 m5=0 m6=127 m7=0 p0=53570251 p1=0 p2=0 p3=0 p4=0 p5=0 p6=7666400 p7=0 tint=0 chan=0 remap=635 frames=900 spritekb=21019 sprites=2072 vw=320 vh=240
+Golden Axe Genesis	0	[TBB] fast=3701 slow=2005 m0=3701 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=180248176 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2853 frames=900 spritekb=4253 sprites=1284 vw=320 vh=240
+Golden Axe Legend	0	[TBB] fast=4011 slow=2709 m0=4011 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=224500697 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2820 frames=900 spritekb=8082 sprites=1554 vw=480 vh=272
+Guardian Heroes Warpath	0	[TBB] fast=1286 slow=887 m0=1286 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=70447248 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1020 frames=900 spritekb=30806 sprites=2652 vw=320 vh=240
+Guardians of the Hood II	0	[TBB] fast=4775 slow=1791 m0=2663 m1=1584 m2=264 m3=0 m4=0 m5=0 m6=264 m7=0 p0=1010024768 p1=31415212 p2=52291008 p3=0 p4=0 p5=0 p6=4296598 p7=0 tint=0 chan=0 remap=3983 frames=900 spritekb=14874 sprites=2552 vw=336 vh=240
+Golden Axe Returns	0	[TBB] fast=5464 slow=2559 m0=5464 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=106988924 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4372 frames=900 spritekb=20033 sprites=4759 vw=480 vh=272
+Guardians of the Requiem - The Warriors of God	0	[TBB] fast=601 slow=601 m0=601 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=9520240 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=601 frames=900 spritekb=609 sprites=150 vw=320 vh=240
+Gudule - Fist in ya Face!	0	[TBB] fast=2972 slow=0 m0=1630 m1=0 m2=1342 m3=0 m4=0 m5=0 m6=0 m7=0 p0=82838887 p1=0 p2=1003816 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1342 frames=900 spritekb=1475 sprites=633 vw=480 vh=272
+Gudule	0	[TBB] fast=5742 slow=0 m0=5742 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=119119276 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4130 frames=900 spritekb=546 sprites=221 vw=480 vh=272
+Gunman	0	[TBB] fast=22382 slow=0 m0=22382 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=81197141 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8558 frames=900 spritekb=32 sprites=43 vw=400 vh=300
+Guilty Gear - The Crusades	0	[TBB] fast=1754 slow=0 m0=1004 m1=0 m2=750 m3=0 m4=0 m5=0 m6=0 m7=0 p0=37147393 p1=0 p2=1069500 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=750 frames=900 spritekb=4845 sprites=755 vw=320 vh=240
+Gunstar Heroes Z	0	[TBB] fast=875 slow=741 m0=875 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=21867856 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=741 frames=900 spritekb=1693 sprites=697 vw=320 vh=240
+Gunslingers Unison	0	[TBB] fast=1416 slow=0 m0=708 m1=0 m2=708 m3=0 m4=0 m5=0 m6=0 m7=0 p0=9578720 p1=0 p2=74340 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=708 frames=900 spritekb=1356 sprites=318 vw=320 vh=240
+Halloween - The Wrath of Michael Myers	0	[TBB] fast=5958 slow=1358 m0=5038 m1=552 m2=184 m3=0 m4=0 m5=0 m6=184 m7=0 p0=363454986 p1=39013888 p2=14131200 p3=0 p4=0 p5=0 p6=736000000 p7=0 tint=0 chan=0 remap=5590 frames=900 spritekb=5916 sprites=365 vw=320 vh=240
+Happy Heart	0	[TBB] fast=21432 slow=0 m0=21432 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=947243134 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=6407 frames=900 spritekb=20 sprites=18 vw=640 vh=480
+Hatchet Ninjaz	0	[TBB] fast=1781 slow=0 m0=1051 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=48813848 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900 spritekb=3305 sprites=565 vw=320 vh=240
+Heaven's Anime Girls	0	[TBB] fast=2002 slow=882 m0=2002 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=88338712 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1522 frames=900 spritekb=5389 sprites=1631 vw=320 vh=240
+He-Man and the Masters of the Universe	0	[TBB] fast=12326 slow=453 m0=11612 m1=714 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=309860420 p1=334356204 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=2734 chan=0 remap=10541 frames=900 spritekb=34323 sprites=2303 vw=960 vh=480
+Hentai City	0	[TBB] fast=1368 slow=0 m0=684 m1=0 m2=684 m3=0 m4=0 m5=0 m6=0 m7=0 p0=4059689 p1=0 p2=701784 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=684 frames=900 spritekb=972 sprites=229 vw=320 vh=240
+Hiryu No Ken [Demo]	0	[TBB] fast=2494 slow=742 m0=2494 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=74732185 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2275 frames=900 spritekb=3551 sprites=971 vw=480 vh=272
+Head Hunters	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=23143 sprites=1534 vw=320 vh=240
+Honeybee Harvest	0	[TBB] fast=4646 slow=384 m0=4646 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=131003760 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2342 frames=900 spritekb=54 sprites=46 vw=640 vh=480
+Hulk vs. Streets of Rage	0	[TBB] fast=2164 slow=0 m0=1358 m1=0 m2=806 m3=0 m4=0 m5=0 m6=0 m7=0 p0=109035756 p1=0 p2=602888 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=806 frames=900 spritekb=2553 sprites=482 vw=320 vh=240
+Hokuto no Ken Fury Road	0	[TBB] fast=4843 slow=3503 m0=4843 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=268799064 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3983 frames=900 spritekb=29416 sprites=1605 vw=480 vh=272
+Hyper Final Fight 1	0	[TBB] fast=2102 slow=0 m0=1372 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=36322639 p1=0 p2=186880 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1158 frames=900 spritekb=1846 sprites=656 vw=320 vh=240
+Hyper Final Fight 2	0	[TBB] fast=2858 slow=0 m0=2111 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=64031756 p1=0 p2=191232 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1615 frames=900 spritekb=1820 sprites=752 vw=320 vh=240
+Hyper Final Fight 3 - Return of the Black	0	[TBB] fast=1344 slow=744 m0=1344 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=60136104 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=864 frames=900 spritekb=2068 sprites=903 vw=320 vh=240
+Immortal Monster	0	[TBB] fast=12412 slow=0 m0=12412 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=570736024 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5964 frames=900 spritekb=28 sprites=24 vw=640 vh=480
+Ikari Warriors 2010 + Mutation Nation	0	[TBB] fast=271 slow=271 m0=271 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=2466642 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=271 frames=900 spritekb=11695 sprites=513 vw=480 vh=272
+Joe and Mac - Caveman Ninja	0	[TBB] fast=1881 slow=0 m0=1131 m1=0 m2=750 m3=0 m4=0 m5=0 m6=0 m7=0 p0=71013865 p1=0 p2=561000 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=750 frames=900 spritekb=315 sprites=135 vw=320 vh=240
+Joker	0	[TBB] fast=2735 slow=0 m0=2735 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=158317698 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1201 frames=900 spritekb=152 sprites=180 vw=320 vh=240
+Jaspion	0	[TBB] fast=371 slow=0 m0=371 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=90386359 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=34909 sprites=1743 vw=320 vh=240
+Kill Bill - Volume 1	0	[TBB] fast=2316 slow=0 m0=1265 m1=321 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=13731556 p1=1964520 p2=546040 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900 spritekb=902 sprites=255 vw=320 vh=240
+Infinity Beat 'Em Up	0	[TBB] fast=2192 slow=0 m0=1495 m1=0 m2=697 m3=0 m4=0 m5=0 m6=0 m7=0 p0=59751320 p1=0 p2=66912 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1153 frames=900 spritekb=9833 sprites=8085 vw=320 vh=240
+Justice League United	0	[TBB] fast=1510 slow=0 m0=1510 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=4427882 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1510 frames=900 spritekb=10047 sprites=2953 vw=480 vh=272
+Kill Ryu 1	0	[TBB] fast=1246 slow=0 m0=623 m1=0 m2=623 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3695253 p1=0 p2=639198 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=623 frames=900 spritekb=1484 sprites=325 vw=320 vh=240
+Kill Ryu 2	0	[TBB] fast=1246 slow=0 m0=623 m1=0 m2=623 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3695253 p1=0 p2=639198 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=623 frames=900 spritekb=2429 sprites=445 vw=320 vh=240
+Justice League Legacy	0	[TBB] fast=1454 slow=0 m0=1454 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=6818634 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1454 frames=900 spritekb=36492 sprites=10345 vw=480 vh=272
+Kill Ryu Turbo	0	[TBB] fast=3279 slow=0 m0=2228 m1=0 m2=1051 m3=0 m4=0 m5=0 m6=0 m7=0 p0=58325075 p1=0 p2=1155794 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1907 frames=900 spritekb=6607 sprites=1271 vw=320 vh=240
+Kingdom Hearts	0	[TBB] fast=2219 slow=767 m0=2219 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=169729240 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1251 frames=900 spritekb=1764 sprites=500 vw=320 vh=240
+King of Fighters Zillion, The  - Another Road	0	[TBB] fast=4161 slow=2727 m0=4161 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=254595822 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2973 frames=900 spritekb=41415 sprites=4053 vw=480 vh=272
+Kirby Blast	0	[TBB] fast=3452 slow=0 m0=2646 m1=0 m2=806 m3=0 m4=0 m5=0 m6=0 m7=0 p0=12473953 p1=0 p2=209560 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1542 frames=900 spritekb=146 sprites=113 vw=320 vh=240
 Kunio-Kun Renegade L A Remaster	1	NO_TBB_LINE
-King of Fighters Zillion, The  - Another Road	0	[TBB] fast=4165 slow=2727 m0=4165 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=255121364 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2977 frames=900
-King of Fighters, The - Beat 'Em Up Plus	0	[TBB] fast=5226 slow=1163 m0=5226 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=340041059 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4122 frames=900
-Kung Fu Masters and the Wrath of the Gods	0	[TBB] fast=2317 slow=0 m0=2317 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=492775314 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1703 frames=900
-Konpaku	0	[TBB] fast=2146 slow=0 m0=1589 m1=0 m2=557 m3=0 m4=0 m5=0 m6=0 m7=0 p0=8547735 p1=0 p2=958878 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=901 frames=900
-Langit Lands	0	[TBB] fast=16927 slow=718 m0=16927 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1005897614 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4657 frames=900
-Ladies of Rage	0	[TBB] fast=1550 slow=0 m0=1447 m1=103 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=15267636 p1=582568 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=829 frames=900
+King of Fighters, The - Beat 'Em Up Plus	0	[TBB] fast=5237 slow=1164 m0=5237 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=340553396 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4130 frames=900 spritekb=43845 sprites=8543 vw=480 vh=272
+Konpaku	0	[TBB] fast=2146 slow=0 m0=1589 m1=0 m2=557 m3=0 m4=0 m5=0 m6=0 m7=0 p0=8547735 p1=0 p2=958878 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=901 frames=900 spritekb=3494 sprites=516 vw=320 vh=240
+Kung Fu Masters and the Wrath of the Gods	0	[TBB] fast=2317 slow=0 m0=2317 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=492778121 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1703 frames=900 spritekb=1297 sprites=185 vw=800 vh=480
+Langit Lands	0	[TBB] fast=16923 slow=714 m0=16923 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1005906188 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4653 frames=900 spritekb=401 sprites=98 vw=640 vh=480
+Ladies of Rage	0	[TBB] fast=1550 slow=0 m0=1447 m1=103 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=15270335 p1=582568 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=829 frames=900 spritekb=8647 sprites=2077 vw=320 vh=240
 Lust Rush	1	NO_TBB_LINE
-Legend of Korr - Path of Destruction	0	[TBB] fast=6841 slow=2107 m0=6841 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=140373806 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5937 frames=900
-Last Life	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Lift	0	[TBB] fast=7594 slow=0 m0=7594 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=462800324 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2001 frames=900
-Legend of the Double Dragon	0	[TBB] fast=3221 slow=1100 m0=2860 m1=361 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=153853352 p1=2121728 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2420 frames=900
-Lunar	0	[TBB] fast=5165 slow=0 m0=4007 m1=0 m2=1158 m3=0 m4=0 m5=0 m6=0 m7=0 p0=13125316 p1=0 p2=301080 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1158 frames=900
-M@skaku, The - Wonder Momo '09	0	[TBB] fast=1904 slow=684 m0=1843 m1=0 m2=61 m3=0 m4=0 m5=0 m6=0 m7=0 p0=29860904 p1=0 p2=118584 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1721 frames=900
-Maplevania	0	[TBB] fast=2358 slow=730 m0=2358 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=463230825 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1137 frames=900
-Martial Masters - New Legend	0	[TBB] fast=2562 slow=1977 m0=2562 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=288586808 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1281 frames=900
-Marvel First Alliance	0	[TBB] fast=343 slow=343 m0=343 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3944154 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=343 frames=900
-Marvel - Infinity War	0	[TBB] fast=4955 slow=1536 m0=4955 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=59256472 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4187 frames=900
-Marvel First Alliance 2	0	[TBB] fast=363 slow=0 m0=363 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=4553791 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=363 frames=900
-Marvel Super Heroes Infinity Adventure	0	[TBB] fast=3043 slow=1203 m0=3043 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=466998546 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1663 frames=900
-Marvel Super Heroes	0	[TBB] fast=2124 slow=0 m0=1356 m1=0 m2=768 m3=0 m4=0 m5=0 m6=0 m7=0 p0=40686980 p1=0 p2=787968 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1062 frames=900
-Marvel War of the Gems	0	[TBB] fast=772 slow=772 m0=772 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3234260 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=772 frames=900
-Marvel vs Capcom	0	[TBB] fast=3019 slow=740 m0=2672 m1=0 m2=0 m3=0 m4=0 m5=0 m6=347 m7=0 p0=172788892 p1=0 p2=0 p3=0 p4=0 p5=0 p6=3556000 p7=0 tint=0 chan=0 remap=2375 frames=900
-Masters of the Universe	0	[TBB] fast=807 slow=807 m0=807 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=22382008 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=807 frames=900
-Masters Of The Universe - Eternian Battle	0	[TBB] fast=50796 slow=0 m0=50796 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=2487831989 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=38844 frames=900
-Mega Sonic	0	[TBB] fast=1497 slow=0 m0=1497 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=30959987 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900
-Mega-Boy Into the Mega World	0	[TBB] fast=767 slow=767 m0=767 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=12825160 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=767 frames=900
-Maximun Carnage Returns	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-MegaMan - War of the Past	0	[TBB] fast=2098 slow=0 m0=1263 m1=0 m2=835 m3=0 m4=0 m5=0 m6=0 m7=0 p0=18696734 p1=0 p2=826964 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=835 frames=900
-MegaMan Armada	0	[TBB] fast=3511 slow=959 m0=3511 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=481302564 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1977 frames=900
-MegaMan - Xtreme Legend	0	[TBB] fast=4572 slow=0 m0=2900 m1=0 m2=1672 m3=0 m4=0 m5=0 m6=0 m7=0 p0=206731063 p1=0 p2=794864 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1966 frames=900
-Melty Blood Stimulate	0	[TBB] fast=1900 slow=0 m0=1114 m1=0 m2=786 m3=0 m4=0 m5=0 m6=0 m7=0 p0=52541774 p1=0 p2=806436 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=786 frames=900
-Metal Gear Origin	0	[TBB] fast=4838 slow=543 m0=4495 m1=0 m2=343 m3=0 m4=0 m5=0 m6=0 m7=0 p0=293015359 p1=0 p2=666792 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3693 frames=900
-Memory Loss	0	[TBB] fast=108 slow=1298 m0=108 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=9218394 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=27 frames=900
-Mighty Final Fight 3	0	[TBB] fast=1010 slow=0 m0=920 m1=90 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1488560 p1=719940 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1010 frames=900
-Mighty Final Fight X	0	[TBB] fast=1014 slow=0 m0=924 m1=90 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1480248 p1=719940 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1014 frames=900
-Metal Slug Beat Em Up	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Mighty Final Fight Forever	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Minetroid	0	[TBB] fast=13936 slow=0 m0=13936 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=353626668 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=7213 frames=900
-Mobile Suit Zeta Gundam	0	[TBB] fast=1698 slow=0 m0=1698 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=26127646 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=963 frames=900
-Monster Jam [Demo]	0	[TBB] fast=662 slow=626 m0=662 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=4450044 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=630 frames=900
-Monster Girl Dimensions	0	[TBB] fast=2779 slow=964 m0=2388 m1=0 m2=0 m3=0 m4=0 m5=0 m6=391 m7=0 p0=328024658 p1=0 p2=0 p3=0 p4=0 p5=0 p6=9312 p7=0 tint=0 chan=391 remap=1145 frames=900
-Mortal Kombat Unlimited	0	[TBB] fast=5121 slow=781 m0=4279 m1=0 m2=842 m3=0 m4=0 m5=0 m6=0 m7=0 p0=132361938 p1=0 p2=1636848 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3625 frames=900
-Mortal Kombat Outworld Assassins	0	[TBB] fast=1861 slow=1621 m0=1861 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=322871502 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1141 frames=900
-Moscow RE-Action	0	[TBB] fast=1955 slow=0 m0=1955 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=57619406 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1557 frames=900
-Mortal Kombat - The Chosen One	0	[TBB] fast=755 slow=0 m0=736 m1=0 m2=0 m3=0 m4=0 m5=0 m6=19 m7=0 p0=30216324 p1=0 p2=0 p3=0 p4=0 p5=0 p6=221464 p7=0 tint=0 chan=0 remap=736 frames=900
-Naruto	0	[TBB] fast=1904 slow=0 m0=1118 m1=0 m2=786 m3=0 m4=0 m5=0 m6=0 m7=0 p0=63015448 p1=0 p2=339552 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=786 frames=900
-Nelsoncomica	0	[TBB] fast=3376 slow=0 m0=2590 m1=0 m2=786 m3=0 m4=0 m5=0 m6=0 m7=0 p0=79300867 p1=0 p2=806436 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2098 frames=900
-Never Ending Story	0	[TBB] fast=3890 slow=0 m0=2386 m1=0 m2=1504 m3=0 m4=0 m5=0 m6=0 m7=0 p0=73452384 p1=0 p2=477168 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2239 frames=900
-Neon Lightning Force	0	[TBB] fast=2560 slow=0 m0=2257 m1=0 m2=303 m3=0 m4=0 m5=0 m6=0 m7=0 p0=204518480 p1=0 p2=432078 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1348 frames=900
-Night Slashers X	0	[TBB] fast=5448 slow=0 m0=5007 m1=0 m2=441 m3=0 m4=0 m5=0 m6=0 m7=0 p0=375379887 p1=0 p2=174636 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1920 frames=900
-Nightmare on Elm Street - Dreams of Rage	0	[TBB] fast=5449 slow=717 m0=4782 m1=0 m2=0 m3=0 m4=0 m5=0 m6=667 m7=0 p0=1195013580 p1=0 p2=0 p3=0 p4=0 p5=0 p6=96633411 p7=0 tint=0 chan=303 remap=2184 frames=900
-Ninja Jiraya	0	[TBB] fast=2528 slow=0 m0=1478 m1=0 m2=1050 m3=0 m4=0 m5=0 m6=0 m7=0 p0=38478232 p1=0 p2=1608152 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1157 frames=900
-Ninja - Stealth Assassins	0	[TBB] fast=9449 slow=762 m0=5361 m1=2555 m2=1533 m3=0 m4=0 m5=0 m6=0 m7=0 p0=2755444837 p1=1798249880 p2=2796192 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2806 frames=900
-Ninja Warriors vs Marvel	0	[TBB] fast=2974 slow=0 m0=2207 m1=0 m2=767 m3=0 m4=0 m5=0 m6=0 m7=0 p0=118390910 p1=0 p2=331344 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1919 frames=900
-One Piece - Grand Line Bout	0	[TBB] fast=8224 slow=0 m0=8063 m1=0 m2=161 m3=0 m4=0 m5=0 m6=0 m7=0 p0=109800892 p1=0 p2=69552 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=6908 frames=900
-POW Remake	0	[TBB] fast=623 slow=0 m0=623 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1439130 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=623 frames=900
-Pafman [Demo]	0	[TBB] fast=1443 slow=0 m0=1443 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=25746470 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=951 frames=900
-Overload	0	[TBB] fast=106 slow=0 m0=46 m1=60 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=9856000 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=106 frames=900
-Ogres Mayhem	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-POW 2010	0	[TBB] fast=247 slow=247 m0=247 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3504144 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=247 frames=900
-Panda Warriors	0	[TBB] fast=1912 slow=0 m0=1023 m1=0 m2=889 m3=0 m4=0 m5=0 m6=0 m7=0 p0=26112865 p1=0 p2=1624098 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=889 frames=900
-Pew Pew Dadu	0	[TBB] fast=16736 slow=378 m0=16736 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=539371568 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=5688 chan=0 remap=11094 frames=900
-Pestilaence - The New Plague	0	[TBB] fast=5597 slow=2603 m0=5597 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=23640562 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3350 frames=900
-Phantasy Star II + IV [Demo]	0	[TBB] fast=2271 slow=0 m0=2271 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=51791961 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1267 frames=900
-Phantasy Star Online	0	[TBB] fast=1039 slow=831 m0=1039 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=26039484 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=831 frames=900
-Plump on the Stump	0	[TBB] fast=18864 slow=11610 m0=18864 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=277113074 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=1400 chan=0 remap=13355 frames=900
-Pocket Dimensional Clash 2	0	[TBB] fast=2699 slow=174 m0=2699 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=736658564 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=12 chan=0 remap=987 frames=900
-Pocket Ladies Gang War	0	[TBB] fast=1510 slow=1024 m0=1510 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=75301185 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1186 frames=900
-Pokemon - Red Blue Yellow	0	[TBB] fast=1222 slow=767 m0=1222 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=18894038 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=934 frames=900
-Pokemon Rumble 2D	0	[TBB] fast=2561 slow=2174 m0=2561 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=26947401 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2279 frames=900
-Porkchop 'n Flatscreen	0	[TBB] fast=4415 slow=728 m0=2196 m1=1852 m2=0 m3=0 m4=0 m5=0 m6=367 m7=0 p0=36941375 p1=4842841 p2=0 p3=0 p4=0 p5=0 p6=10745760 p7=0 tint=0 chan=0 remap=3314 frames=900
-Power Rangers - Beats of Power Special Edition	0	[TBB] fast=370 slow=0 m0=370 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=90142730 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Pretty Soldier Sailor Moon - R Plus	0	[TBB] fast=1940 slow=0 m0=1144 m1=0 m2=796 m3=0 m4=0 m5=0 m6=0 m7=0 p0=57764478 p1=0 p2=343872 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=970 frames=900
-Project FGC	0	[TBB] fast=2749 slow=896 m0=2749 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=55393153 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1853 frames=900
-Project Moon [Demo]	0	[TBB] fast=7676 slow=1809 m0=6750 m1=0 m2=803 m3=0 m4=0 m5=0 m6=123 m7=0 p0=1044853184 p1=0 p2=130086 p3=0 p4=0 p5=0 p6=94464000 p7=0 tint=0 chan=0 remap=1408 frames=900
-Project R	0	[TBB] fast=1750 slow=0 m0=1002 m1=0 m2=748 m3=0 m4=0 m5=0 m6=0 m7=0 p0=33254091 p1=0 p2=1454112 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=748 frames=900
-Puzzle Puss	0	[TBB] fast=10542 slow=0 m0=10542 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=309254464 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=806 frames=900
-Punisher, The and Nick Fury	0	[TBB] fast=6674 slow=0 m0=6674 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=170830482 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5150 frames=900
-Rael - The Redemption	0	[TBB] fast=2396 slow=0 m0=1630 m1=0 m2=766 m3=0 m4=0 m5=0 m6=0 m7=0 p0=28085446 p1=0 p2=785916 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=766 frames=900
-Quack Ninja	0	[TBB] fast=1103 slow=3993 m0=1103 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=90453535 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=783 frames=900
-Rage Force Briga De Rua	0	[TBB] fast=2891 slow=1607 m0=2891 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=143997451 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2035 frames=900
-Rage of the Streets	0	[TBB] fast=3065 slow=0 m0=2335 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=13590851 p1=0 p2=546040 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900
-Raider & Reaper	0	[TBB] fast=19578 slow=132 m0=19578 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=962166192 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=6676 frames=900
-Raiders Rush	0	[TBB] fast=9708 slow=0 m0=9708 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=358990026 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=6421 frames=900
-Rainbow	0	[TBB] fast=8558 slow=0 m0=8558 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1249718180 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3066 frames=900
-Real Bout Pro Wrestling	0	[TBB] fast=1243 slow=871 m0=1243 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=30500708 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1119 frames=900
-Recca Soldiers - Advance Wars	0	[TBB] fast=1728 slow=756 m0=1728 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=234565149 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1242 frames=900
-Red Cyclone Zangief	0	[TBB] fast=2707 slow=1151 m0=2707 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=102213762 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1929 frames=900
-Red Earth	0	[TBB] fast=2278 slow=990 m0=1910 m1=0 m2=368 m3=0 m4=0 m5=0 m6=0 m7=0 p0=255049168 p1=0 p2=95680 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1542 frames=900
-Rescue Command - Against the Amazon Girls	0	[TBB] fast=550 slow=0 m0=275 m1=0 m2=275 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1597435 p1=0 p2=205700 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=275 frames=900
-Rescue Command Ep. 2 Attack on Amazon Island	0	[TBB] fast=4770 slow=0 m0=3209 m1=0 m2=1561 m3=0 m4=0 m5=0 m6=0 m7=0 p0=340941854 p1=0 p2=83907650 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1973 frames=900
-Retro Gamer Adventure	0	[TBB] fast=1474 slow=737 m0=1474 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=28980954 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1474 frames=900
-Rescue Command Ep. 1 - Escaping from Bad Girls Island	0	[TBB] fast=1150 slow=0 m0=1150 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=296390650 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=920 frames=900
-Resident Evil Survive	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Return of Double Dragon	0	[TBB] fast=4033 slow=0 m0=4033 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=370837952 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2932 frames=900
-Return of Kyo, The	0	[TBB] fast=3487 slow=1939 m0=3487 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=447026536 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2326 frames=900
-Rhythm of Destruction 2 - Blue Edition	0	[TBB] fast=2102 slow=0 m0=1372 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=34451166 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900
-Rhythm of Destruction 2 - Green Edition	0	[TBB] fast=2102 slow=0 m0=1372 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=34449339 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900
-Poppy Playtime Brawl [Demo]	0	[TBB] fast=29257 slow=1371 m0=29257 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1094263626 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=28451 frames=900
-Rhythm of Destruction 2 - Red Edition	0	[TBB] fast=2102 slow=0 m0=1372 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=32770299 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900
-River City Ransom Zero	0	[TBB] fast=1249 slow=744 m0=1249 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=20136401 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1047 frames=900
-Robo Magi	0	[TBB] fast=14750 slow=0 m0=14750 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1175137358 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5018 frames=900
-Robz Rush	0	[TBB] fast=7738 slow=0 m0=7738 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=488146372 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2243 frames=900
-Rocket Viper	0	[TBB] fast=578 slow=578 m0=578 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3775551 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=578 frames=900
-Rocket Viper 2	0	[TBB] fast=1301 slow=461 m0=1301 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=72958764 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=461 frames=900
-Rocko's Modern Life	0	[TBB] fast=8482 slow=3144 m0=8482 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=792564051 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2971 frames=900
-Roy Streets	0	[TBB] fast=2686 slow=0 m0=1919 m1=0 m2=767 m3=0 m4=0 m5=0 m6=0 m7=0 p0=14308058 p1=0 p2=786942 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1199 frames=900
-Ruins of the Deep	0	[TBB] fast=12519 slow=0 m0=11713 m1=806 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=821833708 p1=330137600 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=159 chan=0 remap=3653 frames=900
-Rushing Beat	0	[TBB] fast=567 slow=0 m0=567 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=29580957 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=567 frames=900
-Ryuko No Ken Nekketsu	0	[TBB] fast=4267 slow=1147 m0=4267 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=58343824 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2707 frames=900
-S.C.U. - Special Criminal Unit	0	[TBB] fast=2877 slow=0 m0=2106 m1=0 m2=771 m3=0 m4=0 m5=0 m6=0 m7=0 p0=395294134 p1=0 p2=791046 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=771 frames=900
-Sailor Moon - Alternate Story Return Of The Clones	0	[TBB] fast=1797 slow=915 m0=1601 m1=0 m2=196 m3=0 m4=0 m5=0 m6=0 m7=0 p0=88504424 p1=0 p2=84672 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1209 frames=900
-Sailor Moon Arcade	0	[TBB] fast=3006 slow=195 m0=3006 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=183626942 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1722 frames=900
+Legend of Korr - Path of Destruction	0	[TBB] fast=6831 slow=2103 m0=6831 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=140090941 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5929 frames=900 spritekb=15894 sprites=2741 vw=480 vh=272
+Lift	0	[TBB] fast=7588 slow=0 m0=7588 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=461071384 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2001 frames=900 spritekb=580 sprites=88 vw=640 vh=480
+Last Life	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=13 sprites=14 vw=640 vh=480
+Legend of the Double Dragon	0	[TBB] fast=3226 slow=1105 m0=2868 m1=358 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=154492141 p1=2121728 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2426 frames=900 spritekb=9436 sprites=2849 vw=256 vh=224
+Lunar	0	[TBB] fast=5165 slow=0 m0=4007 m1=0 m2=1158 m3=0 m4=0 m5=0 m6=0 m7=0 p0=13125027 p1=0 p2=301080 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1158 frames=900 spritekb=309 sprites=241 vw=320 vh=240
+M@skaku, The - Wonder Momo '09	0	[TBB] fast=1904 slow=684 m0=1843 m1=0 m2=61 m3=0 m4=0 m5=0 m6=0 m7=0 p0=29690399 p1=0 p2=118584 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1721 frames=900 spritekb=7416 sprites=1254 vw=480 vh=272
+Maplevania	0	[TBB] fast=2358 slow=730 m0=2358 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=463228529 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1137 frames=900 spritekb=584 sprites=149 vw=320 vh=240
+Martial Masters - New Legend	0	[TBB] fast=2562 slow=1977 m0=2562 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=288582716 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1281 frames=900 spritekb=14660 sprites=1906 vw=480 vh=272
+Marvel First Alliance	0	[TBB] fast=343 slow=343 m0=343 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3944154 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=343 frames=900 spritekb=2241 sprites=580 vw=480 vh=272
+Marvel First Alliance 2	0	[TBB] fast=363 slow=0 m0=363 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=4553791 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=363 frames=900 spritekb=10668 sprites=2255 vw=480 vh=272
+Marvel - Infinity War	0	[TBB] fast=4979 slow=1544 m0=4979 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=59554135 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4207 frames=900 spritekb=48182 sprites=13248 vw=480 vh=272
+Marvel Super Heroes Infinity Adventure	0	[TBB] fast=3044 slow=1204 m0=3044 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=467051745 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1664 frames=900 spritekb=9243 sprites=1287 vw=320 vh=240
+Marvel Super Heroes	0	[TBB] fast=2126 slow=0 m0=1357 m1=0 m2=769 m3=0 m4=0 m5=0 m6=0 m7=0 p0=40700307 p1=0 p2=788994 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1063 frames=900 spritekb=13025 sprites=1299 vw=320 vh=240
+Marvel War of the Gems	0	[TBB] fast=774 slow=774 m0=774 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3242532 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=774 frames=900 spritekb=25482 sprites=2763 vw=480 vh=272
+Marvel vs Capcom	0	[TBB] fast=3006 slow=741 m0=2661 m1=0 m2=0 m3=0 m4=0 m5=0 m6=345 m7=0 p0=171758536 p1=0 p2=0 p3=0 p4=0 p5=0 p6=3536960 p7=0 tint=0 chan=0 remap=2366 frames=900 spritekb=13813 sprites=1243 vw=480 vh=272
+Masters Of The Universe - Eternian Battle	0	[TBB] fast=50796 slow=0 m0=50796 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=2487830481 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=38844 frames=900 spritekb=1847 sprites=241 vw=480 vh=272
+Masters of the Universe	0	[TBB] fast=807 slow=807 m0=807 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=22327046 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=807 frames=900 spritekb=1721 sprites=351 vw=320 vh=240
+Mega Sonic	0	[TBB] fast=1497 slow=0 m0=1497 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=30959987 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900 spritekb=1795 sprites=842 vw=320 vh=240
+Mega-Boy Into the Mega World	0	[TBB] fast=767 slow=767 m0=767 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=12825160 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=767 frames=900 spritekb=933 sprites=235 vw=320 vh=240
+Maximun Carnage Returns	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=1288 sprites=433 vw=320 vh=240
+MegaMan - War of the Past	0	[TBB] fast=2102 slow=0 m0=1265 m1=0 m2=837 m3=0 m4=0 m5=0 m6=0 m7=0 p0=18710288 p1=0 p2=829016 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=837 frames=900 spritekb=2319 sprites=548 vw=320 vh=240
+MegaMan - Xtreme Legend	0	[TBB] fast=4579 slow=0 m0=2907 m1=0 m2=1672 m3=0 m4=0 m5=0 m6=0 m7=0 p0=206753066 p1=0 p2=794864 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1973 frames=900 spritekb=827 sprites=456 vw=320 vh=240
+MegaMan Armada	0	[TBB] fast=3513 slow=959 m0=3513 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=481315300 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1979 frames=900 spritekb=1724 sprites=1233 vw=320 vh=240
+Melty Blood Stimulate	0	[TBB] fast=1898 slow=0 m0=1112 m1=0 m2=786 m3=0 m4=0 m5=0 m6=0 m7=0 p0=52250291 p1=0 p2=806436 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=786 frames=900 spritekb=5342 sprites=1156 vw=320 vh=240
+Metal Gear Origin	0	[TBB] fast=4838 slow=543 m0=4495 m1=0 m2=343 m3=0 m4=0 m5=0 m6=0 m7=0 p0=293018484 p1=0 p2=666792 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3693 frames=900 spritekb=2309 sprites=486 vw=320 vh=240
+Memory Loss	0	[TBB] fast=108 slow=1298 m0=108 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=9218394 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=27 frames=900 spritekb=2912 sprites=712 vw=320 vh=240
+Mighty Final Fight 3	0	[TBB] fast=1012 slow=0 m0=922 m1=90 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1490032 p1=719940 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1012 frames=900 spritekb=3017 sprites=435 vw=320 vh=240
+Mighty Final Fight X	0	[TBB] fast=1014 slow=0 m0=924 m1=90 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1480248 p1=718710 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1014 frames=900 spritekb=3016 sprites=435 vw=320 vh=240
+Metal Slug Beat Em Up	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=7625 sprites=1557 vw=480 vh=272
+Mighty Final Fight Forever	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=6128 sprites=1328 vw=320 vh=240
+Mobile Suit Zeta Gundam	0	[TBB] fast=1697 slow=0 m0=1697 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=26127550 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=962 frames=900 spritekb=228 sprites=106 vw=320 vh=240
+Minetroid	0	[TBB] fast=13900 slow=0 m0=13900 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=353626194 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=7177 frames=900 spritekb=949 sprites=32 vw=640 vh=480
+Monster Girl Dimensions	0	[TBB] fast=2777 slow=964 m0=2387 m1=0 m2=0 m3=0 m4=0 m5=0 m6=390 m7=0 p0=327339512 p1=0 p2=0 p3=0 p4=0 p5=0 p6=9216 p7=0 tint=0 chan=390 remap=1145 frames=900 spritekb=14044 sprites=1127 vw=960 vh=540
+Monster Jam [Demo]	0	[TBB] fast=662 slow=626 m0=662 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=4450044 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=630 frames=900 spritekb=1166 sprites=302 vw=480 vh=272
+Mortal Kombat Unlimited	0	[TBB] fast=5119 slow=781 m0=4278 m1=0 m2=841 m3=0 m4=0 m5=0 m6=0 m7=0 p0=132359027 p1=0 p2=1634904 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3624 frames=900 spritekb=5429 sprites=1487 vw=320 vh=240
+Moscow RE-Action	0	[TBB] fast=1949 slow=0 m0=1949 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=57544182 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1553 frames=900 spritekb=12666 sprites=2514 vw=320 vh=240
+Mortal Kombat Outworld Assassins	0	[TBB] fast=1866 slow=1625 m0=1866 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=324198034 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1143 frames=900 spritekb=8963 sprites=1990 vw=432 vh=243
+Mortal Kombat - The Chosen One	0	[TBB] fast=758 slow=0 m0=739 m1=0 m2=0 m3=0 m4=0 m5=0 m6=19 m7=0 p0=30344844 p1=0 p2=0 p3=0 p4=0 p5=0 p6=221464 p7=0 tint=0 chan=0 remap=739 frames=900 spritekb=73732 sprites=8687 vw=480 vh=272
+Naruto	0	[TBB] fast=1900 slow=0 m0=1114 m1=0 m2=786 m3=0 m4=0 m5=0 m6=0 m7=0 p0=62270847 p1=0 p2=339552 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=786 frames=900 spritekb=426 sprites=236 vw=320 vh=240
+Nelsoncomica	0	[TBB] fast=3376 slow=0 m0=2590 m1=0 m2=786 m3=0 m4=0 m5=0 m6=0 m7=0 p0=79303276 p1=0 p2=806436 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2098 frames=900 spritekb=1007 sprites=298 vw=320 vh=240
+Neon Lightning Force	0	[TBB] fast=2560 slow=0 m0=2257 m1=0 m2=303 m3=0 m4=0 m5=0 m6=0 m7=0 p0=204518480 p1=0 p2=432078 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1348 frames=900 spritekb=8366 sprites=2045 vw=320 vh=240
+Never Ending Story	0	[TBB] fast=3892 slow=0 m0=2387 m1=0 m2=1505 m3=0 m4=0 m5=0 m6=0 m7=0 p0=73409328 p1=0 p2=477540 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2240 frames=900 spritekb=562 sprites=160 vw=320 vh=240
+Night Slashers X	0	[TBB] fast=5449 slow=0 m0=5008 m1=0 m2=441 m3=0 m4=0 m5=0 m6=0 m7=0 p0=375463087 p1=0 p2=174636 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1921 frames=900 spritekb=12698 sprites=2088 vw=320 vh=240
+Nightmare on Elm Street - Dreams of Rage	0	[TBB] fast=5435 slow=716 m0=4769 m1=0 m2=0 m3=0 m4=0 m5=0 m6=666 m7=0 p0=1191300839 p1=0 p2=0 p3=0 p4=0 p5=0 p6=96463467 p7=0 tint=0 chan=303 remap=2178 frames=900 spritekb=22917 sprites=820 vw=640 vh=480
+Ninja - Stealth Assassins	0	[TBB] fast=9432 slow=762 m0=5352 m1=2550 m2=1530 m3=0 m4=0 m5=0 m6=0 m7=0 p0=2733254549 p1=1794730800 p2=2790720 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2802 frames=900 spritekb=4021 sprites=866 vw=480 vh=272
+Ninja Jiraya	0	[TBB] fast=2530 slow=0 m0=1479 m1=0 m2=1051 m3=0 m4=0 m5=0 m6=0 m7=0 p0=38485499 p1=0 p2=1609578 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1158 frames=900 spritekb=6404 sprites=1168 vw=320 vh=240
+Ninja Warriors vs Marvel	0	[TBB] fast=2964 slow=0 m0=2197 m1=0 m2=767 m3=0 m4=0 m5=0 m6=0 m7=0 p0=117581005 p1=0 p2=331344 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1911 frames=900 spritekb=673 sprites=316 vw=320 vh=240
+One Piece - Grand Line Bout	0	[TBB] fast=8225 slow=0 m0=8064 m1=0 m2=161 m3=0 m4=0 m5=0 m6=0 m7=0 p0=109817824 p1=0 p2=69552 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=6909 frames=900 spritekb=1902 sprites=763 vw=320 vh=240
+POW Remake	0	[TBB] fast=624 slow=0 m0=624 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1441440 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=624 frames=900 spritekb=465 sprites=234 vw=320 vh=240
+Overload	0	[TBB] fast=105 slow=0 m0=46 m1=59 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=9856000 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=105 frames=900 spritekb=8199 sprites=200 vw=320 vh=240
+Pafman [Demo]	0	[TBB] fast=1443 slow=0 m0=1443 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=25742698 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=951 frames=900 spritekb=950 sprites=307 vw=320 vh=240
+Ogres Mayhem	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=81723 sprites=3274 vw=480 vh=272
+POW 2010	0	[TBB] fast=248 slow=248 m0=248 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3518976 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=248 frames=900 spritekb=3060 sprites=343 vw=480 vh=272
+Panda Warriors	0	[TBB] fast=1916 slow=0 m0=1025 m1=0 m2=891 m3=0 m4=0 m5=0 m6=0 m7=0 p0=26123544 p1=0 p2=1627986 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=891 frames=900 spritekb=1637 sprites=342 vw=320 vh=240
+Pew Pew Dadu	0	[TBB] fast=16772 slow=333 m0=16772 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=539558058 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=5680 chan=0 remap=11130 frames=900 spritekb=62 sprites=43 vw=640 vh=480
+Pestilaence - The New Plague	0	[TBB] fast=5584 slow=2590 m0=5584 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=23471034 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3337 frames=900 spritekb=1348 sprites=191 vw=320 vh=240
+Phantasy Star II + IV [Demo]	0	[TBB] fast=2271 slow=0 m0=2271 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=51792640 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1267 frames=900 spritekb=629 sprites=324 vw=320 vh=240
+Plump on the Stump	0	[TBB] fast=18859 slow=11605 m0=18859 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=277139090 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=1400 chan=0 remap=13350 frames=900 spritekb=60 sprites=22 vw=640 vh=480
+Phantasy Star Online	0	[TBB] fast=1039 slow=831 m0=1039 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=26037596 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=831 frames=900 spritekb=2833 sprites=507 vw=320 vh=240
+Pocket Dimensional Clash 2	0	[TBB] fast=2708 slow=175 m0=2708 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=739606831 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=11 chan=0 remap=990 frames=900 spritekb=15486 sprites=3310 vw=480 vh=272
+Pocket Ladies Gang War	0	[TBB] fast=1509 slow=1023 m0=1509 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=75291482 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1185 frames=900 spritekb=2559 sprites=808 vw=320 vh=240
+Pokemon - Red Blue Yellow	0	[TBB] fast=1224 slow=767 m0=1224 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=18895139 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=936 frames=900 spritekb=2514 sprites=258 vw=320 vh=240
+Pokemon Rumble 2D	0	[TBB] fast=2567 slow=2185 m0=2567 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=27124170 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2283 frames=900 spritekb=233 sprites=329 vw=480 vh=272
+Porkchop 'n Flatscreen	0	[TBB] fast=4390 slow=728 m0=2196 m1=1827 m2=0 m3=0 m4=0 m5=0 m6=367 m7=0 p0=36900551 p1=4766606 p2=0 p3=0 p4=0 p5=0 p6=10745760 p7=0 tint=0 chan=0 remap=3289 frames=900 spritekb=4076 sprites=1061 vw=320 vh=240
+Power Rangers - Beats of Power Special Edition	0	[TBB] fast=371 slow=0 m0=371 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=90386359 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=25193 sprites=1577 vw=320 vh=240
+Pretty Soldier Sailor Moon - R Plus	0	[TBB] fast=1946 slow=0 m0=1147 m1=0 m2=799 m3=0 m4=0 m5=0 m6=0 m7=0 p0=57767340 p1=0 p2=345168 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=973 frames=900 spritekb=1662 sprites=618 vw=320 vh=240
+Project FGC	0	[TBB] fast=2749 slow=896 m0=2749 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=55392291 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1853 frames=900 spritekb=34844 sprites=4817 vw=320 vh=240
+Project Moon [Demo]	0	[TBB] fast=7691 slow=1811 m0=6768 m1=0 m2=803 m3=0 m4=0 m5=0 m6=120 m7=0 p0=1047629868 p1=0 p2=130086 p3=0 p4=0 p5=0 p6=92160000 p7=0 tint=0 chan=0 remap=1409 frames=900 spritekb=21921 sprites=752 vw=640 vh=480
+Project R	0	[TBB] fast=1752 slow=0 m0=1003 m1=0 m2=749 m3=0 m4=0 m5=0 m6=0 m7=0 p0=33265883 p1=0 p2=1456056 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=749 frames=900 spritekb=1652 sprites=310 vw=320 vh=240
+Puzzle Puss	0	[TBB] fast=10542 slow=0 m0=10542 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=309254464 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=806 frames=900 spritekb=124 sprites=32 vw=640 vh=480
+Punisher, The and Nick Fury	0	[TBB] fast=6674 slow=0 m0=6674 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=170839664 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5150 frames=900 spritekb=2306 sprites=675 vw=320 vh=240
+Rael - The Redemption	0	[TBB] fast=2396 slow=0 m0=1630 m1=0 m2=766 m3=0 m4=0 m5=0 m6=0 m7=0 p0=28085446 p1=0 p2=785916 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=766 frames=900 spritekb=1332 sprites=235 vw=320 vh=240
+Quack Ninja	0	[TBB] fast=1103 slow=3993 m0=1103 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=90453535 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=783 frames=900 spritekb=774 sprites=597 vw=320 vh=240
+Rage Force Briga De Rua	0	[TBB] fast=2879 slow=1601 m0=2879 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=143448066 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2027 frames=900 spritekb=16652 sprites=2599 vw=480 vh=272
+Rage of the Streets	0	[TBB] fast=3065 slow=0 m0=2335 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=13589944 p1=0 p2=546040 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900 spritekb=3713 sprites=1152 vw=320 vh=240
+Raider & Reaper	0	[TBB] fast=19560 slow=132 m0=19560 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=962139254 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=6658 frames=900 spritekb=318 sprites=126 vw=640 vh=480
+Raiders Rush	0	[TBB] fast=9708 slow=0 m0=9708 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=358986866 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=6421 frames=900 spritekb=5721 sprites=297 vw=640 vh=480
+Rainbow	0	[TBB] fast=8567 slow=0 m0=8567 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1250407204 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3073 frames=900 spritekb=121 sprites=42 vw=640 vh=480
+Real Bout Pro Wrestling	0	[TBB] fast=1243 slow=871 m0=1243 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=30496492 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1119 frames=900 spritekb=4840 sprites=1157 vw=320 vh=240
+Recca Soldiers - Advance Wars	0	[TBB] fast=1729 slow=757 m0=1729 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=234599428 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1243 frames=900 spritekb=830 sprites=692 vw=320 vh=240
+Red Cyclone Zangief	0	[TBB] fast=2707 slow=1151 m0=2707 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=102213762 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1929 frames=900 spritekb=4697 sprites=573 vw=320 vh=240
+Red Earth	0	[TBB] fast=2278 slow=990 m0=1910 m1=0 m2=368 m3=0 m4=0 m5=0 m6=0 m7=0 p0=255053991 p1=0 p2=95680 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1542 frames=900 spritekb=12278 sprites=1054 vw=480 vh=272
+Rescue Command - Against the Amazon Girls	0	[TBB] fast=550 slow=0 m0=275 m1=0 m2=275 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1597435 p1=0 p2=205700 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=275 frames=900 spritekb=9279 sprites=1295 vw=480 vh=272
+Retro Gamer Adventure	0	[TBB] fast=1470 slow=735 m0=1470 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=28899590 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1470 frames=900 spritekb=3229 sprites=1032 vw=480 vh=272
+Rescue Command Ep. 2 Attack on Amazon Island	0	[TBB] fast=4730 slow=0 m0=3181 m1=0 m2=1549 m3=0 m4=0 m5=0 m6=0 m7=0 p0=337649561 p1=0 p2=83096250 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1957 frames=900 spritekb=12594 sprites=2449 vw=480 vh=272
+Rescue Command Ep. 1 - Escaping from Bad Girls Island	0	[TBB] fast=1125 slow=0 m0=1125 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=289947375 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=900 frames=900 spritekb=14049 sprites=959 vw=480 vh=272
+Resident Evil Survive	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=7075 sprites=1315 vw=480 vh=272
+Return of Double Dragon	0	[TBB] fast=4033 slow=0 m0=4033 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=370837592 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2932 frames=900 spritekb=3787 sprites=843 vw=320 vh=240
+Poppy Playtime Brawl [Demo]	0	[TBB] fast=29258 slow=1370 m0=29258 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1094267442 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=28452 frames=900 spritekb=9946 sprites=2129 vw=320 vh=240
+Return of Kyo, The	0	[TBB] fast=3486 slow=1938 m0=3486 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=446870680 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2325 frames=900 spritekb=6589 sprites=1142 vw=320 vh=240
+Rhythm of Destruction 2 - Blue Edition	0	[TBB] fast=2102 slow=0 m0=1372 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=34452106 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900 spritekb=2912 sprites=689 vw=320 vh=240
+Rhythm of Destruction 2 - Green Edition	0	[TBB] fast=2102 slow=0 m0=1372 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=34447943 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900 spritekb=2809 sprites=630 vw=320 vh=240
+Rhythm of Destruction 2 - Red Edition	0	[TBB] fast=2102 slow=0 m0=1372 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=32772021 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900 spritekb=2992 sprites=663 vw=320 vh=240
+River City Ransom Zero	0	[TBB] fast=1249 slow=744 m0=1249 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=20252456 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1047 frames=900 spritekb=3762 sprites=662 vw=320 vh=240
+Robo Magi	0	[TBB] fast=14751 slow=0 m0=14751 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1175137502 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5019 frames=900 spritekb=294 sprites=77 vw=640 vh=480
+Robz Rush	0	[TBB] fast=7738 slow=0 m0=7738 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=488271334 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2243 frames=900 spritekb=944 sprites=70 vw=640 vh=480
+Rocket Viper	0	[TBB] fast=578 slow=578 m0=578 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=3775362 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=578 frames=900 spritekb=3551 sprites=853 vw=320 vh=240
+Rocko's Modern Life	0	[TBB] fast=8506 slow=3164 m0=8482 m1=0 m2=0 m3=0 m4=0 m5=24 m6=0 m7=0 p0=792622305 p1=0 p2=0 p3=0 p4=0 p5=16664 p6=0 p7=0 tint=0 chan=0 remap=2995 frames=900 spritekb=2143 sprites=374 vw=640 vh=360
+Rocket Viper 2	0	[TBB] fast=1294 slow=460 m0=1294 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=72457761 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=460 frames=900 spritekb=15629 sprites=3154 vw=320 vh=240
+Roy Streets	0	[TBB] fast=2686 slow=0 m0=1919 m1=0 m2=767 m3=0 m4=0 m5=0 m6=0 m7=0 p0=14308164 p1=0 p2=786942 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1199 frames=900 spritekb=580 sprites=206 vw=320 vh=240
+Ruins of the Deep	0	[TBB] fast=12765 slow=0 m0=11959 m1=806 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=821864168 p1=330137600 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=157 chan=0 remap=3899 frames=900 spritekb=27 sprites=15 vw=640 vh=640
+Rushing Beat	0	[TBB] fast=567 slow=0 m0=567 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=29580957 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=567 frames=900 spritekb=1793 sprites=878 vw=320 vh=240
+S.C.U. - Special Criminal Unit	0	[TBB] fast=2872 slow=0 m0=2102 m1=0 m2=770 m3=0 m4=0 m5=0 m6=0 m7=0 p0=394410052 p1=0 p2=790020 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=770 frames=900 spritekb=3232 sprites=537 vw=480 vh=272
+Ryuko No Ken Nekketsu	0	[TBB] fast=4275 slow=1149 m0=4275 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=58456457 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2712 frames=900 spritekb=2891 sprites=1559 vw=320 vh=240
+Sailor Moon Arcade	0	[TBB] fast=3006 slow=195 m0=3006 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=183626942 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1722 frames=900 spritekb=5220 sprites=1492 vw=320 vh=240
+Sailor Moon - Alternate Story Return Of The Clones	0	[TBB] fast=1751 slow=905 m0=1563 m1=0 m2=188 m3=0 m4=0 m5=0 m6=0 m7=0 p0=85192220 p1=0 p2=81216 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1187 frames=900 spritekb=9599 sprites=2435 vw=320 vh=240
+Sailor Moon	0	[TBB] fast=2389 slow=0 m0=1639 m1=0 m2=750 m3=0 m4=0 m5=0 m6=0 m7=0 p0=68259665 p1=0 p2=561000 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1258 frames=900 spritekb=796 sprites=350 vw=320 vh=240
 Scorer Horror	1	NO_TBB_LINE
-Sailor Moon	0	[TBB] fast=2387 slow=0 m0=1638 m1=0 m2=749 m3=0 m4=0 m5=0 m6=0 m7=0 p0=68253888 p1=0 p2=560252 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1257 frames=900
-Sailormoon Alternate Story Clone Attack	0	[TBB] fast=15390 slow=1552 m0=15390 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=187655412 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1552 frames=900
-Saint Seiya - Death & Rebirth	0	[TBB] fast=2050 slow=0 m0=1092 m1=0 m2=958 m3=0 m4=0 m5=0 m6=0 m7=0 p0=21492336 p1=0 p2=1258908 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=958 frames=900
-Search for Athena, The	0	[TBB] fast=3048 slow=0 m0=1934 m1=328 m2=786 m3=0 m4=0 m5=0 m6=0 m7=0 p0=19694762 p1=0 p2=1527984 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1278 frames=900
+Sailormoon Alternate Story Clone Attack	0	[TBB] fast=15390 slow=1552 m0=15390 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=187657584 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1552 frames=900 spritekb=2612 sprites=965 vw=320 vh=240
+Saint Seiya - Death & Rebirth	0	[TBB] fast=2050 slow=0 m0=1092 m1=0 m2=958 m3=0 m4=0 m5=0 m6=0 m7=0 p0=21492188 p1=0 p2=1258908 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=958 frames=900 spritekb=1953 sprites=349 vw=320 vh=240
 Shadows of Death	1	NO_TBB_LINE
-Secrets of the Deep	0	[TBB] fast=12478 slow=0 m0=11672 m1=806 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=700545136 p1=330137600 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2418 frames=900
-Samurai Warriors	0	[TBB] fast=3216 slow=1075 m0=2655 m1=245 m2=0 m3=0 m4=0 m5=0 m6=316 m7=0 p0=588197686 p1=1150120 p2=0 p3=0 p4=0 p5=0 p6=7728 p7=0 tint=0 chan=316 remap=1952 frames=900
-Shiva & Lisa 2	0	[TBB] fast=2362 slow=0 m0=1367 m1=124 m2=871 m3=0 m4=0 m5=0 m6=0 m7=0 p0=17525132 p1=986048 p2=1242046 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900
-Shiva & Lisa	0	[TBB] fast=1990 slow=0 m0=1243 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=34198033 p1=0 p2=558756 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900
-Shiva & Lisa 3	0	[TBB] fast=3581 slow=732 m0=3581 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=347455387 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1139 frames=900
-Shock Troopers - The Living Daylights	0	[TBB] fast=10183 slow=0 m0=10183 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=733615798 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8902 frames=900
-Shodown Revenge	0	[TBB] fast=3775 slow=1100 m0=3775 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=169732097 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3454 frames=900
-Sega Brawlers Megamix	0	[TBB] fast=995 slow=716 m0=995 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=113824464 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=809 frames=900
-Silver Night's Crusaders	0	[TBB] fast=3894 slow=0 m0=3894 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=167954451 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3302 frames=900
-Simpsons, The - Treehouse of Horror	0	[TBB] fast=4461 slow=2452 m0=4461 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=696097461 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3887 frames=900
-Snail N Turtle	0	[TBB] fast=20167 slow=1139 m0=1562 m1=502 m2=0 m3=0 m4=502 m5=14589 m6=3012 m7=0 p0=74658680 p1=147049856 p2=0 p3=0 p4=246068352 p5=26172352 p6=7003464 p7=0 tint=0 chan=0 remap=18661 frames=900
-Skull Kingz Remake	0	[TBB] fast=937 slow=839 m0=937 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=11027536 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=839 frames=900
-Snestalgia	0	[TBB] fast=2154 slow=416 m0=2154 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=75771989 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=416 frames=900
-SonicX Battle	0	[TBB] fast=1130 slow=0 m0=1130 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=6015590 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=749 frames=900
-Sonic Defense	0	[TBB] fast=2651 slow=2039 m0=2651 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=141846235 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2345 frames=900
-Sonic SatAM Liberations	0	[TBB] fast=166 slow=166 m0=166 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=188913 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=166 frames=900
-Sonic Adventure - Revolution	0	[TBB] fast=2722 slow=727 m0=2722 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=47761774 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2512 frames=900
-Soul Edge II	0	[TBB] fast=5481 slow=783 m0=5481 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=183525349 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3132 frames=900
-Sonics Splatterhouse	0	[TBB] fast=350 slow=0 m0=253 m1=0 m2=97 m3=0 m4=0 m5=0 m6=0 m7=0 p0=8715895 p1=0 p2=72556 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=193 frames=900
-Spawn - The Crusade Across Time	0	[TBB] fast=2492 slow=804 m0=2345 m1=0 m2=147 m3=0 m4=0 m5=0 m6=0 m7=0 p0=44213761 p1=0 p2=209622 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2051 frames=900
-Special Squadron Cyberman	0	[TBB] fast=2719 slow=0 m0=1955 m1=0 m2=764 m3=0 m4=0 m5=0 m6=0 m7=0 p0=332367024 p1=0 p2=76400 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1161 frames=900
-Sonic Super Jam	0	[TBB] fast=1234 slow=724 m0=1234 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=285996388 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1030 frames=900
-Splatterhouse - Back from the Dead	0	[TBB] fast=1505 slow=0 m0=1505 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=198056419 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=731 frames=900
-Splatterhouse - Deception of the Mask	0	[TBB] fast=5963 slow=0 m0=3592 m1=0 m2=2371 m3=0 m4=0 m5=0 m6=0 m7=0 p0=301143002 p1=0 p2=1185598 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2778 frames=900
-Splatterhouse - Eternal Nightmare	0	[TBB] fast=12300 slow=0 m0=11507 m1=0 m2=793 m3=0 m4=0 m5=0 m6=0 m7=0 p0=473115298 p1=0 p2=813618 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=9559 frames=900
-Splatterhouse 2 - Journey Through Hell	0	[TBB] fast=5961 slow=0 m0=5219 m1=0 m2=742 m3=0 m4=0 m5=0 m6=0 m7=0 p0=278327183 p1=0 p2=761292 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4405 frames=900
-Splatterhouse 3 - Back to Light	0	[TBB] fast=2298 slow=0 m0=1556 m1=0 m2=742 m3=0 m4=0 m5=0 m6=0 m7=0 p0=264221600 p1=0 p2=761292 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=742 frames=900
-Stains of Deception	0	[TBB] fast=2006 slow=0 m0=1257 m1=0 m2=749 m3=0 m4=0 m5=0 m6=0 m7=0 p0=25034216 p1=0 p2=1068074 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=749 frames=900
-Steampunk Raiders	0	[TBB] fast=4229 slow=0 m0=4229 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=155447846 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1761 frames=900
-Steins Gate D!	0	[TBB] fast=1674 slow=0 m0=944 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=19825842 p1=0 p2=546040 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900
-Street Fighter - Beats of Rage Remix II	0	[TBB] fast=2102 slow=0 m0=1372 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=32373738 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900
-Street Fighter II Champion Edition	0	[TBB] fast=9221 slow=6162 m0=8441 m1=0 m2=780 m3=0 m4=0 m5=0 m6=0 m7=0 p0=276968636 p1=0 p2=202800 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=7247 frames=900
-Street Fighter Legends	0	[TBB] fast=2348 slow=0 m0=1542 m1=0 m2=806 m3=0 m4=0 m5=0 m6=0 m7=0 p0=37702436 p1=0 p2=602888 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=806 frames=900
+Search for Athena, The	0	[TBB] fast=3066 slow=0 m0=1948 m1=332 m2=786 m3=0 m4=0 m5=0 m6=0 m7=0 p0=19874050 p1=0 p2=1527984 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1284 frames=900 spritekb=5485 sprites=1141 vw=320 vh=240
+Secrets of the Deep	0	[TBB] fast=12658 slow=0 m0=11852 m1=806 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=700789856 p1=330137600 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2594 frames=900 spritekb=30 sprites=25 vw=640 vh=640
+Samurai Warriors	0	[TBB] fast=3218 slow=1077 m0=2662 m1=243 m2=0 m3=0 m4=0 m5=0 m6=313 m7=0 p0=590262376 p1=1150120 p2=0 p3=0 p4=0 p5=0 p6=7488 p7=0 tint=0 chan=313 remap=1956 frames=900 spritekb=44420 sprites=1715 vw=960 vh=540
+Shiva & Lisa 2	0	[TBB] fast=2362 slow=0 m0=1367 m1=124 m2=871 m3=0 m4=0 m5=0 m6=0 m7=0 p0=17524778 p1=986048 p2=1242046 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900 spritekb=1554 sprites=409 vw=320 vh=240
+Shiva & Lisa 3	0	[TBB] fast=3581 slow=732 m0=3581 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=347456781 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1139 frames=900 spritekb=2688 sprites=519 vw=480 vh=272
+Shiva & Lisa	0	[TBB] fast=1990 slow=0 m0=1243 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=34200009 p1=0 p2=558756 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900 spritekb=1195 sprites=357 vw=320 vh=240
+Shock Troopers - The Living Daylights	0	[TBB] fast=10183 slow=0 m0=10183 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=733614290 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8902 frames=900 spritekb=4091 sprites=622 vw=320 vh=240
+Shodown Revenge	0	[TBB] fast=3775 slow=1100 m0=3775 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=169732076 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3454 frames=900 spritekb=1672 sprites=442 vw=320 vh=240
+Sega Brawlers Megamix	0	[TBB] fast=987 slow=714 m0=987 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=111386996 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=805 frames=900 spritekb=22435 sprites=10066 vw=480 vh=272
+Snail N Turtle	0	[TBB] fast=20073 slow=1140 m0=1559 m1=501 m2=0 m3=0 m4=501 m5=14506 m6=3006 m7=0 p0=74510280 p1=146756928 p2=0 p3=0 p4=245578176 p5=26261702 p6=6984714 p7=0 tint=0 chan=0 remap=18570 frames=900 spritekb=1496 sprites=344 vw=640 vh=480
+Simpsons, The - Treehouse of Horror	0	[TBB] fast=4461 slow=2452 m0=4461 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=696097461 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3887 frames=900 spritekb=9938 sprites=922 vw=480 vh=272
+Skull Kingz Remake	0	[TBB] fast=938 slow=840 m0=938 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=11038839 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=840 frames=900 spritekb=11960 sprites=758 vw=320 vh=240
+Silver Night's Crusaders	0	[TBB] fast=3908 slow=0 m0=3908 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=168522398 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3314 frames=900 spritekb=7076 sprites=1952 vw=320 vh=240
+Snestalgia	0	[TBB] fast=2134 slow=412 m0=2134 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=75050291 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=412 frames=900 spritekb=343 sprites=97 vw=480 vh=272
+SonicX Battle	0	[TBB] fast=1130 slow=0 m0=1130 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=6015424 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=749 frames=900 spritekb=130 sprites=120 vw=320 vh=240
+Sonic Defense	0	[TBB] fast=2677 slow=2057 m0=2677 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=143748695 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2367 frames=900 spritekb=2868 sprites=1827 vw=480 vh=272
+Sonic SatAM Liberations	0	[TBB] fast=166 slow=166 m0=166 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=188412 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=166 frames=900 spritekb=329 sprites=302 vw=320 vh=240
+Sonic Adventure - Revolution	0	[TBB] fast=2862 slow=734 m0=2862 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=50913048 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2638 frames=900 spritekb=15806 sprites=5487 vw=480 vh=272
+Soul Edge II	0	[TBB] fast=5488 slow=784 m0=5488 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=183756752 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3136 frames=900 spritekb=3492 sprites=385 vw=320 vh=240
+Sonics Splatterhouse	0	[TBB] fast=323 slow=0 m0=235 m1=0 m2=88 m3=0 m4=0 m5=0 m6=0 m7=0 p0=7976680 p1=0 p2=65824 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=175 frames=900 spritekb=9557 sprites=927 vw=320 vh=240
+Spawn - The Crusade Across Time	0	[TBB] fast=2494 slow=806 m0=2347 m1=0 m2=147 m3=0 m4=0 m5=0 m6=0 m7=0 p0=44235849 p1=0 p2=209622 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2053 frames=900 spritekb=4974 sprites=688 vw=320 vh=240
+Sonic Super Jam	0	[TBB] fast=1265 slow=730 m0=1265 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=299992796 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1051 frames=900 spritekb=132851 sprites=3816 vw=480 vh=272
+Special Squadron Cyberman	0	[TBB] fast=2719 slow=0 m0=1955 m1=0 m2=764 m3=0 m4=0 m5=0 m6=0 m7=0 p0=332363708 p1=0 p2=76400 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1161 frames=900 spritekb=1540 sprites=425 vw=320 vh=240
+Splatterhouse - Back from the Dead	0	[TBB] fast=1506 slow=0 m0=1506 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=198065453 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=732 frames=900 spritekb=1729 sprites=610 vw=320 vh=240
+Splatterhouse - Deception of the Mask	0	[TBB] fast=5961 slow=0 m0=3591 m1=0 m2=2370 m3=0 m4=0 m5=0 m6=0 m7=0 p0=301131616 p1=0 p2=1184572 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2777 frames=900 spritekb=888 sprites=386 vw=320 vh=240
+Splatterhouse - Eternal Nightmare	0	[TBB] fast=12300 slow=0 m0=11507 m1=0 m2=793 m3=0 m4=0 m5=0 m6=0 m7=0 p0=472930978 p1=0 p2=813618 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=9559 frames=900 spritekb=652 sprites=257 vw=320 vh=240
+Splatterhouse 2 - Journey Through Hell	0	[TBB] fast=5961 slow=0 m0=5219 m1=0 m2=742 m3=0 m4=0 m5=0 m6=0 m7=0 p0=278332666 p1=0 p2=761292 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4405 frames=900 spritekb=1388 sprites=525 vw=320 vh=240
+Splatterhouse 3 - Back to Light	0	[TBB] fast=2298 slow=0 m0=1556 m1=0 m2=742 m3=0 m4=0 m5=0 m6=0 m7=0 p0=264221600 p1=0 p2=761292 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=742 frames=900 spritekb=1249 sprites=540 vw=320 vh=240
+Stains of Deception	0	[TBB] fast=2006 slow=0 m0=1257 m1=0 m2=749 m3=0 m4=0 m5=0 m6=0 m7=0 p0=25035364 p1=0 p2=1068074 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=749 frames=900 spritekb=2838 sprites=593 vw=320 vh=240
+Steampunk Raiders	0	[TBB] fast=4230 slow=0 m0=4230 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=155448560 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1762 frames=900 spritekb=334 sprites=158 vw=640 vh=480
+Steins Gate D!	0	[TBB] fast=1674 slow=0 m0=944 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=19825842 p1=0 p2=546040 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900 spritekb=183 sprites=113 vw=320 vh=240
+Street Fighter - Beats of Rage Remix II	0	[TBB] fast=2102 slow=0 m0=1372 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=32374062 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900 spritekb=3508 sprites=749 vw=320 vh=240
+Street Fighter II Champion Edition	0	[TBB] fast=9188 slow=6139 m0=8408 m1=0 m2=780 m3=0 m4=0 m5=0 m6=0 m7=0 p0=275145610 p1=0 p2=202800 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=7223 frames=900 spritekb=4514 sprites=1053 vw=320 vh=240
+Street Fighter Legends	0	[TBB] fast=2348 slow=0 m0=1542 m1=0 m2=806 m3=0 m4=0 m5=0 m6=0 m7=0 p0=37702364 p1=0 p2=602888 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=806 frames=900 spritekb=2450 sprites=587 vw=320 vh=240
+Street Fighter Rage World Olympic Tour	0	[TBB] fast=2564 slow=0 m0=1777 m1=0 m2=787 m3=0 m4=0 m5=0 m6=0 m7=0 p0=55581101 p1=0 p2=363594 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1447 frames=900 spritekb=2698 sprites=788 vw=320 vh=240
 Street Fighter Vs. The King of Fighters	1	NO_TBB_LINE
-Street Fighter Rage World Olympic Tour	0	[TBB] fast=2558 slow=0 m0=1771 m1=0 m2=787 m3=0 m4=0 m5=0 m6=0 m7=0 p0=55268658 p1=0 p2=363594 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1443 frames=900
-Street Fighter '89 - The Final Fight [Demo]	0	[TBB] fast=9373 slow=0 m0=9373 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=612840457 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=16 chan=0 remap=4573 frames=900
-Street Fighter Ultimate Collection	0	[TBB] fast=3653 slow=1442 m0=3653 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=125932587 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2211 frames=900
-Street Fighter Taiwan	0	[TBB] fast=2991 slow=0 m0=1800 m1=0 m2=1191 m3=0 m4=0 m5=0 m6=0 m7=0 p0=235071963 p1=0 p2=450198 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1660 frames=900
-Street Fighter Victory	0	[TBB] fast=1822 slow=0 m0=1056 m1=0 m2=766 m3=0 m4=0 m5=0 m6=0 m7=0 p0=69640581 p1=0 p2=785916 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=766 frames=900
-Street Fury	0	[TBB] fast=4688 slow=0 m0=3082 m1=0 m2=1606 m3=0 m4=0 m5=0 m6=0 m7=0 p0=75222413 p1=0 p2=1292472 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2590 frames=900
-Street Knightz	0	[TBB] fast=2482 slow=0 m0=1622 m1=127 m2=733 m3=0 m4=0 m5=0 m6=0 m7=0 p0=19317348 p1=718312 p2=548284 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=860 frames=900
-Streets Of Rage Z - Return Of The Hero	0	[TBB] fast=2887 slow=762 m0=2887 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=53988692 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1915 frames=900
-Streets of Rage - Silent Hill	0	[TBB] fast=4136 slow=806 m0=3581 m1=555 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=22270804 p1=24295680 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=806 frames=900
-Streets of Fighting - Final Edition	0	[TBB] fast=1866 slow=0 m0=1119 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=55854714 p1=0 p2=965124 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900
-Streets Of Russia	0	[TBB] fast=2975 slow=770 m0=2975 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=18177870 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=770 frames=900
+Street Fighter Victory	0	[TBB] fast=1820 slow=0 m0=1054 m1=0 m2=766 m3=0 m4=0 m5=0 m6=0 m7=0 p0=69190417 p1=0 p2=785916 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=766 frames=900 spritekb=5263 sprites=959 vw=320 vh=240
+Street Fighter Ultimate Collection	0	[TBB] fast=3653 slow=1442 m0=3653 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=125520192 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2211 frames=900 spritekb=4368 sprites=874 vw=320 vh=240
+Street Fighter '89 - The Final Fight [Demo]	0	[TBB] fast=9202 slow=0 m0=9202 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=601649749 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=16 chan=0 remap=4492 frames=900 spritekb=6678 sprites=1909 vw=384 vh=224
+Street Fighter Taiwan	0	[TBB] fast=2965 slow=0 m0=1782 m1=0 m2=1183 m3=0 m4=0 m5=0 m6=0 m7=0 p0=234677076 p1=0 p2=447174 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1644 frames=900 spritekb=11383 sprites=2780 vw=480 vh=272
+Street Fury	0	[TBB] fast=4688 slow=0 m0=3082 m1=0 m2=1606 m3=0 m4=0 m5=0 m6=0 m7=0 p0=75226191 p1=0 p2=1292472 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2590 frames=900 spritekb=1120 sprites=258 vw=320 vh=240
+Street Knightz	0	[TBB] fast=2480 slow=0 m0=1621 m1=127 m2=732 m3=0 m4=0 m5=0 m6=0 m7=0 p0=19310417 p1=718312 p2=547536 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=859 frames=900 spritekb=5724 sprites=1181 vw=320 vh=240
+Streets Of Rage Z - Return Of The Hero	0	[TBB] fast=2878 slow=759 m0=2878 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=53831298 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1910 frames=900 spritekb=5506 sprites=1570 vw=320 vh=240
+Streets of Fighting - Final Edition	0	[TBB] fast=1866 slow=0 m0=1119 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=55854222 p1=0 p2=965124 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=747 frames=900 spritekb=4762 sprites=1029 vw=320 vh=240
+Streets Of Russia	0	[TBB] fast=2975 slow=770 m0=2975 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=18178437 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=770 frames=900 spritekb=11632 sprites=2680 vw=320 vh=240
+Streets of Rage - Silent Hill	0	[TBB] fast=4118 slow=806 m0=3566 m1=552 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=22162168 p1=24164352 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=806 frames=900 spritekb=2154 sprites=733 vw=320 vh=240
 Streets of Rage X2 Megamix	1	NO_TBB_LINE
-Streets of Rage Furia Massiva	0	[TBB] fast=622 slow=622 m0=622 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1815562 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=622 frames=900
-Streets of Rage 4 - Silent Storm [Demo]	0	[TBB] fast=4693 slow=799 m0=4693 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=2679039540 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4162 frames=900
-Streets of Rage XXX	0	[TBB] fast=5260 slow=0 m0=2416 m1=2007 m2=837 m3=0 m4=0 m5=0 m6=0 m7=0 p0=64919295 p1=13333828 p2=626076 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3888 frames=900
-Streets of Rage Legacy	0	[TBB] fast=1784 slow=1010 m0=1784 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=166483488 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1397 frames=900
-Streets of Rage Z 2	0	[TBB] fast=2873 slow=760 m0=2873 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=53751068 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1907 frames=900
-Streets of Rage 2X	0	[TBB] fast=15578 slow=1359 m0=8465 m1=1316 m2=3624 m3=0 m4=0 m5=0 m6=2173 m7=0 p0=856829825 p1=30404864 p2=602085 p3=0 p4=0 p5=0 p6=90272804 p7=0 tint=40 chan=757 remap=14672 frames=900
-Streets of Rage Zombies	0	[TBB] fast=3299 slow=764 m0=3299 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=403483558 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1271 frames=900
-Strider X	0	[TBB] fast=3221 slow=0 m0=2228 m1=0 m2=993 m3=0 m4=0 m5=0 m6=0 m7=0 p0=121735093 p1=0 p2=1802446 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1240 frames=900
-Streets of Vendetta - Cracoland War	0	[TBB] fast=1624 slow=1085 m0=1624 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=108697103 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1316 frames=900
-Supah! Princess Defender	0	[TBB] fast=3606 slow=0 m0=3606 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=64288502 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1914 frames=900
-Super Fightin' Spirit	0	[TBB] fast=6717 slow=4830 m0=6327 m1=0 m2=390 m3=0 m4=0 m5=0 m6=0 m7=0 p0=194218782 p1=0 p2=101400 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5444 frames=900
-Super Karate Kid	0	[TBB] fast=4001 slow=0 m0=4001 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=154586496 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2000 frames=900
-Super Street Fighter II Turbo HD Remix	0	[TBB] fast=2908 slow=0 m0=2908 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1772777 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1855 frames=900
-Super Final Fight Gold Plus LNS	0	[TBB] fast=1066 slow=0 m0=533 m1=0 m2=533 m3=0 m4=0 m5=0 m6=0 m7=0 p0=253826493 p1=0 p2=201474 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=533 frames=900
-Super Thundercats - The Lost Eye of Thundera	0	[TBB] fast=13543 slow=0 m0=3736 m1=0 m2=9807 m3=0 m4=0 m5=0 m6=0 m7=0 p0=223908856 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=10274 frames=900
-Super Mario Brawl	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Super Final Fight Gold	0	[TBB] fast=1066 slow=0 m0=533 m1=0 m2=533 m3=0 m4=0 m5=0 m6=0 m7=0 p0=181860375 p1=0 p2=201474 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=533 frames=900
-Tabib	0	[TBB] fast=5642 slow=1612 m0=5642 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=253113624 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=805 chan=0 remap=4030 frames=900
-Tanks Vs Tanks	0	[TBB] fast=14051 slow=637 m0=13247 m1=787 m2=0 m3=0 m4=0 m5=0 m6=17 m7=0 p0=270874338 p1=154252000 p2=0 p3=0 p4=0 p5=0 p6=42500 p7=0 tint=0 chan=0 remap=3820 frames=900
-Target Renegade [Demo]	0	[TBB] fast=2494 slow=0 m0=1497 m1=0 m2=997 m3=0 m4=0 m5=0 m6=0 m7=0 p0=15889804 p1=0 p2=450720 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=997 frames=900
-Super Universe Brawl	0	[TBB] fast=590 slow=1482 m0=590 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=35816068 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=118 frames=900
-Teenage Mutant Ninja Turtles - 8-Bit	0	[TBB] fast=1742 slow=0 m0=1742 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=157505808 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=766 frames=900
-Symphonia Battalion - Well Fight Together	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Teenage Mutant Ninja Turtles - Fall of the Foot Clan DX [Demo]	0	[TBB] fast=2748 slow=0 m0=2442 m1=0 m2=0 m3=0 m4=306 m5=0 m6=0 m7=0 p0=63974475 p1=0 p2=0 p3=0 p4=509490 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1218 frames=900
-Teenage Mutant Ninja Turtles - Lost in Space	0	[TBB] fast=3462 slow=0 m0=2657 m1=0 m2=805 m3=0 m4=0 m5=0 m6=0 m7=0 p0=186104336 p1=0 p2=347760 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=805 frames=900
-Teenage Mutant Ninja Turtles - Recolored & Extended	0	[TBB] fast=2082 slow=837 m0=1975 m1=0 m2=0 m3=0 m4=107 m5=0 m6=0 m7=0 p0=15616928 p1=0 p2=0 p3=0 p4=12326400 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1761 frames=900
-Teenage Mutant Ninja Turtles - Red Sky Battle	0	[TBB] fast=5096 slow=402 m0=4962 m1=0 m2=134 m3=0 m4=0 m5=0 m6=0 m7=0 p0=928915574 p1=0 p2=24388 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3636 frames=900
-Teenage Mutant Ninja Turtles III The Manhattan Project	0	[TBB] fast=1156 slow=0 m0=1156 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=34411933 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=728 frames=900
-Teenage Mutant Ninja Turtles - Rescue Palooza!	0	[TBB] fast=18239 slow=0 m0=10943 m1=0 m2=7296 m3=0 m4=0 m5=0 m6=0 m7=0 p0=258243400 p1=0 p2=817152 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=9119 frames=900
-Teenage Mutant Ninja Turtles	0	[TBB] fast=1943 slow=441 m0=1796 m1=0 m2=147 m3=0 m4=0 m5=0 m6=0 m7=0 p0=120930366 p1=0 p2=48510000 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1208 frames=900
-Teenage Mutant Ninja Turtles - Shell Shocked	0	[TBB] fast=8 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=8 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=24960 p7=0 tint=0 chan=8 remap=0 frames=900
-Tekken - The Devils Rage	0	[TBB] fast=2556 slow=1042 m0=2253 m1=0 m2=0 m3=0 m4=0 m5=0 m6=303 m7=0 p0=49702699 p1=0 p2=0 p3=0 p4=0 p5=0 p6=32087700 p7=0 tint=0 chan=303 remap=1732 frames=900
-Teenage Mutant Ninja Turtles and Battletoads	0	[TBB] fast=730 slow=365 m0=730 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1892160 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900
-The Beast Within - Divine Comedy	0	[TBB] fast=4608 slow=1798 m0=3847 m1=0 m2=0 m3=0 m4=0 m5=0 m6=761 m7=0 p0=111206354 p1=0 p2=0 p3=0 p4=0 p5=0 p6=109218720 p7=0 tint=0 chan=0 remap=3086 frames=900
-Time Crisis - Side Scroller [Demo]	0	[TBB] fast=1278 slow=786 m0=1278 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=135454890 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=786 frames=900
-Tides Before the Tragedy	0	[TBB] fast=508 slow=2127 m0=508 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=39830470 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=127 frames=900
-The Suffering In Me [Beta Demo]	0	[TBB] fast=8355 slow=0 m0=3380 m1=0 m2=260 m3=0 m4=0 m5=0 m6=0 m7=0 p0=47881552 p1=0 p2=370760 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1040 frames=900
-Touhou Madness Wrath	0	[TBB] fast=1242 slow=0 m0=621 m1=0 m2=621 m3=0 m4=0 m5=0 m6=0 m7=0 p0=2861985 p1=0 p2=637146 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=621 frames=900
-Touhou Shooter	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Turrican vs Terminator	0	[TBB] fast=4063 slow=0 m0=4063 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1287361318 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2489 frames=900
-Unnamed Project	0	[TBB] fast=4414 slow=0 m0=2687 m1=0 m2=1727 m3=0 m4=0 m5=0 m6=0 m7=0 p0=167223763 p1=0 p2=1577582 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1727 frames=900
-Urban Lockdown	0	[TBB] fast=11941 slow=8766 m0=10967 m1=487 m2=487 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1852469197 p1=665913086 p2=175670640 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8045 frames=900
-Ultimate Super Mega Beatdown	0	[TBB] fast=1364 slow=728 m0=1364 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=66244994 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1152 frames=900
-Valdivia City Ransom	0	[TBB] fast=1231 slow=743 m0=1231 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=60038481 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=743 frames=900
-Vampire Hunters	0	[TBB] fast=3391 slow=60 m0=3391 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=130567330 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1569 frames=900
-Vampire Rage Hide	0	[TBB] fast=2974 slow=0 m0=2227 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=72198532 p1=0 p2=322704 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1487 frames=900
-Ultimate Double Dragon	0	[TBB] fast=4326 slow=1300 m0=2041 m1=920 m2=0 m3=0 m4=0 m5=307 m6=1058 m7=0 p0=23095128 p1=7201760 p2=0 p3=0 p4=0 p5=8609508 p6=62740758 p7=0 tint=0 chan=1058 remap=3638 frames=900
-Vengeance of Kyo, The	0	[TBB] fast=5468 slow=0 m0=4710 m1=0 m2=758 m3=0 m4=0 m5=0 m6=0 m7=0 p0=200866806 p1=0 p2=1080908 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3969 frames=900
-Vermilion Sword - The Legend Of Calibur	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900
-Village of Rage	0	[TBB] fast=1693 slow=0 m0=1372 m1=0 m2=321 m3=0 m4=0 m5=0 m6=0 m7=0 p0=38038202 p1=0 p2=568598 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1051 frames=900
-Warrior Frenzy	0	[TBB] fast=2102 slow=0 m0=1372 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=17928928 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900
-Warslayers - Land of Sinners	0	[TBB] fast=1235 slow=741 m0=1235 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=29918051 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=741 frames=900
-Way of Martial Arts	0	[TBB] fast=28009 slow=3104 m0=28009 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=277051882 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=27219 frames=900
-Women's War	0	[TBB] fast=2408 slow=0 m0=1496 m1=0 m2=912 m3=0 m4=0 m5=0 m6=0 m7=0 p0=113140727 p1=0 p2=935712 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1058 frames=900
-X-Men Hunter for Mutants	0	[TBB] fast=744 slow=744 m0=744 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=6997533 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=744 frames=900
-X-Men - Guerra dos Clones	0	[TBB] fast=526 slow=263 m0=526 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=9478346 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=526 frames=900
-X-Men Vs. Street Fighter	0	[TBB] fast=2008 slow=0 m0=1258 m1=0 m2=750 m3=0 m4=0 m5=0 m6=0 m7=0 p0=25485510 p1=0 p2=769500 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=877 frames=900
-World Heroes Supreme Justice Extra	0	[TBB] fast=8 slow=8 m0=8 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1210048 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8 frames=900
-X-Men	0	[TBB] fast=1964 slow=0 m0=1198 m1=0 m2=766 m3=0 m4=0 m5=0 m6=0 m7=0 p0=77386563 p1=0 p2=1489104 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=910 frames=900
-Xelam	0	[TBB] fast=17988 slow=364 m0=17182 m1=806 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=136772876 p1=261950000 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=10650 frames=900
-Yu-Gi-Oh! - Duels Alive	0	[TBB] fast=5607 slow=0 m0=5607 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=66944536 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4005 frames=900
-Yu Yu Hakusho Dark Tournament	0	[TBB] fast=2143 slow=708 m0=2143 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=195081012 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1528 frames=900
-XuanYuan Sword	0	[TBB] fast=1060 slow=636 m0=1060 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=23786935 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=848 frames=900
+Streets of Rage 4 - Silent Storm [Demo]	0	[TBB] fast=4670 slow=798 m0=4670 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=2666054378 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4142 frames=900 spritekb=22736 sprites=941 vw=960 vh=540
+Streets of Rage Furia Massiva	0	[TBB] fast=621 slow=621 m0=621 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1812372 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=621 frames=900 spritekb=1609 sprites=469 vw=480 vh=272
+Streets of Rage XXX	0	[TBB] fast=5012 slow=0 m0=2353 m1=1822 m2=837 m3=0 m4=0 m5=0 m6=0 m7=0 p0=64840144 p1=12895648 p2=626076 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3640 frames=900 spritekb=9445 sprites=1754 vw=320 vh=240
+Streets of Rage Legacy	0	[TBB] fast=1793 slow=1013 m0=1793 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=167761534 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1403 frames=900 spritekb=8328 sprites=2599 vw=480 vh=272
+Streets of Rage Z 2	0	[TBB] fast=2879 slow=759 m0=2879 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=53833124 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1911 frames=900 spritekb=5506 sprites=1570 vw=320 vh=240
+Streets of Rage 2X	0	[TBB] fast=15482 slow=1347 m0=8402 m1=1316 m2=3592 m3=0 m4=0 m5=0 m6=2172 m7=0 p0=849415815 p1=30404864 p2=596745 p3=0 p4=0 p5=0 p6=90272258 p7=0 tint=40 chan=756 remap=14584 frames=900 spritekb=41750 sprites=3592 vw=480 vh=272
+Streets of Rage Zombies	0	[TBB] fast=3299 slow=764 m0=3299 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=403471272 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1271 frames=900 spritekb=6462 sprites=2287 vw=320 vh=240
+Strider X	0	[TBB] fast=3221 slow=0 m0=2228 m1=0 m2=993 m3=0 m4=0 m5=0 m6=0 m7=0 p0=121745494 p1=0 p2=1802446 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1240 frames=900 spritekb=3550 sprites=658 vw=320 vh=240
+Supah! Princess Defender	0	[TBB] fast=3606 slow=0 m0=3606 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=64288502 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1914 frames=900 spritekb=140 sprites=152 vw=320 vh=240
+Super Fightin' Spirit	0	[TBB] fast=6731 slow=4831 m0=6335 m1=0 m2=396 m3=0 m4=0 m5=0 m6=0 m7=0 p0=194354397 p1=0 p2=102960 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=5451 frames=900 spritekb=5010 sprites=1070 vw=480 vh=272
+Streets of Vendetta - Cracoland War	0	[TBB] fast=1611 slow=1079 m0=1611 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=107309051 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1307 frames=900 spritekb=23963 sprites=1682 vw=480 vh=272
+Super Karate Kid	0	[TBB] fast=4001 slow=0 m0=4001 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=154586496 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2000 frames=900 spritekb=6786 sprites=231 vw=320 vh=240
+Super Street Fighter II Turbo HD Remix	0	[TBB] fast=2907 slow=0 m0=2907 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1774186 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1858 frames=900 spritekb=98 sprites=61 vw=320 vh=240
+Super Final Fight Gold Plus LNS	0	[TBB] fast=1066 slow=0 m0=533 m1=0 m2=533 m3=0 m4=0 m5=0 m6=0 m7=0 p0=253826493 p1=0 p2=201474 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=533 frames=900 spritekb=15906 sprites=3268 vw=480 vh=272
+Super Final Fight Gold	0	[TBB] fast=1066 slow=0 m0=533 m1=0 m2=533 m3=0 m4=0 m5=0 m6=0 m7=0 p0=181862111 p1=0 p2=201474 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=533 frames=900 spritekb=12687 sprites=2995 vw=480 vh=272
+Super Thundercats - The Lost Eye of Thundera	0	[TBB] fast=13543 slow=0 m0=3736 m1=0 m2=9807 m3=0 m4=0 m5=0 m6=0 m7=0 p0=223898024 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=10274 frames=900 spritekb=356 sprites=122 vw=320 vh=240
+Super Mario Brawl	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=1812 sprites=1168 vw=480 vh=272
+Tabib	0	[TBB] fast=5642 slow=1612 m0=5642 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=253113624 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=805 chan=0 remap=4030 frames=900 spritekb=72 sprites=41 vw=640 vh=480
+Tanks Vs Tanks	0	[TBB] fast=14050 slow=636 m0=13246 m1=787 m2=0 m3=0 m4=0 m5=0 m6=17 m7=0 p0=270879049 p1=154252000 p2=0 p3=0 p4=0 p5=0 p6=42500 p7=0 tint=0 chan=0 remap=3819 frames=900 spritekb=156 sprites=61 vw=640 vh=480
+Target Renegade [Demo]	0	[TBB] fast=2486 slow=0 m0=1491 m1=0 m2=995 m3=0 m4=0 m5=0 m6=0 m7=0 p0=15768493 p1=0 p2=448668 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=995 frames=900 spritekb=222 sprites=127 vw=320 vh=240
+Teenage Mutant Ninja Turtles - 8-Bit	0	[TBB] fast=1742 slow=0 m0=1742 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=157505068 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=766 frames=900 spritekb=498 sprites=317 vw=320 vh=240
+Super Universe Brawl	0	[TBB] fast=555 slow=1468 m0=555 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=33691386 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=111 frames=900 spritekb=30920 sprites=5468 vw=480 vh=272
+Symphonia Battalion - Well Fight Together	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=4308 sprites=508 vw=480 vh=272
+Teenage Mutant Ninja Turtles - Fall of the Foot Clan DX [Demo]	0	[TBB] fast=2748 slow=0 m0=2442 m1=0 m2=0 m3=0 m4=306 m5=0 m6=0 m7=0 p0=63974473 p1=0 p2=0 p3=0 p4=509490 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1218 frames=900 spritekb=257 sprites=140 vw=240 vh=200
+Teenage Mutant Ninja Turtles - Lost in Space	0	[TBB] fast=3462 slow=0 m0=2657 m1=0 m2=805 m3=0 m4=0 m5=0 m6=0 m7=0 p0=186104336 p1=0 p2=347760 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=805 frames=900 spritekb=2026 sprites=728 vw=320 vh=240
+Teenage Mutant Ninja Turtles - Recolored & Extended	0	[TBB] fast=2082 slow=837 m0=1975 m1=0 m2=0 m3=0 m4=107 m5=0 m6=0 m7=0 p0=15615974 p1=0 p2=0 p3=0 p4=12326400 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1761 frames=900 spritekb=1252 sprites=871 vw=320 vh=240
+Teenage Mutant Ninja Turtles - Red Sky Battle	0	[TBB] fast=5100 slow=402 m0=4962 m1=0 m2=138 m3=0 m4=0 m5=0 m6=0 m7=0 p0=928620176 p1=0 p2=25116 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3636 frames=900 spritekb=10606 sprites=1250 vw=320 vh=240
+Teenage Mutant Ninja Turtles III The Manhattan Project	0	[TBB] fast=1158 slow=0 m0=1158 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=34425323 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900 spritekb=460 sprites=213 vw=320 vh=240
+Teenage Mutant Ninja Turtles - Rescue Palooza!	0	[TBB] fast=18059 slow=0 m0=10835 m1=0 m2=7224 m3=0 m4=0 m5=0 m6=0 m7=0 p0=255661972 p1=0 p2=809088 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=9029 frames=900 spritekb=7952 sprites=2420 vw=320 vh=240
+Teenage Mutant Ninja Turtles	0	[TBB] fast=1945 slow=441 m0=1798 m1=0 m2=147 m3=0 m4=0 m5=0 m6=0 m7=0 p0=120996200 p1=0 p2=48510000 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1210 frames=900 spritekb=1434 sprites=113 vw=640 vh=480
+Tekken - The Devils Rage	0	[TBB] fast=2560 slow=1045 m0=2257 m1=0 m2=0 m3=0 m4=0 m5=0 m6=303 m7=0 p0=49640594 p1=0 p2=0 p3=0 p4=0 p5=0 p6=32087700 p7=0 tint=0 chan=303 remap=1738 frames=900 spritekb=2725 sprites=532 vw=480 vh=272
+Teenage Mutant Ninja Turtles and Battletoads	0	[TBB] fast=688 slow=344 m0=688 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1783296 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=688 frames=900 spritekb=4580 sprites=2164 vw=320 vh=240
+Teenage Mutant Ninja Turtles - Shell Shocked	0	[TBB] fast=10 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=10 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=31200 p7=0 tint=0 chan=10 remap=0 frames=900 spritekb=9674 sprites=3261 vw=320 vh=240
+The Beast Within - Divine Comedy	0	[TBB] fast=4627 slow=1809 m0=3866 m1=0 m2=0 m3=0 m4=0 m5=0 m6=761 m7=0 p0=111473525 p1=0 p2=0 p3=0 p4=0 p5=0 p6=109218720 p7=0 tint=0 chan=0 remap=3105 frames=900 spritekb=22253 sprites=1759 vw=480 vh=272
+Tides Before the Tragedy	0	[TBB] fast=428 slow=1995 m0=428 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=33523674 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=107 frames=900 spritekb=5113 sprites=1344 vw=320 vh=240
+Time Crisis - Side Scroller [Demo]	0	[TBB] fast=1278 slow=786 m0=1278 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=135454890 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=786 frames=900 spritekb=1640 sprites=238 vw=320 vh=240
+Touhou Madness Wrath	0	[TBB] fast=1246 slow=0 m0=623 m1=0 m2=623 m3=0 m4=0 m5=0 m6=0 m7=0 p0=2871200 p1=0 p2=639198 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=623 frames=900 spritekb=2540 sprites=731 vw=480 vh=272
+The Suffering In Me [Beta Demo]	0	[TBB] fast=8345 slow=0 m0=3341 m1=0 m2=257 m3=0 m4=0 m5=0 m6=0 m7=0 p0=47328349 p1=0 p2=366482 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1028 frames=900 spritekb=2272 sprites=314 vw=480 vh=272
+Turrican vs Terminator	0	[TBB] fast=4063 slow=0 m0=4063 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1287361028 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=2489 frames=900 spritekb=506 sprites=324 vw=320 vh=240
+Touhou Shooter	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=902 sprites=174 vw=480 vh=272
+Unnamed Project	0	[TBB] fast=4414 slow=0 m0=2687 m1=0 m2=1727 m3=0 m4=0 m5=0 m6=0 m7=0 p0=167223753 p1=0 p2=1577582 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1727 frames=900 spritekb=688 sprites=165 vw=320 vh=240
+Ultimate Super Mega Beatdown	0	[TBB] fast=1377 slow=729 m0=1377 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=67315539 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1161 frames=900 spritekb=33215 sprites=3625 vw=480 vh=272
+Urban Lockdown	0	[TBB] fast=12010 slow=8820 m0=11030 m1=490 m2=490 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1863861250 p1=670015220 p2=176752800 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8090 frames=900 spritekb=9690 sprites=1061 vw=720 vh=480
+Valdivia City Ransom	0	[TBB] fast=1228 slow=744 m0=1228 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=59639288 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=744 frames=900 spritekb=2416 sprites=993 vw=320 vh=240
+Vampire Hunters	0	[TBB] fast=3387 slow=60 m0=3387 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=130329931 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1574 frames=900 spritekb=5963 sprites=1857 vw=320 vh=240
+Ultimate Double Dragon	0	[TBB] fast=4353 slow=1306 m0=2069 m1=916 m2=0 m3=0 m4=0 m5=308 m6=1060 m7=0 p0=23356810 p1=7140580 p2=0 p3=0 p4=0 p5=8637552 p6=62630409 p7=0 tint=0 chan=1060 remap=3660 frames=900 spritekb=20843 sprites=6462 vw=256 vh=224
+Vampire Rage Hide	0	[TBB] fast=2974 slow=0 m0=2227 m1=0 m2=747 m3=0 m4=0 m5=0 m6=0 m7=0 p0=72201810 p1=0 p2=322704 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1487 frames=900 spritekb=5829 sprites=1259 vw=320 vh=240
+Vengeance of Kyo, The	0	[TBB] fast=5468 slow=0 m0=4710 m1=0 m2=758 m3=0 m4=0 m5=0 m6=0 m7=0 p0=200865207 p1=0 p2=1080908 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=3969 frames=900 spritekb=8735 sprites=1923 vw=320 vh=240
+Village of Rage	0	[TBB] fast=1694 slow=0 m0=1373 m1=0 m2=321 m3=0 m4=0 m5=0 m6=0 m7=0 p0=38047313 p1=0 p2=568598 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1052 frames=900 spritekb=3851 sprites=612 vw=320 vh=240
+Vermilion Sword - The Legend Of Calibur	0	[TBB] fast=0 slow=0 m0=0 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=0 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=0 frames=900 spritekb=9729 sprites=1358 vw=480 vh=272
+Warrior Frenzy	0	[TBB] fast=2102 slow=0 m0=1372 m1=0 m2=730 m3=0 m4=0 m5=0 m6=0 m7=0 p0=17929546 p1=0 p2=748980 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=730 frames=900 spritekb=2693 sprites=543 vw=320 vh=240
+Warslayers - Land of Sinners	0	[TBB] fast=1236 slow=742 m0=1236 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=29938247 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=742 frames=900 spritekb=295 sprites=166 vw=320 vh=240
+Way of Martial Arts	0	[TBB] fast=28023 slow=3105 m0=28023 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=277080553 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=27233 frames=900 spritekb=28709 sprites=6399 vw=640 vh=480
+Women's War	0	[TBB] fast=2418 slow=0 m0=1503 m1=0 m2=915 m3=0 m4=0 m5=0 m6=0 m7=0 p0=113894849 p1=0 p2=938790 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1062 frames=900 spritekb=47311 sprites=5558 vw=320 vh=240
+X-Men Hunter for Mutants	0	[TBB] fast=745 slow=745 m0=745 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=7007320 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=745 frames=900 spritekb=2809 sprites=563 vw=480 vh=272
+X-Men - Guerra dos Clones	0	[TBB] fast=528 slow=264 m0=528 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=9510578 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=528 frames=900 spritekb=7846 sprites=1396 vw=320 vh=240
+X-Men Vs. Street Fighter	0	[TBB] fast=2008 slow=0 m0=1258 m1=0 m2=750 m3=0 m4=0 m5=0 m6=0 m7=0 p0=25485129 p1=0 p2=769500 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=877 frames=900 spritekb=3719 sprites=670 vw=320 vh=240
+World Heroes Supreme Justice Extra	0	[TBB] fast=8 slow=8 m0=8 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=1210048 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=8 frames=900 spritekb=12262 sprites=2927 vw=320 vh=240
+X-Men	0	[TBB] fast=1961 slow=0 m0=1195 m1=0 m2=766 m3=0 m4=0 m5=0 m6=0 m7=0 p0=76887597 p1=0 p2=1489104 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=909 frames=900 spritekb=2062 sprites=403 vw=320 vh=240
+Xelam	0	[TBB] fast=18133 slow=363 m0=17327 m1=806 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=136766075 p1=261950000 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=10802 frames=900 spritekb=26 sprites=26 vw=500 vh=650
+Yu-Gi-Oh! - Duels Alive	0	[TBB] fast=5607 slow=0 m0=5607 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=66944088 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=4005 frames=900 spritekb=3859 sprites=514 vw=320 vh=240
+Yu Yu Hakusho Dark Tournament	0	[TBB] fast=2143 slow=708 m0=2143 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=195083942 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=1528 frames=900 spritekb=3183 sprites=733 vw=320 vh=240
+XuanYuan Sword	0	[TBB] fast=1060 slow=636 m0=1060 m1=0 m2=0 m3=0 m4=0 m5=0 m6=0 m7=0 p0=23794960 p1=0 p2=0 p3=0 p4=0 p5=0 p6=0 p7=0 tint=0 chan=0 remap=848 frames=900 spritekb=18647 sprites=734 vw=480 vh=272

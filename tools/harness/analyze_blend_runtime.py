@@ -79,6 +79,44 @@ for i in range(1, 8):
         print("  %-10s (none)" % NAME[i]); continue
     print("  %-10s %s" % (NAME[i], ", ".join("%s (%.0fMpx)" % (n[:26], px / 1e6) for px, n in top)))
 
+# ---- sprite arena headroom + MEASURED overdraw (builds from 2026-07-29 on) ----
+arena = [(d["spritekb"], d.get("sprites", 0), p) for p, _e, d in ok
+         if "spritekb" in d and d["spritekb"] > 0]
+if arena:
+    arena.sort(reverse=True)
+    print("\n" + "=" * 78)
+    print("SPRITE ARENA HEADROOM -- %d PAKs reporting" % len(arena))
+    print("=" * 78)
+    print("largest : %.1f MB (%s, %d sprites)" % (arena[0][0] / 1024.0, arena[0][2], arena[0][1]))
+    print("median  : %.1f MB" % (arena[len(arena) // 2][0] / 1024.0))
+    print("mean    : %.1f MB" % (sum(a[0] for a in arena) / len(arena) / 1024.0))
+    print("\ntop 15 by working set:")
+    for kb, n, p in arena[:15]:
+        print("   %7.1f MB  %6d sprites  %s" % (kb / 1024.0, n, p))
+    print("\narena sizing:")
+    for cap in (32, 48, 64, 96, 128):
+        over = [a for a in arena if a[0] / 1024.0 > cap]
+        print("   %3d MB -> %d PAK(s) would NOT fit%s"
+              % (cap, len(over), (": " + ", ".join(a[2][:24] for a in over[:4])) if over else ""))
+
+od = []
+for p, _e, d in drew:
+    vw, vh, fr = d.get("vw", 0), d.get("vh", 0), d.get("frames", 0)
+    tp = sum(d.get("p%d" % i, 0) for i in range(8))
+    if vw > 0 and vh > 0 and fr > 0:
+        od.append((tp / float(vw * vh * fr), p, vw, vh))
+if od:
+    od.sort(reverse=True)
+    print("\n" + "=" * 78)
+    print("MEASURED OVERDRAW (sprite px / screen px / frame) -- %d PAKs" % len(od))
+    print("=" * 78)
+    print("Replaces scaling ONE PAK's ratio by area in the DDR3 budget.")
+    print("  max %.2fx (%s)   median %.2fx   mean %.2fx"
+          % (od[0][0], od[0][1][:30], od[len(od) // 2][0], sum(o[0] for o in od) / len(od)))
+    print("\n  top 12 (these drive the bandwidth worst case):")
+    for r, p, vw, vh in od[:12]:
+        print("   %6.2fx  %4dx%-4d  %s" % (r, vw, vh, p[:44]))
+
 if notbb:
     print("\n--- no [TBB] line (%d) ---" % len(notbb))
     for pak, ec in notbb[:25]:
