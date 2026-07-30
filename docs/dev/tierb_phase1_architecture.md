@@ -494,19 +494,24 @@ to prioritise verification order, not to decide what exists.
 The first draft said `hcnt = src_w / out_w`. That is correct only for variants 2 and 3
 (7 + 50 PAKs), i.e. **wrong for 393 of 450**.
 `src/native_video_writer.c` dispatches the 16bpp path on width into **five** distinct
-implementations, and byte-identity requires reproducing whichever one a PAK actually hits:
+implementations, and byte-identity requires reproducing whichever one a PAK actually hits.
+🛑 **MEASURED ON DEVICE 2026-07-30: variant 1 never executes** (see below), so the
+shipped library is served by variants 2-5 and the 282 PAKs that appear to belong to
+variant 1 are actually handled by variant 5:
 
 | # | condition (as written in the source) | what it does | PAKs |
 |---|---|---|---:|
-| 1 | `width == 320 && ((uintptr_t)src_row & 15) == 0` | 🛑 **NO BOX AT ALL** -- NEON BGR->RGB swap only, row chosen by `src_y = (y * sy256) / 256` with `sy256 = (height*256)/224`, a **doubly-truncated NN** that is NOT `floor(y*H/224)` | **282** |
+| 1 | `width == 320 && ((uintptr_t)src_row & 15) == 0` | **NO BOX AT ALL** -- NEON BGR->RGB swap only, doubly-truncated NN row pick. 🛑 **DEAD CODE: the gate can never be true** (measured, below) | **0** |
 | 2 | `width == NV_FRAME_WIDTH * 3` (960) | 3x horizontal box, `hcnt == 3` | 7 |
 | 3 | `width == NV_FRAME_WIDTH * 2` (640) | 2x horizontal box, `hcnt == 2` | 50 |
 | 4 | `width * 2 == NV_FRAME_WIDTH * 3` (480) | 3:2 box with **per-parity** hcnt -- even dest column `hcnt=1`, odd `hcnt=2`, and **two reciprocals** `rc_e`/`rc_o` | **99** |
-| 5 | else | scalar general box, **per-column** `hcnt = x1 - x0` from `x0=(x*W)/320`, `x1=((x+1)*W)/320`, clamped `if (hcnt > 7) hcnt = 7`, via `recip16[hcnt]` | 12 |
+| 5 | else | scalar general box, **per-column** `hcnt = x1 - x0` from `x0=(x*W)/320`, `x1=((x+1)*W)/320`, clamped `if (hcnt > 7) hcnt = 7`, via `recip16[hcnt]` | **294** (12 by width + the 282 that fall through variant 1) |
 
 Variant 5's widths: 1600, 800, 720, 500, 432, 400, 384, 336, and **256/240 which are NARROWER
 than 320** -- there `x1 <= x0` clamps to `x0+1`, giving `hcnt = 1` and **column replication,
-i.e. an UPSCALE**. The design never mentioned upscaling at all.
+i.e. an UPSCALE**. The design never mentioned upscaling at all. Plus, per the measurement
+below, **every 320-wide PAK**, where `x0 = x` and `x1 = x+1` give `hcnt = 1` -- a
+vertical-only box, not the NN row pick variant 1 would have done.
 
 ### The exact arithmetic (variants 2-5)
 ```
@@ -521,31 +526,59 @@ The `+ (1<<19)` and the truncated reciprocal together are **not** `round(sum/n)`
 from it for many `(sum, n)`. The 16bpp path does **not** clamp to 255; the 32bpp path does.
 
 ### Consequences for the design
-1. 🛑 **Variant 1 may be UNREACHABLE in the ship build -- verify on device before
-   building anything.** Its gate is `width == 320 && ((uintptr_t)src_row & 15) == 0`, and
-   `videocommon.c:127` passes `vscreen->data`. `s_screen`'s header is 20 bytes and arm32
-   glibc malloc guarantees 8-byte alignment, so the base is 0 or 8 mod 16 and `src_row`
-   lands on 4 or 12 mod 16 -- **never 0**. If that holds, all **282** 320-wide PAKs take
-   **variant 5**, the general per-column box, not the NN row pick. Pitch is 640 (16-aligned)
-   so it is all-or-nothing per frame, not per row. **One on-device print of
-   `(uintptr_t)vscreen->data & 15` settles it**, and it decides which variant carries 63%
-   of the library. Until then the build order below is provisional.
-2. **Variant 1 is gated on ARM pointer alignment** (`src_row & 15`), which the FPGA cannot
-   observe. An unaligned source silently falls through to variant 5. The ARM must therefore
-   **decide the variant and encode it in the frame header** -- the FPGA must never infer it
-   from width.
+1. 🛑 **Variant 1 is UNREACHABLE. MEASURED ON THE DEVICE 2026-07-30 -- not inferred.**
+   Its gate is `width == 320 && ((uintptr_t)src_row & 15) == 0`, and `videocommon.c`
+   passes `vscreen->data` straight through. The result is arithmetic, not luck:
+
+   | link | value | source |
+   |---|---|---|
+   | `offsetof(s_screen, data)` | **20** | `types.h:97-108`; `magic/width/height/pixelformat` (4 each) + `palette` (4). Measured, not counted by hand |
+   | 20 mod 16 | **4** | -- |
+   | glibc arm32 `MALLOC_ALIGNMENT` | **8** (`2 * SIZE_SZ`) | so any `malloc` base is 0 or 8 mod 16 |
+   | therefore `data & 15` | **4 or 12, never 0** | 0+4 or 8+4 |
+   | `pitch` for 320-wide 16bpp | **640**, itself 16-aligned | so EVERY row inherits the same residue |
+
+   Measured with `tools/harness/vscreen_align_probe.c` -- an armhf binary reproducing
+   `s_screen` and `allocscreen()` verbatim, run **on the MiSTer** (md5-verified on landing)
+   and, identically, under QEMU:
+
+   ```
+   offsetof(s_screen, data) = 20
+   allocscreen(320,240,PIXEL_16), 128 trials, heap state perturbed between each:
+       base%16 = 8, data%16 = 12   (every trial, mmap path)
+       ->     0/128 screens with (data & 15) == 0
+       -> 0/28672 individual rows with (src_row & 15) == 0
+   small brk-path allocation (320x64):   0/128
+   VERDICT: downscale variant 1 is UNREACHABLE on this allocator.
+   ```
+
+   **Consequence: the 282 320-wide PAKs (63% of the library) are served by variant 5**,
+   the general per-column box -- with `x0 = x`, `x1 = x+1`, so `hcnt = 1` and the box is
+   vertical-only. The FPGA must reproduce **that**, not the NN row pick. Variant 1 is dead
+   code in the ship build and needs no RTL at all.
+
+   🛑 **Keep an assertion `pitch % 16 == 0`.** The whole result rests on the pitch
+   being 16-aligned; a future non-aligned pitch would make the residue vary per ROW and
+   reintroduce exactly the nondeterminism this measurement rules out.
+2. **The variant is still ARM-decided and header-encoded**, even though the alignment term
+   is now known to be constant. The FPGA cannot observe a pointer, and the constancy is a
+   property of today's allocator + header layout rather than a guarantee -- so the ARM
+   evaluates the real condition and encodes the answer. The FPGA must never infer the
+   variant from width.
 3. **The frame header gains a `downscale_variant` field**, and "output-path variant" joins
    the capability gate: any variant the RTL does not implement bit-exactly routes the whole
    frame to CPU-COMPOSITE mode (section 9.10).
-4. Build order **depends on the alignment measurement in consequence 1**. If variant 1 is
-   reachable: variant 1 first (63% of PAKs, simplest -- no box), then 2 and 3 (57 PAKs,
-   constant hcnt), then 4 (99 PAKs), then 5 (12 PAKs). If it is not: **variant 5 first**,
-   because it then carries 294 PAKs including every 320-wide one, and it is the hardest
-   (per-column divide plus the narrow-width upscale case).
+4. **Build order, settled by the measurement: variant 5 FIRST.** It carries **294 PAKs**
+   (65%), including every 320-wide one, and it is the hardest of the five -- per-column
+   `hcnt`, a truncated reciprocal, the `hcnt > 7` clamp, and the narrow-width upscale case.
+   Then 4 (99 PAKs), then 3 and 2 (50 + 7, constant `hcnt`). **Variant 1 is not built.**
+   This inverts the draft order, which put the hardest variant last on the belief that it
+   served 12 PAKs.
 5. Two further branches exist in the same function and are **dead in the ship build**
    (`bpp` is always 16): `bpp == 8 && palette` (NN via `src_x_table`) and `bpp == 32`,
    the latter containing its own distinct >4x stride-cap arithmetic. Named here so a
-   future reader does not rediscover them as missing requirements.
+   future reader does not rediscover them as missing requirements -- and note that
+   variant 1 now joins them as **present in the source but never executed**.
 6. Variant 1 also applies `if (src_y >= height) src_y = height - 1;` -- part of the
    byte-identity contract.
 
@@ -1304,7 +1337,7 @@ prerequisite for Phase 2, not a nice-to-have.
 | criterion | target | source |
 |---|---|---|
 | He-Man sustained fps | **59.92 locked** | 20.0 ms and 29.0 ms are measured today; 9.75 ms and 13.21 ms are **predictions**, not measurements |
-| downscale byte-identity | `[DCV16]` mismatch **= 0** | section 12 |
+| downscale byte-identity | `[DCV16]` mismatch **= 0**, with the acceptance set exercising **variant 5 against 320-wide PAKs** (the 294-PAK majority path, 9.6) | section 12 |
 | palette regression | ATOV + TMNT-RP + modern PAK all canonical | the locked-palette verification ritual |
 | DDR3 bandwidth | **<= 433 MB/s** (the conservative ceiling) on every PAK | 14.4.5: measured worst case 325.9 MB/s, He-Man 106.7. The old "<=200 vs budget 133" pair came from the superseded 14.2b estimate and was unmeetable by this document's own table |
 | compositing rate | >= 2 px/clock, and **>= 3.1 px/clk for the worst PAK** | per-band cycle counters. Ninja - Stealth Assassins needs 3.06 px/clk for sprite writes alone at 100% duty; 2 px/clk sustains only 3.29 Mpx/frame against its 5.03 Mpx |
