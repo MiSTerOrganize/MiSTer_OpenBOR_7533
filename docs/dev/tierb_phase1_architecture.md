@@ -359,6 +359,78 @@ RGB565 + colour key, and the ARM emits a `LINEAR` command in the sprite's correc
 The CPU keeps only the rasterisation cost — which is precisely the 28.8% already accounted
 for in the payoff arithmetic (section 15).
 
+## 9.6 The arena is WRITE-ONLY from the ARM -- the C2 resolution
+
+Review finding C2 asked whether the CPU could still read sprite RLE once it lived in an
+uncached DDR3 arena. **Measured on the A9** (`tools/uncached_bench.c`, 256 KB buffer,
+best of 24, pinned to core 0):
+
+| pattern | cached | uncached | slowdown |
+|---|---:|---:|---:|
+| sequential byte scan | 1.163 ms | 35.787 ms | **30.8x** |
+| **RLE decode walk** (what `gfx_draw_scale` does) | 1.020 ms | 22.609 ms | **22.2x** |
+| linetab row seeks | 0.152 ms | 1.993 ms | 13.1x |
+
+**The original arena design is dead.** He-Man's CPU fallback is ~28.8% of putsprite time
+(1.9-5.0 ms); making its RLE reads 22x slower blows the 16.7 ms frame budget on its own.
+
+### 9.6.1 An independent, harder constraint: unaligned access FAULTS
+The same run probed what a `/dev/mem` + `O_SYNC` mapping even permits:
+
+```
+  byte store, any offset             OK        u32 store, 4-byte aligned      OK
+  u32 store, UNALIGNED (+1)          SIGBUS    memset 16 B, aligned           OK
+  memset 16 B, UNALIGNED (+1)        SIGBUS    memcpy 16 B, UNALIGNED (+1)    SIGBUS
+  byte loop 16 B, unaligned          OK
+```
+
+That mapping is **strongly-ordered (device) memory**, where unaligned multi-byte access
+faults. Consequences, both verified the hard way in this bench:
+- **`encodesprite` cannot write into the arena.** It builds every sprite with
+  `memcpy(data, src + x0, x - x0)` at arbitrary byte offsets.
+- **A hand-written byte loop is not sufficient either** -- at `-O2 -mfpu=neon` GCC
+  vectorises it into a wide unaligned store that faults. Any arena writer must keep its
+  pointers `volatile` or use an explicitly alignment-safe routine.
+
+### 9.6.2 The resolution: the CPU NEVER reads the arena
+Sprites keep their normal cached heap allocation exactly as today. The arena receives a
+**separate copy of only the fast-path-eligible sprites**, written once at load time.
+
+- **ARM -> arena: write-only**, at PAK load, through an alignment-safe copy.
+- **FPGA -> arena: read-only.**
+- **The CPU fallback (`gfx_draw_scale` and the other three destinations) reads the
+  ORDINARY CACHED sprite** and is therefore completely unaffected -- the 22x never applies
+  to anything on the critical path.
+
+### 9.6.3 🛑 This kills "relocation, not duplication"
+Phase 0 finding 2 claimed the arena costs no extra RAM because the working set was merely
+moving. **That is now false: the arena is a DUPLICATE.** Revised cost, using the measured
+71.2%-by-time fast-path share as a proxy for the eligible subset:
+
+| | measured working set | arena duplicate (approx.) |
+|---|---:|---:|
+| median PAK | 2.8 MB | ~2 MB |
+| He-Man | 33.5 MB headless / 46.0 MB on-device | ~24-33 MB |
+| largest observed (DBZ Tournament) | 150.5 MB | ~107 MB |
+
+Combined with 14.4.4's per-sprite fallback and free/reuse allocator, an arena that cannot
+hold a PAK's eligible set simply offloads fewer sprites. Still degrades, never breaks.
+
+### 9.6.4 Open items this creates
+1. **Arena WRITE cost is unmeasured.** Population is one-time per PAK load and writes are
+   far cheaper than reads (write-combining), but a 150 MB PAK writing byte-wise into
+   strongly-ordered memory could add real seconds to load. Measure before Phase 2.
+2. **Does a sprite ever need both copies simultaneously?** A sprite drawn through the fast
+   path in one frame and scaled in the next needs the cached copy anyway (it always has
+   one), so the answer is no -- but the eligibility test must be per-BLIT, not per-sprite,
+   and the arena copy is then a pure cache.
+3. **`/proc/iomem` settles the region question** (finding N14/M11 were right that the
+   `ddram.sv` citation was wrong): System RAM is `00000000-1fefffff` -- **~511 MB** -- so
+   everything above `0x1FF00000` is outside Linux's map, roughly **513 MB** of reserved
+   space, not the 256 MB the doc assumed. `devmem` read/write at `0x3A080000` works and
+   `CONFIG_STRICT_DEVMEM` is not set. The arena has far more room than assumed; the
+   proposed `0x30000000` base sits comfortably inside the reserved area.
+
 ## 9.7 CPU-COMPOSITE frame mode -- the C3 resolution
 
 Tier-B's first draft asserted the ARM never reads the composited frame. **That is false.**
