@@ -81,7 +81,7 @@ Key properties:
   (133 MB/s vs 369 MB/s for a DDR3-resident framebuffer). See Phase 0b.
 - **The ARM reads back composited pixels on SEVEN known paths** (pause, main-menu return,
   screenshot, fade, debug overlay, and a second compositing path in `update_loading`).
-  Those frames run in **CPU-COMPOSITE mode** -- see section 9.7. The earlier claim that
+  Those frames run in **CPU-COMPOSITE mode** -- see section 9.10. The earlier claim that
   the ARM never reads back was FALSE and is what review finding C3 caught.
 - **Z-order is exact** because fallbacks are rasterised to a scratch buffer and submitted
   as ordinary `LINEAR` commands in their correct slot — the FPGA executes one strictly
@@ -180,7 +180,10 @@ a defense-in-depth gate, not an error path.
   qword 1: [63:32] src_addr    absolute byte address of the FIRST row's data (pre-seeked)
            [31:16] src_w       sprite width (needed for flipx and edge clipping)
            [15:0]  reserved
-  qword 2: [63:32] pal_addr    absolute byte address of the 256-entry RGB565 palette
+  qword 2: [63:32] pal_addr    absolute byte address of the EFFECTIVE 256-entry palette
+                               (see 9.3 -- the ARM resolves the v3.10 discriminator; the
+                               FPGA must NEVER pick between frame->palette and
+                               drawmethod->table itself)
            [31:0]  src_stride  LINEAR only (bytes per row); ignored for SPRITE
   qword 3: [63:48] clip_x0 [47:32] clip_x1 [31:16] clip_y0 [15:0] clip_y1
 ```
@@ -319,13 +322,49 @@ Horizontal clipping is applied per run: runs entirely outside `[clip_x0, clip_x1
 skipped without writing; runs crossing an edge are partially written. Vertical clipping is
 already handled by the ARM via `dst_y` and `n_rows`.
 
-### 9.3 Palette RAM
+### 9.3 The EFFECTIVE palette -- the C5 resolution
+
+🛑 **The palette a sprite renders through is NOT always its own.** The shipped 16-bit
+dispatch (`apply_patches.py`, Path B B4) is the **LOCKED v3.10 dual-flag discriminator**:
+
+```c
+table_arg16 = (frame && frame->palette &&
+               drawmethod->has_remap_directive &&
+              !drawmethod->has_palette_directive)
+            ? NULL                      /* -> putsprite uses frame->palette  */
+            : (unsigned *)drawmethod->table;   /* -> model->palette          */
+```
+
+Three PAK archetypes, per `[[never-touch-openbor-legacy-palette-path]]`:
+
+| archetype | `has_remap` | `has_palette` | renders through |
+|---|---|---|---|
+| ATOV (legacy `remap`) | 1 | 0 | **`frame->palette`** (the sprite's own) |
+| TMNT-RP (`palette` + `remap`) | 1 | 1 | `drawmethod->table` |
+| Cap / He-Man / PDC2 (modern) | 0 | 1 | `drawmethod->table` |
+
+A command word carries **one** `pal_addr`. If the ARM emits `frame->palette` unconditionally,
+every modern PAK renders through the wrong LUT; if it emits `drawmethod->table`
+unconditionally, ATOV does. **Either way this re-introduces the palette regression that took
+months to fix -- architecturally, in a path CLAUDE.md marks as LOCKED.**
+
+**Resolution:** the ARM evaluates that exact expression when building the command and emits
+the **resolved effective palette address**. The FPGA never sees the flags and never chooses.
+Additionally:
+- `frame->palette == NULL` and a non-NULL `frame->mask` both become **offload-gate
+  conditions** (CPU fallback), since the fast path's palette selection is then undefined for
+  our purposes.
+- The `[DCV16]` byte-identity acceptance set **must** include ATOV + TMNT-RP + one modern
+  PAK -- the exact trio the locked-path verification ritual already mandates.
+- The 12 locked v3.10 patches are **not touched**; Tier-B only reads the flags they set.
+
+### 9.4 Palette RAM
 One 256-entry x 16-bit on-chip RAM, reloaded when `pal_addr` changes (512 B = 64 beats).
 Worst realistic case ~10 distinct palettes per band x 16 bands x 64 beats = 10,240 beats
 per frame = **0.6% of the clock budget** and 4.9 MB/s. Reload-on-change is therefore
 sufficient; a 2-4 entry palette cache is the escape hatch if measurement disagrees.
 
-### 9.4 Blend unit
+### 9.5 Blend unit
 RGB565 in, RGB565 out. Unpack 5/6/5, blend, repack.
 
 **Scope is deliberately NOT frozen in this document.** The engine's 16-bit build has a set
@@ -337,29 +376,96 @@ that appear**; everything else routes to the CPU fallback via the `LINEAR` path.
 estimate for the common alpha blend: 3 multipliers per pixel per operand, so ~12 DSPs at
 2 px/clock, against 77 free.
 
-### 9.5 Box downscaler
-Consumes a completed band, emits its output rows, and writes them to the output
-framebuffer. Must reproduce the shipped arithmetic **byte-for-byte**:
+### 9.6 Downscaler -- FIVE shipped variants, not one box (the C4 resolution)
 
-- `hcnt = src_w / out_w` taps horizontally, `vcnt = yy1 - yy0` vertically (varies per row,
-  2 or 3 for He-Man).
-- Each 5/6-bit field expanded to 8 bits exactly as shipped: `R5,B5 -> (v<<3)|(v>>2)`,
-  `G6 -> (v<<2)|(v>>4)`.
-- Sum the `hcnt x vcnt` block, then a single divide by `hcnt*vcnt` via the shipped
-  reciprocal form `rc = (1<<20) / (hcnt*vcnt)`.
-- BGR565 -> RGB565 channel swap on the way out.
+The first draft said `hcnt = src_w / out_w`. **That is wrong for 394 of 450 PAKs.**
+`src/native_video_writer.c` dispatches the 16bpp path on width into **five** distinct
+implementations, and byte-identity requires reproducing whichever one a PAK actually hits:
 
-The exact expansion, reciprocal and packing must be **lifted verbatim from
-`src/native_video_writer.c`**, not re-derived, and proven with a `[DCV16]`-style
-byte-identity probe (section 12).
+| # | condition (as written in the source) | what it does | PAKs |
+|---|---|---|---:|
+| 1 | `width == 320 && ((uintptr_t)src_row & 15) == 0` | 🛑 **NO BOX AT ALL** -- NEON BGR->RGB swap only, row chosen by `src_y = (y * sy256) / 256` with `sy256 = (height*256)/224`, a **doubly-truncated NN** that is NOT `floor(y*H/224)` | **282** |
+| 2 | `width == NV_FRAME_WIDTH * 3` (960) | 3x horizontal box, `hcnt == 3` | 7 |
+| 3 | `width == NV_FRAME_WIDTH * 2` (640) | 2x horizontal box, `hcnt == 2` | 50 |
+| 4 | `width * 2 == NV_FRAME_WIDTH * 3` (480) | 3:2 box with **per-parity** hcnt -- even dest column `hcnt=1`, odd `hcnt=2`, and **two reciprocals** `rc_e`/`rc_o` | **99** |
+| 5 | else | scalar general box, **per-column** `hcnt = x1 - x0` from `x0=(x*W)/320`, `x1=((x+1)*W)/320`, clamped `if (hcnt > 7) hcnt = 7`, via `recip16[hcnt]` | 12 |
 
-### 9.6 CPU fallback path
+Variant 5's widths: 1600, 800, 720, 500, 432, 400, 384, 336, and **256/240 which are NARROWER
+than 320** -- there `x1 <= x0` clamps to `x0+1`, giving `hcnt = 1` and **column replication,
+i.e. an UPSCALE**. The design never mentioned upscaling at all.
+
+### The exact arithmetic (variants 2-5)
+```
+  yy0 = (y*H)/224 ; yy1 = ((y+1)*H)/224
+  if (yy1 <= yy0) yy1 = yy0+1 ;  if (yy1 > H) yy1 = H ;  if (yy0 >= H) yy0 = H-1
+  vcnt = yy1 - yy0
+  5/6-bit -> 8-bit:  R5,B5 -> (v<<3)|(v>>2)      G6 -> (v<<2)|(v>>4)
+  rc  = (1<<20) / (hcnt*vcnt)                    <-- TRUNCATED reciprocal
+  out = (sum * rc + (1<<19)) >> 20               <-- note the +(1<<19) rounding term
+```
+The `+ (1<<19)` and the truncated reciprocal together are **not** `round(sum/n)` and differ
+from it for many `(sum, n)`. The 16bpp path does **not** clamp to 255; the 32bpp path does.
+
+### Consequences for the design
+1. **Variant 1 covers 282 PAKs (63%) and is not a box.** An FPGA that box-filters them
+   changes every pixel of the majority of the library. It must reproduce the NN row pick,
+   including the double truncation.
+2. **Variant 1 is gated on ARM pointer alignment** (`src_row & 15`), which the FPGA cannot
+   observe. An unaligned source silently falls through to variant 5. The ARM must therefore
+   **decide the variant and encode it in the frame header** -- the FPGA must never infer it
+   from width.
+3. **The frame header gains a `downscale_variant` field**, and "output-path variant" joins
+   the capability gate: any variant the RTL does not implement bit-exactly routes the whole
+   frame to CPU-COMPOSITE mode (section 9.10).
+4. Recommended build order: variant 1 first (63% of PAKs, and the simplest -- no box), then
+   2 and 3 (57 PAKs, constant hcnt), then 4 (99 PAKs), then 5 last (12 PAKs, and the only
+   one needing a per-column divide and an upscale case).
+
+### 9.7 CPU fallback path
 `gfx_draw_scale` and every other non-fast-path sprite rasterises into the scratch region as
 RGB565 + colour key, and the ARM emits a `LINEAR` command in the sprite's correct z-slot.
 The CPU keeps only the rasterisation cost — which is precisely the 28.8% already accounted
 for in the payoff arithmetic (section 15).
 
-## 9.6 The arena is WRITE-ONLY from the ARM -- the C2 resolution
+### 9.8 DDR3 port ownership and arbitration -- the C1 resolution
+
+There is exactly ONE port available to the core (`ram1`, 64-bit @ 98.4375 MHz); `ram2` and
+`vbuf` are framework-owned. Today `OpenBOR.sv:492-497` drives it through a **static mux**
+(`use_nv ? nv_* : old_*`) because only one master is ever live. Tier-B adds a second, and the
+existing reader **cannot tolerate that**:
+
+```verilog
+// openbor_video_reader.sv:345
+if (state == ST_WAIT_LINE && ddr_dout_ready) begin
+    fifo_wr <= 1'b1;  fifo_wr_data <= ddr_dout;  beat_count <= beat_count + 7'd1;
+```
+
+Avalon read returns carry **no ID**. Any compositor read in flight while the reader sits in
+`ST_WAIT_LINE` is latched into the line FIFO as pixel data and desyncs `beat_count` from the
+80-beat burst -- a corrupt scanline plus a permanently mis-filled FIFO.
+
+### The arbiter
+A **burst-granular, strict-priority** arbiter replaces the static mux.
+
+- **Only one master may have a burst in flight.** Grant is asserted when a requester's
+  `rd`/`we` is taken and held until that burst's beats have all returned (reads) or been
+  accepted (writes). Because Avalon returns are in-order per port, exclusive-per-burst
+  granting makes every return unambiguously the grantee's.
+- **`ddr_dout_ready` is gated per grantee** -- a non-granted master never sees a beat, so
+  `reader.sv:345` stays correct unmodified.
+- **Strict priority: video reader > compositor.** The reader must land 80 qwords per
+  scanline; a scanline is 63.7 us and a full 80-beat burst is ~0.81 us at 98.4375 MHz, i.e.
+  **~1.3% of a scanline**. The margin is enormous.
+- **Non-preemptible, so cap the compositor's burst.** Worst-case reader wait is one
+  compositor burst. Capping the compositor at 64 beats bounds that at **~0.65 us**, ~1% of
+  a scanline -- still negligible against the reader's existing `TIMEOUT_MAX` guard.
+
+### What this costs
+Two extra states and a beat counter per requester (~100 ALM), plus the grant mux. No new
+clock domain: everything is already `ddr_clk`. It must be **written and verified before any
+compositor RTL**, because without it the very first co-existing burst corrupts video.
+
+### 9.9 The arena is WRITE-ONLY from the ARM -- the C2 resolution
 
 Review finding C2 asked whether the CPU could still read sprite RLE once it lived in an
 uncached DDR3 arena. **Measured on the A9** (`tools/uncached_bench.c`, 256 KB buffer,
@@ -374,7 +480,7 @@ best of 24, pinned to core 0):
 **The original arena design is dead.** He-Man's CPU fallback is ~28.8% of putsprite time
 (1.9-5.0 ms); making its RLE reads 22x slower blows the 16.7 ms frame budget on its own.
 
-### 9.6.1 An independent, harder constraint: unaligned access FAULTS
+#### 9.9.1 An independent, harder constraint: unaligned access FAULTS
 The same run probed what a `/dev/mem` + `O_SYNC` mapping even permits:
 
 ```
@@ -392,7 +498,7 @@ faults. Consequences, both verified the hard way in this bench:
   vectorises it into a wide unaligned store that faults. Any arena writer must keep its
   pointers `volatile` or use an explicitly alignment-safe routine.
 
-### 9.6.2 The resolution: the CPU NEVER reads the arena
+#### 9.9.2 The resolution: the CPU NEVER reads the arena
 Sprites keep their normal cached heap allocation exactly as today. The arena receives a
 **separate copy of only the fast-path-eligible sprites**, written once at load time.
 
@@ -402,7 +508,7 @@ Sprites keep their normal cached heap allocation exactly as today. The arena rec
   ORDINARY CACHED sprite** and is therefore completely unaffected -- the 22x never applies
   to anything on the critical path.
 
-### 9.6.3 🛑 This kills "relocation, not duplication"
+#### 9.9.3 🛑 This kills "relocation, not duplication"
 Phase 0 finding 2 claimed the arena costs no extra RAM because the working set was merely
 moving. **That is now false: the arena is a DUPLICATE.** Revised cost, using the measured
 71.2%-by-time fast-path share as a proxy for the eligible subset:
@@ -416,7 +522,7 @@ moving. **That is now false: the arena is a DUPLICATE.** Revised cost, using the
 Combined with 14.4.4's per-sprite fallback and free/reuse allocator, an arena that cannot
 hold a PAK's eligible set simply offloads fewer sprites. Still degrades, never breaks.
 
-### 9.6.4 Open items this creates
+#### 9.9.4 Open items this creates
 1. **Arena WRITE cost is unmeasured.** Population is one-time per PAK load and writes are
    far cheaper than reads (write-combining), but a 150 MB PAK writing byte-wise into
    strongly-ordered memory could add real seconds to load. Measure before Phase 2.
@@ -431,7 +537,7 @@ hold a PAK's eligible set simply offloads fewer sprites. Still degrades, never b
    `CONFIG_STRICT_DEVMEM` is not set. The arena has far more room than assumed; the
    proposed `0x30000000` base sits comfortably inside the reserved area.
 
-## 9.7 CPU-COMPOSITE frame mode -- the C3 resolution
+### 9.10 CPU-COMPOSITE frame mode -- the C3 resolution
 
 Tier-B's first draft asserted the ARM never reads the composited frame. **That is false.**
 Enumerated exhaustively from pristine v7533 `openbor.c` (every read of `vscreen` as a
@@ -625,7 +731,7 @@ any PAK is *no speedup* -- never a regression. Every gate defaults to CPU on dou
 | sprite working set exceeds the arena | CPU for that PAK (see 14.4.4) |
 | PAK width exceeds the band buffer | CPU for that PAK |
 | anything the software model has not proven identical | CPU |
-| **the frame will be read back or written by the ARM** (pause, menu return, screenshot, fade, debug overlay, loading bar) | **CPU-COMPOSITE frame, section 9.7** |
+| **the frame will be read back or written by the ARM** (pause, menu return, screenshot, fade, debug overlay, loading bar) | **CPU-COMPOSITE frame, section 9.10** |
 
 ### 14.4.2 The regression net ALREADY EXISTS -- 431 golden traces
 `#Golden_Traces/OpenBOR_7533/` holds **one `.trace` per PAK for 431 of the 450**, each
