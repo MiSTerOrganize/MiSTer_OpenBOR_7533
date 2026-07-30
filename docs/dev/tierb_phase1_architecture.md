@@ -593,15 +593,115 @@ pause snapshot is exactly the class of bug that shipped before -- CLAUDE.md reco
 the PIXEL_32 pausebuffer, and `pausemenu_patch.c:66-67` carries the comment explaining that
 `copyscreen` early-returns on a format mismatch.
 
+### 9.11 Frame-ready handshake -- the C6 resolution
+
+The draft had the ARM's display-list sequence number drive the reader. It cannot: the reader
+treats a counter change as **"a fully written framebuffer exists"**, so a bump that only means
+"a list is ready" would start scanout of a buffer the compositor has not written yet.
+
+```verilog
+// openbor_video_reader.sv ST_CHECK_CTRL -- the EXISTING, PROVEN contract
+else if (ctrl_word[31:2] != prev_frame_counter) begin
+    prev_frame_counter <= ctrl_word[31:2];
+    active_buffer      <= ctrl_word[0];
+    buf_base_addr      <= ctrl_word[0] ? BUF1_ADDR : BUF0_ADDR;
+    ...  state <= ST_READ_LINE;                       // starts scanning out NOW
+end
+```
+
+**Resolution: do not change the reader at all -- change WHO writes `ctrl_word`.**
+
+| | writes the framebuffer | writes `ctrl_word` (counter + buffer bit) |
+|---|---|---|
+| today | ARM | ARM |
+| Tier-B, FPGA frame | **compositor** | **compositor**, on completing the frame |
+| Tier-B, CPU_COMPOSITE frame (9.10) | ARM | ARM, exactly as today |
+
+The **display-list sequence number lives in a SEPARATE compositor control word** and is never
+seen by the reader. Exactly one `ctrl_word` writer exists at any instant, selected by the
+frame mode. Cost: one 8-byte DDR3 write per frame.
+
+Three things fall out for free:
+- The reader, its 30-vblank staleness blank, and its double-buffer selection are **untouched
+  and unre-verified** -- the highest-value property available here.
+- **Finding M15 disappears.** The keepalive bumps `ctrl_word` (reader-facing), never the
+  display-list sequence number (compositor-facing), so a keepalive tick can never make the
+  compositor re-walk a list whose arena has been freed.
+- CPU_COMPOSITE mode needs no special reader handling; it *is* today's path.
+
+### 9.12 Display-list ring, backpressure and overflow -- the C7 resolution
+
+The draft said "2 slots" **and** "the ARM never waits". Those contradict: if the FPGA is still
+reading slot A while the ARM finishes the next frame, the ARM must either stall (the thing
+Tier-B exists to remove) or overwrite a slot in use (the fetch engine then follows `src_addr`
+into reused memory).
+
+**Resolution:**
+1. **Three slots**, each with an explicit **owner flag** (ARM or FPGA). The ARM may only write
+   a slot it owns; the FPGA releases a slot when it finishes the frame. Three gives one frame
+   of slack beyond the +1 pipeline latency of section 10.
+2. **No free slot => the ARM DROPS the frame.** It does not publish and does not block. Game
+   logic continues; only presentation is skipped, and the reader keeps showing the previous
+   framebuffer via its existing stale-frame path. Dropping is a **performance** event, never a
+   correctness one.
+3. **Per-slot scratch.** The CPU-fallback scratch that `LINEAR` commands point into is
+   **owned by the slot**, so 3 x 1 MB. A slot's scratch may only be reused once its owner flag
+   returns to the ARM. Without this, reusing scratch under a list still being fetched is the
+   same corruption in a different buffer.
+4. **Command-count overflow falls back, it does NOT truncate** (finding M6). A slot holds a
+   bounded number of commands; a frame needing more is emitted as **CPU_COMPOSITE** (9.10).
+   Truncating would silently drop sprites -- visible corruption, and exactly the class the
+   no-regression contract forbids. The ARM must count before publishing.
+
+Sizing note: command volume scales as sprites x bands, and bands vary from 2 (240x200) to 56
+(Lust Rush) across the census -- so the bound must be computed per PAK from its band count,
+not assumed from He-Man.
+
+### 9.13 Fetch-engine bounds and quiesce -- the C8 resolution
+
+The fetch FSM exits a row only on `0xFF`. If arena content changed underneath it -- model
+unload, PAK load, hot-swap, `.s1` replay reset -- the byte stream is arbitrary and `0xFF` may
+never arrive. The existing reader guards **every** wait state with `TIMEOUT_MAX`; the new
+block must not be the exception.
+
+**Bounds (all three, each aborting the band):**
+
+| budget | bound | rationale |
+|---|---|---|
+| per row | `src_w * 2 + 2` bytes | worst legal encoding alternates 1-clear/1-visible = 2 bytes per pixel, plus the terminator |
+| per command | `n_rows * (src_w*2 + 2)` beats | a command cannot outlive its own declared row count |
+| per band | fixed cycle budget | catches a pathological command list, not just a bad row |
+
+On any breach: **abort the band, do NOT publish the frame, leave the previous framebuffer
+intact, and latch a status bit the ARM can read.** A dropped frame is invisible; a runaway
+fetch walking DDR3 is not.
+
+**Quiesce protocol.** 14.4.4 requires a free/reuse allocator, so arena memory *will* be
+recycled under a running compositor. Before the ARM frees or reuses any arena region -- model
+unload, PAK load, hot-swap, reset, `enable` deassert, or entry into CPU_COMPOSITE mode -- it
+must:
+
+```
+  ARM: set quiesce_req            (compositor control word)
+  FPGA: finish or abandon the band in flight, stop issuing DDR3 reads, set quiesce_ack
+  ARM: wait for quiesce_ack, THEN free/reuse
+  ARM: clear quiesce_req to resume
+```
+
+with an ARM-side timeout on the ack so a wedged compositor degrades to CPU_COMPOSITE rather
+than hanging the engine. This is the same lifecycle discipline the rest of the core already
+has, and the design previously addressed **none** of these events.
+
 ## 10. Ownership and sync protocol
 
 | | today | after Tier-B |
 |---|---|---|
 | framebuffer writer | ARM | **FPGA** |
 | framebuffer reader | FPGA scanout | FPGA scanout |
-| ARM publishes | frame counter + active buffer | **display-list sequence number** |
-| staleness detection | 30 vblanks without a frame-counter change -> blank | 30 vblanks without a **sequence number** change -> blank |
-| keepalive thread | bumps the frame counter every 150 ms | bumps the **sequence number** every 150 ms |
+| ARM publishes | frame counter + active buffer | **display-list sequence number, in a SEPARATE word** (9.11) |
+| `ctrl_word` writer (what the reader polls) | ARM | **compositor** on FPGA frames, ARM on CPU_COMPOSITE frames (9.11) |
+| staleness detection | 30 vblanks without a frame-counter change -> blank | **UNCHANGED** -- the reader still watches `ctrl_word`, which now moves when the compositor completes a frame (9.11) |
+| keepalive thread | bumps the frame counter every 150 ms | bumps `ctrl_word` every 150 ms as today -- **never** the display-list sequence number, so it cannot trigger a re-walk (closes M15) |
 
 The pipeline is: the ARM builds the list for frame N while the FPGA composites frame N-1.
 That is **+1 frame of latency (16.7 ms)** by construction and must be stated in the
