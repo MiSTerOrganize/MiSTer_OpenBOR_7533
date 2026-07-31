@@ -47,6 +47,22 @@ PAK mounted and the engine running. **0 swallows in all 32 windows**, and `beats
 equalled the requested burst length exactly in every one — the bridge is well-behaved under
 single-outstanding bursts and the measurement is not truncated anywhere.
 
+**The "loaded" column was independently re-measured with the engine PROVEN live**, because
+the first run had only checked that the ARM *process* existed — which is not the same thing,
+and a later attempt showed why (see the `.s0` note below). Second run, with the frame
+counter advancing (+1139 ticks in 10 s) and the audio ring full at the moment of sampling:
+seq 128 = **669.5**, scat 128 = **664.7**, every other cell within ~1% of the table above.
+The figures stand.
+
+🛑 **The strict-priority arbiter demonstrably protects both video AND audio.** With the probe
+holding **85% of the port**, the DDR3 audio ring (`0x3A000030`/`0x3A000038`, 64 KiB = 341 ms
+at 48 kHz stereo) stayed **90%+ full**: avg **59,285 B** on the probe core against **59,916 B**
+measured on the shipping core with the same PAK — a 1.1% difference, i.e. no underrun and no
+measurable degradation. Video never dropped a frame either. This is direct empirical evidence
+for the phase-1c arbiter design: a second master can saturate this port without disturbing
+the reader, provided the reader keeps absolute priority and the probe's bursts stay short
+enough (<= 128 beats = 1.3 us) that the reader's per-line slack absorbs them.
+
 ## What it says
 
 1. 🛑 **433 MB/s is not a ceiling, and it never was one.** The port sustains **663 MB/s
@@ -126,3 +142,22 @@ The probe-build `output_files/` artifacts are likewise **not** committed: commit
 diagnostic build's `.sta.summary` / `.fit.summary` would misrepresent the shipping
 bitstream's timing and utilization, which is what the "commit the summaries alongside the
 RBF" rule exists to record.
+
+## Incidental finding: an MGL can lose its `.s0` on a same-setname RBF swap
+
+Loading `PROBE_He-Man.mgl` **directly from another OpenBOR core** (rather than from MENU)
+left `.s0` **empty** and the engine correctly parked in its wait-for-PAK loop
+(`hrtimer_nanosleep`, `framecnt` frozen at 1). Loading the identical MGL from MENU worked
+first time.
+
+Mechanism: both RBFs share the CONF_STR setname `OpenBOR`, so `/tmp/CORENAME` does not
+change across the swap and Master_Daemon only notices via its **2-second poll** of the RBF
+path. The handler it then spawns deletes `.s0` when it sees no reset/hot-swap marker — and
+that delete can land at t+2..4 s, on top of the MGL's own `delay="2"` write.
+
+This contradicts the safety argument recorded in CLAUDE.md's MGL section, which says the
+handler's cleanup cannot race an MGL "because MGL's 2 s timer writes after handler
+completes". That holds for a *cold* core load, where the handler runs at t~0. It does not
+hold for a same-setname RBF swap, where the handler's own start is deferred by the daemon's
+poll interval. Pre-existing, unrelated to Tier-B, and worth a marker or a longer MGL delay;
+recorded here because it invalidated a measurement run before it was caught.
