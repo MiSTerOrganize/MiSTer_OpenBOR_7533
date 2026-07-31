@@ -82,10 +82,11 @@ Tier-B inverts the ownership of the framebuffer:
 Key properties:
 
 - **The band buffer is on-chip.** This is what makes the bandwidth budget close
-  (**~122.6 MB/s for He-Man**, worst PAK **~360 MB/s** once scanout, palette and command
+  (**~122.6 MB/s for He-Man**, worst PAK **~362.7 MB/s** once scanout, palette and command
   traffic are counted -- 14.4.5. Two caveats, both load-bearing: 14.5 shows these are upper
-  bounds from a census that excludes the slow path, **and the 433 MB/s ceiling they are
-  judged against has no derivable source at all** (14.2 register item 0). The earlier "133 vs 369" pair came from the
+  bounds from a census that excludes the slow path, **and the 433 MB/s ceiling they were
+  judged against turned out not to be a ceiling at all** -- the f2h port measures 663 MB/s
+  under load, but only at long bursts (14.2 item 0, now closed). The earlier "133 vs 369" pair came from the
   superseded 2.52x-overdraw estimate in 14.2b; 369 was never reproducible from any
   measurement and is withdrawn.)
 - **The ARM reads back composited pixels on TEN known paths** -- six predictable (across
@@ -242,11 +243,12 @@ the reader still polls `ctrl_word`, which only the ARM writes (9.11.1).
 Opcodes:
 
 - `SPRITE` — RLE stream, 8-bit indices through `pal_addr`.
-- `LINEAR` — raw RGB565 rows. Transparency is per-source-kind and the ARM resolves it:
-  the fullscreen background is fully opaque, a plainly-blitted parallax layer keys on
-  `0x0000` as the engine does, and anything CPU-rasterised (fallback sprites, and parallax
-  layers that take a scale/rotate/water path) carries a 1-bit coverage plane instead.
-  See the three-case table in 9.7. Used for the background blit **and** for
+- `LINEAR` — raw RGB565 **or 8-bit indexed** rows. Transparency is per-source-kind and the
+  ARM resolves it: a NULL-drawmethod fullscreen background is forced opaque, a plainly
+  blitted parallax layer keys on **palette index 0**, a `background` layer or a script
+  PIXEL_16 screen keys on **RGB565 `0x0000`**, and anything CPU-rasterised (fallback
+  sprites, and parallax layers that take a scale/rotate/water path) carries a 1-bit
+  coverage plane instead. See the six-row table in 9.7. Used for the background blit **and** for
   CPU-rasterised fallback sprites. This is the command that makes z-order exact.
 - `FILL` — solid rectangle. 🛑 **OPEN (14.2): no engine case is named, nothing in this
   document emits it, and it carries no colour operand.** Either name the producers and add
@@ -254,7 +256,7 @@ Opcodes:
 
 🛑 **`LINEAR` transparency is encoded PER COMMAND, not per frame.** An earlier revision
 put `cover_addr`/`cover_stride`/`cover_mode` in the frame header, which cannot work: 9.7
-establishes four `LINEAR` source kinds that **coexist inside one frame**, so a single
+establishes six `LINEAR` source kinds that **coexist inside one frame**, so a single
 per-frame mode bit would either key the opaque background (forbidden) or strip the key
 every parallax layer needs. It also cannot address the several fallback sprites in one
 slot's scratch. The encoding reuses fields that are dead for `LINEAR`:
@@ -268,19 +270,37 @@ slot's scratch. The encoding reuses fields that are dead for `LINEAR`:
                                      3 = 1-bit coverage plane       (src_fmt 0)
                      [8:3] cover_stride, in bytes, as a shift (mode 3 only)
                      [15:9] reserved
-  qword 2 [63:32]  pal_addr -- STAYS LIVE. An indexed LINEAR needs it.
+  qword 2 [63:32]  pal_addr   (mode 0/1/2) -- STAYS LIVE, an indexed LINEAR needs it
+                   cover_addr (mode 3)     -- base of THIS BAND's coverage rows
 ```
 
-The five rows of 9.7 map to (src_fmt, mode) = (0,0), (1,0), (1,2), (0,1), (0,3).
+The six rows of 9.7 map to (src_fmt, mode) = (0,0), (1,0), (1,2), (0,1), (0,1), (0,3).
+Rows 4 and 4b are the same encoding reached by different call sites -- one unpredictable,
+one predictable -- so the ARM resolves the key per layer, not per bucket.
 
-🛑 **The coverage plane has NO address field -- it is implicit.** An earlier revision put
-`cover_addr` over `pal_addr` on the grounds that "a LINEAR command never uses" it. That is
-false for rows 2 and 3: `putscreenx8p16` writes `dp[i] = remap[sp[i]]`, where `remap` is
-`drawmethod->table` falling back to `src->palette`, and **returns silently if both are
-NULL** (`screen16.c:79-87`) -- so an indexed `LINEAR` must carry a palette. Instead the
-coverage plane is allocated **immediately after the pixel rows in the same scratch block**,
-at `src_addr + n_rows * src_stride`, so only its stride needs encoding. That also removes
-the power-of-two padding an explicit shift-encoded address would have forced.
+🛑 **`cover_addr` and `pal_addr` are a union discriminated by `mode`, and `cover_addr` is
+pre-seeked per band.** Two earlier revisions each got half of this:
+
+- An early revision put `cover_addr` over `pal_addr` **unconditionally**, on the grounds
+  that "a `LINEAR` command never uses" a palette. False for rows 2 and 3:
+  `putscreenx8p16` writes `dp[i] = remap[sp[i]]`, where `remap` is `drawmethod->table`
+  falling back to `src->palette`, and **returns silently if both are NULL**
+  (`screen16.c:83-91`) -- so an *indexed* `LINEAR` must carry a palette.
+- Round 5 over-corrected by deleting the field and making the plane **implicit** at
+  `src_addr + n_rows * src_stride`. That cannot work: `src_addr` is pre-seeked to this
+  band's first row and `n_rows` counts rows **in this band** (7.3 emits one list per
+  band), so for any source spanning more than one band the expression lands inside the
+  *next band's pixel rows*. The document's own sizing example is the counter-example --
+  a 960x480 fallback spans **15** of He-Man's 33-line bands, while `+57,600 B`
+  (= 960 x 480 / 8) is a whole-bitmap plane only one command could ever address.
+
+The resolution restores the field but scopes the overlay: **mode 3 requires
+`src_fmt == 0`** (RGB565 rows), and an RGB565 source never consults a palette, so in that
+one encoding `pal_addr` is genuinely dead and carries `cover_addr` instead. `cover_addr`
+is **pre-seeked to the coverage row matching this band's first pixel row**, exactly as
+`src_addr` is -- so the compositor walks `cover_addr + row * cover_stride` with no
+whole-bitmap arithmetic and no `first_row` field, and a band split is transparent. The
+ARM still allocates the plane once for the whole bitmap; only the pointer is per band.
 
 🛑 `putscreenx8p16`'s `remap` fallback is a **fourth palette-selection rule**, alongside
 the v3.10 discriminator and `plainsprite` (9.3). The ARM must reproduce it, including the
@@ -536,7 +556,7 @@ replicas**. Budget ~25 resident + replication, not "trivially on-chip". The FPGA
 still byte-identical to the CPU with **no divides and no DSPs**.
 
 **HALF takes the arithmetic path** -- `blendtables[BLEND_HALF]` is left NULL -- but that
-path is trivial: `blend_half16` (`pixelformat.c:583-596`) is
+path is trivial: `blend_half16` (`pixelformat.c:583-591`) is
 `_color16((_r1+_r2)>>1, (_g1+_g2)>>1, (_b1+_b2)>>1)`, a plain per-channel average on the
 already-extracted 5/6/5 fields. There is no masking, and `create_half16_tbl` computes the
 identical `(i+j)>>1`, so LUT and arithmetic agree exactly.
@@ -548,12 +568,18 @@ reproducible in RTL as a shift and an add, and needs no escape hatch.)*
 
 🛑 **There is a SECOND gate, and it is a latent wrong-colours hazard.** The shipped
 `create_blend_tables_x8` is additionally gated on `videomodes.pixel == 2`
-(`apply_patches.py:5004`); the else-branch populates `blending_table_functions32`, whose
+(`apply_patches.py:5005`); the else-branch populates `blending_table_functions32`, whose
 constructors `malloc(256*256)` and index `tbl[(i<<8)|j]` over 0..255, while
 `blend_screen16` reads them at `_ri`/`_bi` 0..1023 and `_gi` 1024..5119 -- in-bounds and
 silently WRONG. It is **unreachable today**: B1 makes vscreen PIXEL_16, so
 `init_videomodes` sets `videomodes.pixel = 2` (`openbor.c:48816`) before the gate runs, and
-the only other writers are dead in the ship build. But a future vscreen format change would
+no other writer can reach the global. *(A whole-tree grep finds three: `sdl/menu.c:467` is
+dead -- `Menu()` is unreachable under `MISTER_NATIVE_VIDEO` -- and
+`sdl/videocommon.c:45`/`:65` are **live but structurally harmless**, because
+`setupPreBlitProcessing` takes `s_videomodes` **by value** and `sdl/video.c:169` assigns
+its result to a local. That is a stronger guarantee than deadness, and it is stated here
+so a future reader greping `videomodes.pixel =` does not find live code and doubt this
+paragraph.)* But a future vscreen format change would
 swap in 8-bit-indexed tables read through 5/6/5 macros with no error.
 
 🛑 **The LUTs do not exist for the whole run.** `create_blend_tables_x8` is called at
@@ -601,7 +627,7 @@ The first draft said `hcnt = src_w / out_w`. Now that variant 1 is known to be d
 exactly what the naive `320/320` yields. So the naive **horizontal** factor happens to be
 right for **341** PAKs and **wrong for 109**. The 341 are variants 2 and 3 (7 + 50), the
 283 320-wide PAKs, **and Lust Rush at 1600 wide** -- there `x0 = 5x`, `x1 = 5x+5`, so
-`hcnt = 5` constant, which is exactly the naive `1600/320`. The 110 are the 99 variant-4
+`hcnt = 5` constant, which is exactly the naive `1600/320`. The 109 are the 98 variant-4
 PAKs plus the remaining 11 variant-5 widths.
 
 🛑 **The counts are 283 / 97, not 282 / 98.** `pak_dimension_census.md` derives why:
@@ -616,7 +642,7 @@ variant-1 measurement and left standing after it.)*
 `src/native_video_writer.c` dispatches the 16bpp path on width into **five** distinct
 implementations, and byte-identity requires reproducing whichever one a PAK actually hits.
 🛑 **MEASURED ON DEVICE 2026-07-30: variant 1 never executes** (see below), so the
-shipped library is served by variants 2-5 and the 282 PAKs that appear to belong to
+shipped library is served by variants 2-5 and the 283 PAKs that appear to belong to
 variant 1 are actually handled by variant 5:
 
 | # | condition (as written in the source) | what it does | PAKs |
@@ -748,7 +774,7 @@ from it for many `(sum, n)`. The 16bpp path does **not** clamp to 255; the 32bpp
 4. **Build order, settled by the measurement: variant 5 FIRST.** It carries **295 PAKs**
    (65%), including every 320-wide one, and it is the hardest of the five -- per-column
    `hcnt`, a truncated reciprocal, the `hcnt > 7` clamp, and the narrow-width upscale case.
-   Then 4 (99 PAKs), then 3 and 2 (50 + 7, constant `hcnt`). **Variant 1 is not built.**
+   Then 4 (98 PAKs), then 3 and 2 (50 + 7, constant `hcnt`). **Variant 1 is not built.**
    This inverts the draft order, which put the hardest variant last on the belief that it
    served 12 PAKs.
 5. Two further branches exist in the same function and are **dead in the ship build**
@@ -768,18 +794,28 @@ scratch region and the ARM emits a `LINEAR` command in its correct z-slot; the C
 only the rasterisation cost, the 28.8% measured in section 2. A **blended** fallback
 cannot be handled that way -- see the three-tier table in M4.
 
-**`LINEAR` has five source kinds and only one of them needs a coverage channel.** An
+**`LINEAR` has six source kinds and only one of them needs a coverage channel.** An
 earlier revision banned the colour key outright on the grounds that RGB565 has no spare
 bit; that over-reached, because **the shipped engine already keys on exactly `0x0000`**
-(`blendscreen16`, reached from `screen.c:552` with `key = transbg`), so for two of the
-three kinds reproducing that key is what byte-identity REQUIRES, not what it forbids:
+(`blendscreen16`, reached from `screen.c:552` with `key = transbg`), so reproducing that
+key is what byte-identity REQUIRES, not what it forbids.
+
+🛑 Round 5 deleted row 4b on the reasoning that every layer screen is `PIXEL_x8`, so a
+PIXEL_16 parallax source "cannot exist". The premise is right and the conclusion is
+wrong: a `background` line never goes through `load_layer` at all, so it never reaches
+the `loadscreen(..., pixelformat, ...)` the premise is about. **Measured over the
+450-PAK library: 19,086 `background` lines, of which 460 author `transbg != 0`, across
+31 PAKs (6.9%)** -- e.g. Raiders Rush 73/73, Barshen Border 35/35, Streets of Vendetta
+56/145. (If Step 23's `allocscreen` ever fails the layer stays PIXEL_x8 and becomes
+row 3 instead -- live either way.)
 
 | # | `LINEAR` source | engine behaviour | transparency |
 |---|---|---|---|
 | 1 | **fullscreen background / anigif frame**, PIXEL_16 (Step-23 / P9 pre-decoded), queued with a **NULL drawmethod** (`openbor.c:45800`) | `_putscreen` forces `table = NULL, alpha = 0, transbg = 0` (`screen.c:478-483`) -> `copyscreen` / `blendscreen16` **unkeyed** | **opaque** |
 | 2 | **level parallax layer**, PIXEL_x8 source, `transbg == 0` | `putscreenx8p16` (`screen.c:548-550`), unkeyed | **opaque, but INDEXED** -- needs a palette |
 | 3 | **level parallax layer**, PIXEL_x8 source, `transbg != 0` | `putscreenx8p16`, `if(!sp[i]) continue;` (`screen16.c:103`, `:142`) | **key on PALETTE INDEX 0** -- not colour `0x0000`. A nonzero index that maps to black IS written. Needs a palette |
-| 4 | **script-allocated PIXEL_16 screen** (P10) via `openbor_drawscreen` (`openborscript.c:1844`) with script-supplied `transbg` | `blendscreen16`, `if(sp[i] == 0) continue;` (`screen16.c:254`, `:293`) | **key on RGB565 `0x0000`** -- this is the only source where that key is armed, and it is in the **unpredictable** bucket (9.11.5), not the parallax bucket |
+| 4 | **script-allocated PIXEL_16 screen** (P10) via `openbor_drawscreen` (`openborscript.c:1844`). `transbg` is script-influenced but not script-supplied: the <=4-arg form inherits the ambient drawmethod, the >4-arg form **forces `transbg = 1`** (`openborscript.c:1834-1842`), so the five-arg call is always keyed | `blendscreen16`, `if(sp[i] == 0) continue;` (`screen16.c:254`, `:293`) | **key on RGB565 `0x0000`**. In the **unpredictable** bucket (9.11.5) |
+| 4b | **level `background` layer** (`BGT_BACKGROUND`), PIXEL_16, with a PAK-authored `transbg != 0` | `load_layer` is **not** called for a `background` line (`openbor.c:20481-20483`); the layer's screen is *aliased* to the global `background` (`:21292-21296`), which ship-build Step 23 pre-decodes to PIXEL_16. It is drawn from `layersref` with a **non-NULL** drawmethod (`:45151`), so `_putscreen` takes its `else` (`screen.c:509-515`) and reads `transbg` -> `blendscreen16` | **key on RGB565 `0x0000`**, same as row 4 -- but **predictable**, and PAK-authored (`dm->transbg = GET_INT_ARG(i+10)`, `openbor.c:20435`) |
 | 5 | **CPU-rasterised fallback** (sprite, or a parallax layer taking a scale/rotate/water path) | rasterised to scratch as RGB565 | source transparency is destroyed -- **needs the coverage plane** |
 
 🛑 **An earlier revision had a "level parallax layer, PIXEL_16 source (`BGT_BACKGROUND`)"
@@ -797,23 +833,39 @@ key would drop legitimately-black background pixels.
 `LINEAR` command (see 7.2). A layer whose `screenmethod` selects
 `gfx_draw_scale`/`rotate`/`water` is instead **CPU-rasterised** and takes row 5.
 
-🛑 **`transbg` is per-layer and PAK-authored** (`openbor.c:20435`, `:20505`, `:20745`),
-not a property of the layer kind -- structurally the same error M2 caught for `alpha`. The
-ARM must resolve it per layer, exactly as it resolves the palette.
-
-🛑 **OPEN: what fraction of layers is screen-loaded at all.** `load_layer`
-(`openbor.c:4127`) routes a layer to `loadsprite2`/`spriteq_add_frame` when
+**MEASURED: what fraction of layers is screen-loaded at all** (closes register item 7f).
+`load_layer` (`openbor.c:4127`) routes a layer to `loadsprite2`/`spriteq_add_frame` when
 `*maskfilename || ((alpha > 0 || transbg) && !water.watermode)`. An earlier revision
 quoted that without the `&& !water.watermode` term and concluded a screen-loaded layer
 "necessarily" has `transbg == 0` -- **false**: a layer with `watermode != 0` and
 `transbg != 0` IS screen-loaded, and is plainly blitted whenever `amplitude == 0`, because
-`_putscreen`'s water branch needs both (`screen.c:484`). So row 3 is reachable. What is
-not yet measured is how often -- registered in 14.2.
+`_putscreen`'s water branch needs both (`screen.c:484`). Evaluating that condition
+engine-exactly (tracking `alphamask` as the engine tracks it) over all 450 PAKs:
 
-🛑 **The key is `transbg`, which is per-layer and PAK-authored** (`openbor.c:20435`,
-`:20505`, `:20745`), not a property of the layer kind -- structurally the same error M2
-caught for `alpha`. The ARM must resolve `transbg` per layer exactly as it resolves the
-palette. An earlier revision stated the key unconditionally and named the wrong function.
+| | lines | |
+|---|---:|---|
+| `bglayer`/`layer`/`fglayer` total | 20,264 | |
+| -> `loadsprite2` (sprite -- **not** `LINEAR`) | 14,870 | 73.4% |
+| -> `loadscreen` (**the `LINEAR` population**) | 5,394 | 26.6%, 121 PAKs |
+| &nbsp;&nbsp;├ `transbg == 0` -> row 2 | 729 | |
+| &nbsp;&nbsp;└ `transbg != 0` | 4,665 | 93 PAKs |
+| &nbsp;&nbsp;&nbsp;&nbsp;├ `amplitude == 0` -> **row 3, keyed** | **470** | **48 PAKs** |
+| &nbsp;&nbsp;&nbsp;&nbsp;└ `amplitude != 0` -> water/plane -> row 5 | 4,195 | |
+
+Consistency gate: `transbg != 0 && watermode == 0` in the screen-loaded set = 0, exactly as
+the engine condition requires. **Row 3 is reachable in 470 layer instances across 48 PAKs.**
+The design-relevant corollary: **77.8% of screen-loaded layers are water-rasterised (row 5),
+not plainly blitted** -- so row 5's coverage plane, not the indexed key, is the dominant
+`LINEAR` case. Static upper bound over every `.txt` in each PAK; runtime frequency still
+needs a device trace.
+
+🛑 **The key is `transbg`, which is per-layer and PAK-authored** -- `dm->transbg =
+GET_INT_ARG(i + 10)` (`openbor.c:20435`) -- not a property of the layer kind, structurally
+the same error M2 caught for `alpha`. The ARM must resolve `transbg` per layer exactly as
+it resolves the palette. *(`openbor.c:20505` and `:20745` are engine **defaults** for the
+water and hardcoded layer kinds -- `= 0` and `= 1` -- not PAK-authored sites; an earlier
+revision cited all three as authored.)* An earlier revision also stated the key
+unconditionally and named the wrong function.
 
 ### 9.8 DDR3 port ownership and arbitration -- the C1 resolution
 
@@ -984,7 +1036,7 @@ hold a PAK's eligible set simply offloads fewer sprites. Still degrades, never b
 ### 9.10 CPU-COMPOSITE frame mode -- the C3 resolution
 
 Tier-B's first draft asserted the ARM never reads the composited frame. **That is false.**
-Enumerated for the PREDICTABLE six (seven sites) from pristine v7533 `openbor.c` -- the three
+Enumerated for the PREDICTABLE six (seven sites) from pristine v7533 `openbor.c` -- the four
 unpredictable paths are in 9.11.5 and are NOT in this table (every read of `vscreen` as a
 source, plus every `copyscreen`/`putscreen` touching it):
 
@@ -1032,7 +1084,8 @@ overlay is developer-only, and the loading bar is already I/O-bound.
   gate. Section 14.4.1's table is extended accordingly.
 
 ### Verification
-Every one of the ten paths gets an explicit on-device check in the Phase 6 regression set.
+Every one of the eleven paths -- six predictable kinds across seven sites, plus the four
+unpredictable -- gets an explicit on-device check in the Phase 6 regression set.
 🛑 **THE CANONICAL LIST -- every other enumeration in this document must match it.**
 (Six distinct predictable paths, listed here by SITE, so `fade_out` appears twice.)
 
@@ -1130,7 +1183,9 @@ one level up.
    the four sites is gated" contradicted that. **`mister_present` is the urgent one: it is not
    a startup-only path.** `load_background()` -> `video_clearscreen()` -> `SDL_RenderPresent`
    -> `SDL_DUMMY_UpdateWindowFramebuffer` -> `mister_present` runs from `load_models()` **and
-   from `load_level()`** (`openbor.c:20208, 20212, 20300`) plus the select / hiscore /
+   from `load_level()`** (`openbor.c:20208, 20300`, plus `load_cached_background` at
+   `:20212`, which delegates straight to `load_background` because the MiSTer build leaves
+   `CACHE_BACKGROUNDS` undefined -- `openbor.c:3951-3952`) plus the select / hiscore /
    complete / unlock screens -- so with Tier-B live, **every level transition** has a second
    writer publishing a full frame with its own stale `mister_active_buf` and its own small
    `mister_frame_cnt`, which the reader accepts as a new frame with an arbitrary buffer index.
@@ -1178,7 +1233,8 @@ in the upper half.
 wrote the target rule as "the compositor may not begin a frame whose target framebuffer is
 published or holds an unpublished completion", on the belief that publishing retires the
 old buffer. **It does not.** The reader latches `buf_base_addr` **once per vsync** in
-`ST_CHECK_CTRL` (`openbor_video_reader.sv:517-536`), reached only from `ST_IDLE` on
+`ST_CHECK_CTRL` (`openbor_video_reader.sv:517-536`, entered only via `ST_IDLE` ->
+`ST_POLL_CTRL` -> `ST_WAIT_CTRL`) on
 `new_frame_pending`, and then streams that buffer line by line for the whole ~16.7 ms
 display frame. So publishing `b^1` mid-frame does **not** stop the reader reading `b` --
 and the old rule immediately handed `b` to the compositor. A hardware compositor starts in
@@ -1353,13 +1409,14 @@ so existing cross-references stay valid.)*
 #### 9.11.5 Read-back that cannot be predicted (arch #6)
 
 9.10 requires the ARM to set CPU_COMPOSITE **before** the frame it needs. Script-driven
-read-back cannot honour that. The three that cannot are:
+read-back cannot honour that. The four that cannot are:
 
 | path | site | why unpredictable |
 |---|---|---|
 | `openborvariant("vscreen")` | `openborscript.c:1132`, `:9359` | a cart can take the composited surface pointer at any time. 🛑 The **write** side, `changeopenborvariant("vscreen", ...)` (`:9905`), is worse: it lets a script REPLACE the surface outright, so the compositor's target is not even stable |
 | script `putscreen`/`drawscreen` onto `vscreen` | routes to `blendscreen16` (`screen.c:552`) | reads the destination whenever `alpha > 0` |
 | anigif cutscene capture | -- | runs mid-frame |
+| `openbor_drawspriteq` | `openborscript.c:15875`, `:15895-15902`, `:15912` | flushes the sprite queue to `vscreen` at a script-chosen moment. It does **not** drain or reset the queue (`spriteq_draw`, `spriteq.c:300-343`, touches no length state), so it can fire repeatedly within one frame |
 
 All run *during* a frame whose mode is already committed, and on an FPGA frame `vscreen`
 is not composited -- a black return.
@@ -1371,10 +1428,11 @@ openborvariant above. And **`blendscreen` is not a script path** -- it is a game
 
 **Resolution:** on an unpredicted read-back the ARM **synchronously re-composites `vscreen`
 on the CPU for that frame** and marks the *next* frame CPU_COMPOSITE. Cost is one frame of
-duplicated work; the alternative is a black screenshot. These three paths must be listed
-explicitly alongside the predictable ones (pause, menu return, fade in/out, debug overlay,
-loading bar) -- the earlier enumeration claimed to be exhaustive and omitted all four.
-*(Note there is no "fade in" path: `fade_out` occupies two sites; see 9.10.)*
+duplicated work; the alternative is a black screenshot. These four paths must be listed
+explicitly alongside the predictable ones (pause, menu return, fade-out, debug overlay,
+loading bar) -- the earliest enumeration claimed to be exhaustive and omitted all of them.
+*(There is no "fade in" read-back path; `fade_out` occupies two of the seven predictable
+sites. See 9.10.)*
 
 ### 9.14 Remaining MAJOR-finding resolutions (M1, M4-M14, M17, M18)
 
@@ -1671,13 +1729,35 @@ Mitigation ladder, in order:
 
 🛑 **This is the authoritative register.**
 
-🛑 **Register item 0, and it invalidates every bandwidth verdict in this document until
-it is answered: the 433 MB/s "conservative ceiling" has NO derivable source.** It is
-exactly 55.0% of the port's 787.5 MB/s (and the 591 MB/s "good-burst" figure is exactly
-75.0%), but that efficiency factor appears in no document, memory file, bench or datasheet
-citation anywhere in this project. Section 4 points at 14.4.5; 14.4.5 merely *uses* it. The
-chain is circular -- and 433 is section 15's only hard bandwidth gate. Either derive it
-(measured DDR3 efficiency under the real access pattern) or replace the criterion. Everything Phase 2 is gated on appears here,
+**Register item 0 -- CLOSED BY MEASUREMENT 2026-07-30.**
+`tierb_f2h_bandwidth_probe_2026-07-30.md`.
+
+The 433 MB/s "conservative ceiling" never had a derivable source -- it was 55.0% of the
+port's 787.5 with that efficiency factor appearing in no document, memory file, bench or
+datasheet citation anywhere in this project (nor did the 591 "good-burst" figure, which was
+75.0%). Section 4 pointed at 14.4.5 and 14.4.5 merely *used* it. Rather than derive it, the
+go/no-go probe `OPTION4_FPGA_BLEND_OFFLOAD_SCOPE.md` section 4 scoped and never ran was
+built and run.
+
+**Result: 433 is not a ceiling.** Under live contention with the video reader and a running
+PAK, the f2h port sustains **663 MB/s** at 128-beat bursts -- 84% of theoretical. What the
+old scalar hid is that the achievable rate is a strong function of **burst length**, over a
+16x range:
+
+| burst | 1 | 4 | 8 | 16 | 32 | 64 | 128 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| MB/s (scattered, PAK loaded) | 38.5 | 133.6 | 226.9 | 343.3 | 476.1 | 586.0 | 660.7 |
+
+Scatter costs almost nothing (0.4% at 128 beats, 7% at 1), so **latency amortisation, not
+DDR3 row locality, is what governs this port**. The A9 costs ~5% at long bursts. The video
+reader measured 1.4%, against section 8's derived 1.28% -- independent confirmation.
+
+🛑 **The scalar ceiling is therefore replaced by a constraint on the fetch engine:** it must
+issue **>= 32-beat (256 B)** reads. He-Man's ~122.6 MB/s clears at 4 beats, but the worst
+PAK's ~362.7 needs 32. **A sprite-row-at-a-time fetcher lands at burst 1-8 = 38-227 MB/s and
+fails**, so the engine must coalesce -- whole-sprite or multi-row prefetch into a staging
+buffer, with the byte-serial decoder reading from that buffer rather than from DDR3. This is
+a *different* constraint from item 1 (decode rate) and does not replace it; both bind. Everything Phase 2 is gated on appears here,
 including items whose detail lives elsewhere in the document. An earlier revision listed five
 items, two of them already closed, and omitted most of the real ones.
 
@@ -1697,7 +1777,7 @@ items, two of them already closed, and omitted most of the real ones.
 | 7c | **Reader edits for phase 1c**: a `wants_bus` output ungated by `ddr_busy` (without it strict priority starves the reader every line), an `abandon` output, a `fifo_aclr` re-arm -- and a real swallow-timeout recovery, since `fifo_aclr` cannot cancel outstanding Avalon returns | 9.8 |
 | 7d | **`FILL`**: name the engine cases and add a colour operand, or delete the opcode | 7.2 |
 | 7e | **Doorbell retire semantics** -- nothing defines how a grant bit is cleared, or that the compositor observes it low between two lists in the same slot | 9.11.1 |
-| 7f | **How often row 3 of 9.7 occurs** (a screen-loaded, plainly-blitted layer with `transbg != 0`), which decides whether the indexed keyed path is common or rare | 9.7 |
+| ~~7f~~ | **CLOSED (measured, 9.7).** Row 3 = **470 layer instances across 48 PAKs**; the `LINEAR` population is 5,394 of 20,264 layers (26.6%, 121 PAKs), and **77.8% of it is water-rasterised row 5**, not the indexed keyed path. Static upper bound; runtime frequency still wants a device trace | 9.7 |
 
 **Measurements owed (a wrong number changes the budget):**
 
@@ -1707,7 +1787,7 @@ items, two of them already closed, and omitted most of the real ones.
 | 9 | **M11's DDR3 consumer enumeration** (`ascal` `vbuf`, `ddr_svc`/`ram2`, legacy `ddram`, the `0x3A000000` window) and their extents | 6, 9.14 |
 | 10 | **Arena write cost** -- population is one-time per PAK load, but into strongly-ordered memory | 9.9.4 |
 | 11 | **Uncached-write rasterise cost** for the fallback scratch | 9.14 M17 |
-| 12 | **M4 whole-frame-fallback frequency** -- if water/tint PAKs are common they lose the offload entirely | 9.14 M4 |
+| 12 | **M4 whole-frame-fallback frequency** -- if water/tint PAKs are common they lose the offload entirely. 🛑 **Partly answerable from data already in the repo, and the answer is not reassuring:** `pak_blendscan` gives **67 / 450 PAKs declaring `tint`** (1 declares `channel`), and He-Man's runtime line is `tint = 2734` of 12,779 blits = **21.4%**. 9.5's "the tint population must be measured, not assumed rare" is settled -- it is not rare | 9.14 M4, 9.5 |
 | 13 | **`~10 distinct palettes per band`** is asserted, not measured, and is the sole input to 9.4's bandwidth | 9.4 |
 | 14 | **Sprite arena exhaustion headroom.** The observed working set is 44.9 MB on He-Man (46,001 KB) and 150.5 MB at the library max; Lust Rush is 3.12x He-Man's pixel area and has no measurement at all | 9.9.3, 14.4.4 |
 
@@ -1742,7 +1822,8 @@ area across the census gives:
 **Only Lust Rush is anywhere near the ceiling**, and it is a single PAK at 3.12x He-Man's
 area. Everything else has 3x margin or better. Options, to settle in Phase 2: measure Lust
 Rush's real overdraw (it may be far below He-Man's 2.52x -- a 1600x900 cart is unlikely to
-also carry 2.5x overdraw); lean on the 591 MB/s good-burst figure rather than 433; or let
+also carry 2.5x overdraw); note the 2026-07-30 probe measured 476-660 MB/s available at
+>= 32-beat bursts, so neither 433 nor 591 is the right comparand; or let
 the capability gate route it to CPU. 🛑 **THIS WHOLE SUBSECTION IS SUPERSEDED by 14.4.5**,
 which measured overdraw per PAK instead of scaling one PAK's figure by area, and found
 bandwidth tracks OVERDRAW rather than screen size. It is retained only as the record of how
@@ -1792,7 +1873,7 @@ sole OVERLAY user" -- inherits 14.5's T1 defect, which makes slow-path blits inv
 that census. "Sole" means "sole among fast-path blits". Re-select after the census re-run.)*
 
 Coverage by resolution: **every resolution is fully covered except 1600x900 (Lust Rush),
-which has ZERO** -- plus small gaps (480x272 **91/98**, 320x240 **273/282**, 640x480 45/46,
+which has ZERO** -- plus small gaps (480x272 **90/97**, 320x240 **274/283**, 640x480 45/46,
 960x540 3/4). **The 19-PAK gap is now FULLY explained**, and both halves are known:
 **12 are the script-compile-fail (`ec=1`) class**, and **7 exited 139** --
 Heaven's Anime Girls, Hiryu No Ken [Demo], Memory Loss, Monster Girl Dimensions, Moscow
@@ -1807,9 +1888,11 @@ SIGSEGV.)*
 unexplained. Both were wrong -- exit 139 is a crash, not a clean run -- and the claim
 contradicted the very next sentence.)*
 
-*(Both corrections were self-concealing. The per-resolution covered-counts were the
-PRE-correction numbers -- Ultimate Super Mega Beatdown has a trace, so reclassifying it
-480x272 moves it on BOTH sides of each fraction -- and either version totals 19.)*
+*(Both corrections were self-concealing, and the second one outlived its own diagnosis:
+the per-resolution covered-counts sat here as the PRE-correction pair through round 5,
+which listed the fix as applied. USMB is authored `video = 1` -> mode 0 -> **320x240**, so
+it moves on BOTH sides of each fraction; the counts above are now the post-correction
+ones, and either version totals 19.)*
 Two engine crash bugs were fixed 2026-07-23, so **a re-scan on current main may recover
 several**; do that before treating any as permanently uncovered.
 
@@ -1884,10 +1967,20 @@ Section 14.2b estimated Lust Rush at 398.6 MB/s by scaling He-Man's overdraw by 
 🛑 **The per-PAK figures below count sprite writes + background read + one output pass.
 They OMIT three terms that land on the same single `ram1` port** (9.8): the FPGA's
 scanout READ of the framebuffer (8.59 MB/s), the palette reloads of 9.4 (4.60 MB/s on
-He-Man, 17.2 on a 56-band PAK) and the command fetch of 7.2 (2.67 MB/s). He-Man's real
-port load is therefore ~**122.6** MB/s, not 106.7, and Ninja's ~**360** rather than 350.3.
-The 433 verdict survives, but the headline understates the load and the totals must be
-rebuilt with all terms before Phase 2.
+He-Man, 1.23 on Ninja's 4-band geometry, 17.2 on a 56-band PAK) and the command fetch of
+7.2 (2.67 MB/s). Applying all three consistently:
+
+```
+  He-Man : 106.70 + 8.590 + 4.602 + 2.675 = 122.57  MB/s
+  Ninja  : 350.23 + 8.590 + 1.227 + 2.675 = 362.72  MB/s
+```
+
+so He-Man's real port load is ~**122.6** MB/s, not 106.7, and Ninja's ~**362.7** rather
+than 350.3. *(An earlier revision quoted Ninja as "~360", which silently dropped the
+command term that the same sentence applies to He-Man.)* The headline understates the
+load and the totals must be rebuilt with all terms before Phase 2 -- and note that
+"the 433 verdict survives" is not a verdict at all until item 0 is settled, since **433
+has no derivable source**.
 
 Per-PAK overdraw (415 PAKs) shows that model is wrong. 🛑 **These are UPPER BOUNDS, not
 measurements** -- `p0..p7` count unclipped sprite bounding-box area, and the census misses
@@ -1895,7 +1988,7 @@ the slow path entirely (section 14.5, N15/T1). The heading said "Measured"; it s
 have:
 
 ```
-  measured overdraw: max 38.56x   median 1.05x   mean 1.99x
+  upper-bound overdraw: max 38.56x   median 1.05x   mean 1.99x
   He-Man is 1.55x -- not the 2.52x the estimate assumed, so even the anchor was off
 ```
 
@@ -1937,10 +2030,10 @@ prerequisite for Phase 2, not a nice-to-have.
 
 | criterion | target | source |
 |---|---|---|
-| He-Man sustained fps | **59.92 locked** | 20.0 ms and 29.0 ms are measured today; 9.75 ms and 13.21 ms are **predictions**, not measurements |
+| He-Man sustained fps | **59.92 locked** | Measured today is the 41-sample anatomy: **21-29 ms / 34-48 fps** (`#FPS_BUCKETS.md`). The 20.0/29.0 ms pair section 1 retires was an older two-sample measurement, and 20.0 ms = 50 fps sits outside the current range. 9.75 ms and 13.21 ms are **predictions**, not measurements |
 | downscale byte-identity | `[DCV16]` mismatch **= 0**, with the acceptance set exercising **variant 5 against 320-wide PAKs** (the majority path, 9.6) | section 12, but see 9.14: the on-device probe **cannot run as written** and needs either the BUF2 private-scratch form or the transitive 14.4.3 rungs 2+3. Measurable either way -- just not by the mechanism section 12 currently describes |
 | palette regression | ATOV + TMNT-RP + modern PAK all canonical | the locked-palette verification ritual |
-| DDR3 bandwidth | 🛑 **CRITERION UNUSABLE AS WRITTEN** -- the 433 MB/s ceiling has no derivable source (14.2 item 0) | 14.4.5 with all port terms: He-Man **~122.6**, worst PAK **~360** MB/s -- and those are upper bounds from a census 14.5 shows is incomplete. Both the ceiling and the census must be settled before this is a gate |
+| DDR3 bandwidth | **MEASURED 2026-07-30 -- gate PASSES, conditionally.** The port sustains **663 MB/s with a PAK running** (84% of the 787.5 theoretical), so the old 433 "ceiling" was never one. But the number is a strong function of burst length -- 41.5 MB/s at 1 beat, 663 at 128 -- so the criterion is now **"the fetch engine issues >= 32-beat (256 B) reads"** | `tierb_f2h_bandwidth_probe_2026-07-30.md`. He-Man's ~122.6 MB/s clears at 4 beats; the worst PAK's ~362.7 needs **32**. Row-at-a-time fetching lands at 38-227 MB/s and FAILS. Residual caveat: the per-PAK loads are still upper bounds from a census 14.5 shows is incomplete |
 | compositing rate | **UNSETTLED -- see M13.** The band buffer's 2 banks give 2 px/clk, but the **byte-serial fetch engine caps the whole design near 1 px/clk**, and the worst PAK needs **3.31** | per-band cycle counters. 2 px/clk sustains 3.29 Mpx/frame; Ninja needs **5.44 Mpx**. Banking alone cannot close this -- the fetch path must stream multiple bytes per cycle, or Ninja-class PAKs are gated to CPU |
 | timing | all clocks >= +0.1 ns, `pll_hdmi` >= +0.3 ns preferred | `OpenBOR.sta.summary` |
 | audit | one full cycle reporting **zero bugs, zero concerns** | section 13 phase 7 |

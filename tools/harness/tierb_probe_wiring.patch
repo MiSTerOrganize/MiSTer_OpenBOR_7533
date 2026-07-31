@@ -1,0 +1,143 @@
+diff --git a/fpga/OpenBOR.sv b/fpga/OpenBOR.sv
+index b8f4419..721939c 100644
+--- a/fpga/OpenBOR.sv
++++ b/fpga/OpenBOR.sv
+@@ -476,7 +476,7 @@ ddram ddr
+ 	.ready()
+ );
+ 
+-// Native video DDR3 signals
++// Native video DDR3 signals (arbiter downstream -> the 2-way legacy mux)
+ wire  [7:0] nv_ddr_burstcnt;
+ wire [28:0] nv_ddr_addr;
+ wire        nv_ddr_rd;
+@@ -485,6 +485,27 @@ wire  [7:0] nv_ddr_be;
+ wire        nv_ddr_we;
+ wire        nv_ioctl_wait;
+ 
++// ===========================================================================
++// TEMPORARY DIAG -- Tier-B phase 0 f2h bandwidth probe.  REVERT AFTER MEASURED.
++// The video reader keeps absolute priority; the probe fills the idle cycles.
++// ===========================================================================
++wire        rdr_busy, rdr_dout_ready;
++wire  [7:0] rdr_burstcnt;
++wire [28:0] rdr_addr;
++wire        rdr_rd, rdr_we;
++wire [63:0] rdr_din;
++wire  [7:0] rdr_be;
++
++wire        prb_busy, prb_dout_ready;
++wire  [7:0] prb_burstcnt;
++wire [28:0] prb_addr;
++wire        prb_rd, prb_we;
++wire [63:0] prb_din;
++wire  [7:0] prb_be;
++
++wire        arb_bus_idle, arb_a_active;
++
++
+ // Native video reader always owns DDR3 when enabled
+ wire use_nv = NATIVE_VID;
+ 
+@@ -496,6 +517,65 @@ assign DDRAM_DIN      = use_nv ? nv_ddr_din      : old_ddr_din;
+ assign DDRAM_BE       = use_nv ? nv_ddr_be       : old_ddr_be;
+ assign DDRAM_WE       = use_nv ? nv_ddr_we       : old_ddr_we;
+ 
++tierb_ddr_arb tierb_arb
++(
++	.clk            (clk_sys),
++	.reset          (RESET),
++
++	.ddr_busy       (DDRAM_BUSY),
++	.ddr_burstcnt   (nv_ddr_burstcnt),
++	.ddr_addr       (nv_ddr_addr),
++	.ddr_dout       (DDRAM_DOUT),
++	.ddr_dout_ready (DDRAM_DOUT_READY & use_nv),
++	.ddr_rd         (nv_ddr_rd),
++	.ddr_din        (nv_ddr_din),
++	.ddr_be         (nv_ddr_be),
++	.ddr_we         (nv_ddr_we),
++
++	.a_busy         (rdr_busy),
++	.a_burstcnt     (rdr_burstcnt),
++	.a_addr         (rdr_addr),
++	.a_dout         (),
++	.a_dout_ready   (rdr_dout_ready),
++	.a_rd           (rdr_rd),
++	.a_din          (rdr_din),
++	.a_be           (rdr_be),
++	.a_we           (rdr_we),
++
++	.b_busy         (prb_busy),
++	.b_burstcnt     (prb_burstcnt),
++	.b_addr         (prb_addr),
++	.b_dout         (),
++	.b_dout_ready   (prb_dout_ready),
++	.b_rd           (prb_rd),
++	.b_din          (prb_din),
++	.b_be           (prb_be),
++	.b_we           (prb_we),
++
++	.o_bus_idle     (arb_bus_idle),
++	.o_a_active     (arb_a_active)
++);
++
++tierb_bw_probe tierb_probe
++(
++	.clk            (clk_sys),
++	.reset          (RESET),
++
++	.ddr_busy       (prb_busy),
++	.ddr_burstcnt   (prb_burstcnt),
++	.ddr_addr       (prb_addr),
++	.ddr_dout       (DDRAM_DOUT),
++	.ddr_dout_ready (prb_dout_ready),
++	.ddr_rd         (prb_rd),
++	.ddr_din        (prb_din),
++	.ddr_be         (prb_be),
++	.ddr_we         (prb_we),
++
++	.o_bus_idle     (arb_bus_idle),
++	.o_a_active     (arb_a_active),
++	.raw_ddr_busy   (DDRAM_BUSY)
++);
++
+ reg        we;
+ reg [28:0] addr = 0;
+ 
+@@ -710,16 +790,16 @@ openbor_video_top native_video
+ 	.ce_pix         (ce_pix_gen),
+ 	.reset          (RESET),
+ 
+-	// DDR3 interface (directly to mux)
+-	.ddr_busy       (DDRAM_BUSY),
+-	.ddr_burstcnt   (nv_ddr_burstcnt),
+-	.ddr_addr       (nv_ddr_addr),
++	// DDR3 interface (via the Tier-B probe arbiter, port A = priority)
++	.ddr_busy       (rdr_busy),
++	.ddr_burstcnt   (rdr_burstcnt),
++	.ddr_addr       (rdr_addr),
+ 	.ddr_dout       (DDRAM_DOUT),
+-	.ddr_dout_ready (DDRAM_DOUT_READY & use_nv),
+-	.ddr_rd         (nv_ddr_rd),
+-	.ddr_din        (nv_ddr_din),
+-	.ddr_be         (nv_ddr_be),
+-	.ddr_we         (nv_ddr_we),
++	.ddr_dout_ready (rdr_dout_ready),
++	.ddr_rd         (rdr_rd),
++	.ddr_din        (rdr_din),
++	.ddr_be         (rdr_be),
++	.ddr_we         (rdr_we),
+ 
+ 	// Video output
+ 	.vga_r          (nv_r),
+diff --git a/fpga/files.qip b/fpga/files.qip
+index 589e770..733ce82 100644
+--- a/fpga/files.qip
++++ b/fpga/files.qip
+@@ -6,3 +6,5 @@ set_global_assignment -name SYSTEMVERILOG_FILE OpenBOR.sv
+ set_global_assignment -name SYSTEMVERILOG_FILE rtl/openbor_video_top.sv
+ set_global_assignment -name SYSTEMVERILOG_FILE rtl/openbor_video_timing.sv
+ set_global_assignment -name SYSTEMVERILOG_FILE rtl/openbor_video_reader.sv
++set_global_assignment -name SYSTEMVERILOG_FILE rtl/tierb_ddr_arb.sv
++set_global_assignment -name SYSTEMVERILOG_FILE rtl/tierb_bw_probe.sv
