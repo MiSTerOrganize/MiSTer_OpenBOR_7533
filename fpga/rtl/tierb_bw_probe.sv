@@ -89,6 +89,14 @@ module tierb_bw_probe
 // overlapping the framebuffers / cart data / audio ring is harmless, and it
 // is realistic: this is exactly the memory the compositor would be fetching.
 localparam [28:0] TRAFFIC_BASE   = 29'h07400000;   // 0x3A000000 >> 3
+// NOTE: the two patterns do NOT cover the same region, and TRAFFIC_QWORDS is
+// documentation only -- nothing references it. `seq_idx` is 17 bits and wraps
+// at 2^17, so the SEQUENTIAL sweep walks the full low 1 MiB; the SCATTERED one
+// is confined to the low 512 KiB by construction (see scat_idx). Both stay
+// inside the core's own DDR3 window and both are read-only, so this is a
+// documentation defect rather than a behavioural one -- but do not "fix" it by
+// masking seq_idx without re-running the measurement, since it would change
+// the DDR3 row-locality the sequential numbers were taken under.
 localparam [16:0] TRAFFIC_QWORDS = 17'h10000;      // 65536 qwords = 512 KiB
 
 // Private result block, 64 KiB clear of the audio ring end (0x3A0E0000) and
@@ -140,8 +148,15 @@ wire        pattern    = step[3];              // 0 = sequential, 1 = scattered
 wire  [2:0] burst_log2 = step[2:0];
 wire  [7:0] burst_len  = 8'd1 << burst_log2;
 
-// Scattered: 64 B aligned inside the low 512 KiB, capped so the longest burst
-// (128 qwords) cannot run past the region.
+// Scattered: 64 B aligned, start confined to the low 512 KiB.
+// Two caveats, both benign and both verified:
+//   - This is a 20-bit expression assigned to a 17-bit wire. The three dropped
+//     bits are the constant zeros of the 4'd0 field, so the value is exactly
+//     {1'b0, lfsr[15:3], 3'd0} -- range 0..65528, step 8 -- as intended.
+//   - The START is capped at 65528, but a 128-qword burst from there ends at
+//     65656, i.e. up to 960 B PAST the 512 KiB mark. Still well inside the
+//     core's 1 MiB window and still read-only, so it is harmless; an earlier
+//     comment claimed the cap prevented this, which was wrong.
 wire [16:0] scat_idx = {4'd0, lfsr[15:3], 3'd0};
 wire [16:0] next_idx = pattern ? scat_idx : seq_idx;
 

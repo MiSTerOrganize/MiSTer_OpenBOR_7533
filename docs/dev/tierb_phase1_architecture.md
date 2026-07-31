@@ -89,7 +89,7 @@ Key properties:
   under load, but only at long bursts (14.2 item 0, now closed). The earlier "133 vs 369" pair came from the
   superseded 2.52x-overdraw estimate in 14.2b; 369 was never reproducible from any
   measurement and is withdrawn.)
-- **The ARM reads back composited pixels on TEN known paths** -- six predictable (across
+- **The ARM reads back composited pixels on TEN known KINDS / ELEVEN SITES** -- six predictable (across
   seven sites) and four that **cannot be predicted a frame ahead**. The canonical
   enumeration is the table in 9.10; do not restate it elsewhere.
   Those frames run in **CPU-COMPOSITE mode** -- see section 9.10. The earlier claim that
@@ -268,8 +268,10 @@ slot's scratch. The encoding reuses fields that are dead for `LINEAR`:
                                      1 = key on RGB565 0x0000       (src_fmt 0)
                                      2 = key on PALETTE INDEX 0     (src_fmt 1)
                                      3 = 1-bit coverage plane       (src_fmt 0)
-                     [8:3] cover_stride, in bytes, as a shift (mode 3 only)
-                     [15:9] reserved
+                     [15:3] cover_stride, in BYTES (mode 3 only). NOT a shift: a
+                            coverage row is width/8 bytes, so a 960-wide source needs
+                            120 and a 320-wide source 40 -- neither is a power of two.
+                            13 bits covers every census width (max 1600 -> 200 B).
   qword 2 [63:32]  pal_addr   (mode 0/1/2) -- STAYS LIVE, an indexed LINEAR needs it
                    cover_addr (mode 3)     -- base of THIS BAND's coverage rows
 ```
@@ -568,7 +570,7 @@ reproducible in RTL as a shift and an add, and needs no escape hatch.)*
 
 🛑 **There is a SECOND gate, and it is a latent wrong-colours hazard.** The shipped
 `create_blend_tables_x8` is additionally gated on `videomodes.pixel == 2`
-(`apply_patches.py:5005`); the else-branch populates `blending_table_functions32`, whose
+(`apply_patches.py:5004`); the else-branch populates `blending_table_functions32`, whose
 constructors `malloc(256*256)` and index `tbl[(i<<8)|j]` over 0..255, while
 `blend_screen16` reads them at `_ri`/`_bi` 0..1023 and `_gi` 1024..5119 -- in-bounds and
 silently WRONG. It is **unreachable today**: B1 makes vscreen PIXEL_16, so
@@ -818,19 +820,24 @@ row 3 instead -- live either way.)
 | 4b | **level `background` layer** (`BGT_BACKGROUND`), PIXEL_16, with a PAK-authored `transbg != 0` | `load_layer` is **not** called for a `background` line (`openbor.c:20481-20483`); the layer's screen is *aliased* to the global `background` (`:21292-21296`), which ship-build Step 23 pre-decodes to PIXEL_16. It is drawn from `layersref` with a **non-NULL** drawmethod (`:45151`), so `_putscreen` takes its `else` (`screen.c:509-515`) and reads `transbg` -> `blendscreen16` | **key on RGB565 `0x0000`**, same as row 4 -- but **predictable**, and PAK-authored (`dm->transbg = GET_INT_ARG(i+10)`, `openbor.c:20435`) |
 | 5 | **CPU-rasterised fallback** (sprite, or a parallax layer taking a scale/rotate/water path) | rasterised to scratch as RGB565 | source transparency is destroyed -- **needs the coverage plane** |
 
-🛑 **An earlier revision had a "level parallax layer, PIXEL_16 source (`BGT_BACKGROUND`)"
-row. That source kind CANNOT EXIST.** `loadscreen` passes the global `pixelformat`
-(`openbor.c:4142`), which is `PIXEL_x8` and is never assigned any other value
-(`pixelformat.c:59`; the two writes at `sdl/menu.c:460`/`:809` also write `PIXEL_x8`, and
-`Menu()` is dead in the ship build). `BGT_BACKGROUND` is a `bgl->oldtype` LEVEL-PARSER TAG
-(`openbor.h:1218`), not a screen format -- so that row and row 1 described the same object,
-and its "reproduce the `0x0000` key" instruction was **backwards**: with a NULL drawmethod
-`transbg` is forced to 0, so `blendscreen16` runs its UNKEYED branch, and implementing the
-key would drop legitimately-black background pixels.
+🛑 **Rows 1 and 4b share a pixel buffer but are NOT the same object, and an earlier
+revision deleted 4b by conflating them.** Both facts it rested on are true: `loadscreen`
+passes the global `pixelformat` (`openbor.c:4142`), which is `PIXEL_x8` and never assigned
+otherwise (`pixelformat.c:59`; the two writes at `sdl/menu.c:460`/`:809` also write
+`PIXEL_x8`, and `Menu()` is dead in the ship build); and `BGT_BACKGROUND` is a
+`bgl->oldtype` LEVEL-PARSER TAG (`openbor.h:1218`), not a screen format. Neither reaches
+this path: a `background` line never calls `load_layer` at all (`:20481-20483`), so it
+never sees that `pixelformat`. **The two rows are distinguished by DRAWMETHOD NULLITY**:
+row 1 is queued at `:45800` with a NULL drawmethod, which forces `transbg = 0`
+(`screen.c:478-483`) and runs `blendscreen16` UNKEYED; row 4b is queued at `:45151` with
+`&screenmethod`, which reads the PAK's `transbg` and arms the key. Deleting 4b therefore
+removed a live path, and its "reproduce the `0x0000` key" instruction is right for 4b and
+wrong for row 1 -- which is exactly why they need to be two rows.
 
 🛑 **Every level parallax layer is 8-bit INDEXED.** That is the load-bearing fact: rows
 2 and 3 need a live palette, so `pal_addr` cannot be reused for anything else on a
-`LINEAR` command (see 7.2). A layer whose `screenmethod` selects
+`LINEAR` command **in modes 0/1/2**; only mode 3, which is RGB565-source by construction
+and consults no palette, overlays `cover_addr` on it (see 7.2). A layer whose `screenmethod` selects
 `gfx_draw_scale`/`rotate`/`water` is instead **CPU-rasterised** and takes row 5.
 
 **MEASURED: what fraction of layers is screen-loaded at all** (closes register item 7f).
@@ -1103,8 +1110,11 @@ unpredictable -- gets an explicit on-device check in the Phase 6 regression set.
 | 10 | anigif cutscene capture | **no** (9.11.5) |
 | 11 | `openbor_drawspriteq` (`openborscript.c:15875`, `:15912`) -- composites the sprite queue into `vscreen` at arbitrary time when arg 0 is NULL (`:15895-15902`) | **no** (9.11.5). *(It does NOT drain the queue -- `spriteq_draw` never touches `spritequeue_len`; draining is the separate `spriteq_clear`.)* |
 
-That is **six distinct predictable paths across seven sites** (`fade_out` occupies two)
-**+ four unpredictable = TEN**. 🛑 An earlier revision made it "ten" by relabelling
+That is **six distinct predictable KINDS across seven SITES** (`fade_out` occupies two)
+**+ four unpredictable**. Both framings appear in this document and both are correct:
+**ten distinct kinds** (6 + 4) and **eleven paths counted by site** (7 + 4). Where a count
+is given, it must say which. 🛑 An earlier revision reached "ten" a third, wrong way, by
+relabelling
 `fade_out`'s two sites as "fade in" and "fade out" -- **there is no fade-in read-back
 path**; `openbor.c` has `fade_out` only, and the fade-in-like operation
 (`set_color_correction`, `:45988`) restores gamma and reads no composited pixels. Getting this right matters because a
@@ -1429,8 +1439,8 @@ openborvariant above. And **`blendscreen` is not a script path** -- it is a game
 **Resolution:** on an unpredicted read-back the ARM **synchronously re-composites `vscreen`
 on the CPU for that frame** and marks the *next* frame CPU_COMPOSITE. Cost is one frame of
 duplicated work; the alternative is a black screenshot. These four paths must be listed
-explicitly alongside the predictable ones (pause, menu return, fade-out, debug overlay,
-loading bar) -- the earliest enumeration claimed to be exhaustive and omitted all of them.
+explicitly alongside the six predictable kinds (pause, menu return, fade-out, screenshot,
+debug overlay, loading bar) -- the earliest enumeration claimed to be exhaustive and omitted all of them.
 *(There is no "fade in" read-back path; `fade_out` occupies two of the seven predictable
 sites. See 9.10.)*
 
@@ -1750,7 +1760,7 @@ old scalar hid is that the achievable rate is a strong function of **burst lengt
 
 Scatter costs almost nothing (0.4% at 128 beats, 7% at 1), so **latency amortisation, not
 DDR3 row locality, is what governs this port**. The A9 costs ~5% at long bursts. The video
-reader measured 1.4%, against section 8's derived 1.28% -- independent confirmation.
+reader measured 1.4%, against 9.8's derived 1.28% -- independent confirmation.
 
 🛑 **The scalar ceiling is therefore replaced by a constraint on the fetch engine:** it must
 issue **>= 32-beat (256 B)** reads. He-Man's ~122.6 MB/s clears at 4 beats, but the worst
@@ -1765,6 +1775,7 @@ items, two of them already closed, and omitted most of the real ones.
 
 | # | item | where |
 |---|---|---|
+| 1a | 🛑 **Fetch-engine burst length (NEW, from item 0's measurement).** A sprite-row-at-a-time fetcher lands at 38-227 MB/s and cannot supply the worst PAK. It must either coalesce to **>= 32-beat (256 B)** reads -- whole-sprite or multi-row prefetch into a staging buffer -- **or** keep 2-4 reads outstanding. Interpolated threshold ~18-20 beats; 32 is the next measured point, chosen for margin. Distinct from item 1: that is a *consume* limit, this is a *supply* limit | item 0, 9.14 M13 |
 | 1 | **Compositing rate.** 🛑 The binding constraint is the **byte-serial RLE fetch engine (~1 px/clk)**, not the band buffer -- so "bank 3-4 ways" CANNOT reach the 3.31 px/clk the worst PAK needs. Needs multi-byte-per-cycle run streaming, and the DDR3 fetch rate as a co-equal constraint. He-Man has never been checked against this bound at all | 9.14 M13, C9 |
 | 2 | **`[DCV16]` frame mode** -- the probe cannot run under the ownership model, and it gates phase 4 and headlines section 15 | 9.14 |
 | 3 | **Mid-frame whole-frame gates**: pre-scan vs retroactive abandon | 9.14 |
@@ -1789,6 +1800,7 @@ items, two of them already closed, and omitted most of the real ones.
 | 11 | **Uncached-write rasterise cost** for the fallback scratch | 9.14 M17 |
 | 12 | **M4 whole-frame-fallback frequency** -- if water/tint PAKs are common they lose the offload entirely. 🛑 **Partly answerable from data already in the repo, and the answer is not reassuring:** `pak_blendscan` gives **67 / 450 PAKs declaring `tint`** (1 declares `channel`), and He-Man's runtime line is `tint = 2734` of 12,779 blits = **21.4%**. 9.5's "the tint population must be measured, not assumed rare" is settled -- it is not rare | 9.14 M4, 9.5 |
 | 13 | **`~10 distinct palettes per band`** is asserted, not measured, and is the sole input to 9.4's bandwidth | 9.4 |
+| 14 | 🛑 **RE-OPENED (round 5's "E-3", lost to a label collision when round 6 reused the tag for an unrelated census fix).** The 2.36x headless-vs-device overdraw ratio does not follow from "96.5% headless vs 71.2% device" -- those are by-count vs by-time, and device by-count is 65.8% -- and it is **not additive** with the bandwidth correction. If He-Man's real port load is **144.9** rather than 122.57, He-Man needs **8-beat** reads, not 4. Every He-Man bandwidth verdict in 14.4.5 and item 0 inherits this | 14.4.5, 14.5 |
 | 14 | **Sprite arena exhaustion headroom.** The observed working set is 44.9 MB on He-Man (46,001 KB) and 150.5 MB at the library max; Lust Rush is 3.12x He-Man's pixel area and has no measurement at all | 9.9.3, 14.4.4 |
 
 **Assertions to add to the code:**
@@ -1812,7 +1824,7 @@ area across the census gives:
 
 | PAK / group | screen px | bg | sprites | out | TOTAL MB/s | |
 |---|---:|---:|---:|---:|---:|---|
-| **Lust Rush 1600x900** | 1,440,000 | 172.6 | 217.4 | 8.6 | **398.6** | 🛑 **92% of the 433 conservative ceiling** |
+| **Lust Rush 1600x900** | 1,440,000 | 172.6 | 217.4 | 8.6 | **398.6** | 84% of the **measured** 476 MB/s available at >= 32-beat bursts (item 0) |
 | 960x540 (4 PAKs) | 518,400 | 62.1 | 78.3 | 8.6 | 149.0 | ok |
 | **He-Man 960x480** | 460,800 | 55.2 | 69.6 | 8.6 | **133.4** | ok (the measured anchor) |
 | 640x480 (46 PAKs) | 307,200 | 36.8 | 46.4 | 8.6 | 91.8 | ok |
@@ -1978,9 +1990,10 @@ He-Man, 1.23 on Ninja's 4-band geometry, 17.2 on a 56-band PAK) and the command 
 so He-Man's real port load is ~**122.6** MB/s, not 106.7, and Ninja's ~**362.7** rather
 than 350.3. *(An earlier revision quoted Ninja as "~360", which silently dropped the
 command term that the same sentence applies to He-Man.)* The headline understates the
-load and the totals must be rebuilt with all terms before Phase 2 -- and note that
-"the 433 verdict survives" is not a verdict at all until item 0 is settled, since **433
-has no derivable source**.
+load and the totals must be rebuilt with all terms before Phase 2. **The "433 verdict"
+this subsection used to invoke is withdrawn:** 433 never had a derivable source, and the
+2026-07-30 probe measured the port directly (item 0, CLOSED). Re-judge these totals against
+the measured burst-length curve, not against a scalar.
 
 Per-PAK overdraw (415 PAKs) shows that model is wrong. 🛑 **These are UPPER BOUNDS, not
 measurements** -- `p0..p7` count unclipped sprite bounding-box area, and the census misses
@@ -1992,7 +2005,7 @@ have:
   He-Man is 1.55x -- not the 2.52x the estimate assumed, so even the anchor was off
 ```
 
-Recomputed with real overdraw, **NO PAK exceeds the 433 MB/s conservative ceiling**:
+Recomputed with real overdraw, **no PAK exceeds the measured supply** -- 476 MB/s scattered at >= 32-beat bursts, PAK loaded (item 0, and note the burst-length condition):
 
 | MB/s | overdraw | res | PAK |
 |---:|---:|---|---|
@@ -2021,7 +2034,7 @@ term scales with overdraw; the background and output terms do not), Quack Ninja 
 | T3 | 19 PAKs still have `skipped > 0` (1,494 images) in the sprite-size scan | the static ceiling is not yet a true ceiling |
 | E2 | `data/videopc.txt` is checked **first** on Linux builds and the resolution scanner never looks at it | the census is **not engine-exact as claimed**; it drives 8.2's `R` table, 9.6's variant counts and 14.4.5's per-resolution bandwidth |
 
-**Consequence for the headroom claim.** 14.4.5's "NO PAK exceeds the 433 MB/s conservative
+**Consequence for the headroom claim.** 14.4.5's "no PAK exceeds the measured supply
 ceiling" is computed from T1/T5/N15-affected inputs. It is **unsupported until the census
 is re-run with the slow path included and the counters widened** -- that re-run is a
 prerequisite for Phase 2, not a nice-to-have.
