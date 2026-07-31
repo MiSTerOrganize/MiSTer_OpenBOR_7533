@@ -30,6 +30,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <time.h>
 /* Step 20 (2026-05-27): NEON intrinsics for 128-bit DDR3 stores in the
  * no-squish fast path of WriteFrame. Cortex-A9 + -mfpu=neon -mfloat-abi=hard
  * build flags (see CLAUDE.md OpenBOR build config) guarantee NEON support. */
@@ -133,6 +134,127 @@ void NativeVideoWriter_Shutdown(void) {
  * jaggier than 4086 (which has no sharpen) on ATOV's 1:1-X sprites/text. The
  * 32bpp downscale now ships the box area-average (PASS 1) only, packed straight
  * to RGB565 with no edge enhancement. */
+
+/* ==========================================================================
+ * FPS OVERLAY  (pause menu -> Options -> "FPS Display")
+ *
+ * Drawn HERE, into the final 320x224 RGB565 buffer, and deliberately NOT on
+ * the engine's vscreen. A PAK renders at its own native size -- He-Man is
+ * 960x480 -- and WriteFrame squishes that to 320x224. An overlay drawn engine-
+ * side would be downscaled with everything else and, at 3x, become unreadable.
+ * Drawing post-downscale makes it pixel-crisp and identical on every PAK.
+ *
+ * `mister_fps_overlay` is a global defined in openbor.c (next to `mrec_mode`)
+ * so the pause menu can toggle it in both the ship and headless builds without
+ * a link dependency on this translation unit.
+ *
+ * NOTE for the harnesses: this writes into the framebuffer, so it changes
+ * screenshots and any frame-hash comparison ([DCV16] byte-identity, golden
+ * traces). It does NOT affect .inp recordings -- those are input streams, and
+ * replay determinism rides on inputs + RNG seed + the interval lock, none of
+ * which this touches. Recording or replaying with it on is safe and is its
+ * intended debugging use: an fps read-out across a whole deterministic replay.
+ * Default OFF, and it resets to OFF each launch, so it can never silently
+ * contaminate a byte-identity run.
+ * ========================================================================== */
+/* Defined in openbor.c beside mrec_mode, in BOTH builds (see apply_patches.py),
+ * so this resolves wherever native_video_writer.o is linked. */
+extern int mister_fps_overlay;
+
+/* 5x7 digits, low 5 bits per row, drawn at 2x -> 10x14 px per glyph. */
+static const uint8_t nv_font5x7[10][7] = {
+    {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E}, /* 0 */
+    {0x04,0x0C,0x04,0x04,0x04,0x04,0x0E}, /* 1 */
+    {0x0E,0x11,0x01,0x02,0x04,0x08,0x1F}, /* 2 */
+    {0x1F,0x02,0x04,0x02,0x01,0x11,0x0E}, /* 3 */
+    {0x02,0x06,0x0A,0x12,0x1F,0x02,0x02}, /* 4 */
+    {0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E}, /* 5 */
+    {0x06,0x08,0x10,0x1E,0x11,0x11,0x0E}, /* 6 */
+    {0x1F,0x01,0x02,0x04,0x08,0x08,0x08}, /* 7 */
+    {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E}, /* 8 */
+    {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C}, /* 9 */
+};
+
+#define NV_GLYPH_W 10   /* 5 * 2 */
+#define NV_GLYPH_H 14   /* 7 * 2 */
+#define NV_GLYPH_GAP 2
+#define NV_FPS_MARGIN 4
+
+static int      nv_fps_value    = 0;
+static uint32_t nv_fps_frames   = 0;
+static uint64_t nv_fps_last_ns  = 0;
+
+static uint64_t nv_now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+
+/* Recompute about twice a second: fast enough to feel live, slow enough that
+ * the digits do not flicker between adjacent values while you read them. */
+static void nv_fps_tick(void) {
+    uint64_t now = nv_now_ns();
+    nv_fps_frames++;
+    if (nv_fps_last_ns == 0) { nv_fps_last_ns = now; nv_fps_frames = 0; return; }
+    uint64_t dt = now - nv_fps_last_ns;
+    if (dt >= 500000000ull) {
+        nv_fps_value   = (int)((nv_fps_frames * 1000000000ull + dt / 2) / dt);
+        if (nv_fps_value > 999) nv_fps_value = 999;
+        nv_fps_frames  = 0;
+        nv_fps_last_ns = now;
+    }
+}
+
+static void nv_blit_glyph(volatile uint16_t* dst, int gx, int gy,
+                          int digit, uint16_t colour) {
+    const uint8_t* rows = nv_font5x7[digit];
+    for (int ry = 0; ry < 7; ry++) {
+        uint8_t bits = rows[ry];
+        for (int rx = 0; rx < 5; rx++) {
+            if (!(bits & (0x10 >> rx))) continue;
+            /* 2x scale */
+            for (int sy = 0; sy < 2; sy++) {
+                int py = gy + ry * 2 + sy;
+                if (py < 0 || py >= NV_FRAME_HEIGHT) continue;
+                volatile uint16_t* row = dst + (size_t)py * NV_FRAME_WIDTH;
+                for (int sx = 0; sx < 2; sx++) {
+                    int px = gx + rx * 2 + sx;
+                    if (px < 0 || px >= NV_FRAME_WIDTH) continue;
+                    row[px] = colour;
+                }
+            }
+        }
+    }
+}
+
+/* Draw the current fps, bottom-right, colour-coded:
+ *   red    0-29    yellow 30-59    green 60+
+ * A black copy is laid down one pixel down-right first so the number stays
+ * legible over bright or busy backgrounds. */
+static void nv_draw_fps(volatile uint16_t* dst) {
+    int v = nv_fps_value;
+    int digits[3], nd = 0;
+    if (v <= 0) { digits[nd++] = 0; }
+    else { while (v > 0 && nd < 3) { digits[nd++] = v % 10; v /= 10; } }
+
+    uint16_t colour = (nv_fps_value >= 60) ? 0x07E0        /* green  */
+                    : (nv_fps_value >= 30) ? 0xFFE0        /* yellow */
+                                           : 0xF800;       /* red    */
+
+    int total_w = nd * NV_GLYPH_W + (nd - 1) * NV_GLYPH_GAP;
+    int x0 = NV_FRAME_WIDTH  - NV_FPS_MARGIN - total_w;
+    int y0 = NV_FRAME_HEIGHT - NV_FPS_MARGIN - NV_GLYPH_H;
+
+    for (int pass = 0; pass < 2; pass++) {
+        uint16_t c  = (pass == 0) ? 0x0000 : colour;
+        int      off = (pass == 0) ? 1 : 0;
+        for (int i = 0; i < nd; i++) {
+            /* digits[] is least-significant first */
+            int gx = x0 + (nd - 1 - i) * (NV_GLYPH_W + NV_GLYPH_GAP);
+            nv_blit_glyph(dst, gx + off, y0 + off, digits[i], c);
+        }
+    }
+}
 
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                   int pitch, int bpp, const void* palette) {
@@ -720,6 +842,11 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
      * first lines of the new frame could read partially-written pixels.
      * __sync_synchronize() generates ARMv7 DMB SY (full memory barrier);
      * costs ~2 cycles, negligible. */
+    /* FPS overlay: after every pixel path, before the publish barrier, so it
+     * lands in the frame the FPGA is about to scan out. */
+    nv_fps_tick();
+    if (mister_fps_overlay) nv_draw_fps(dst);
+
     __sync_synchronize();
 
     /* Flip control word */

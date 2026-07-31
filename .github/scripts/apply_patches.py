@@ -2729,6 +2729,7 @@ endif
         "a_playrecstatus *playrecstatus = NULL;",
         "a_playrecstatus *playrecstatus = NULL;\n"
         "int mrec_mode = 0; /* MiSTer raw-input recorder: 0=idle 1=rec 2=play */\n"
+        "int mister_fps_overlay = 0; /* pause menu -> Options -> FPS Display. Read by native_video_writer.c, which draws it POST-downscale. Defined in BOTH builds so the replaced pausemenu() links headless. Defaults OFF every launch so it can never silently contaminate a frame-hash run. */\n"
         "#define MREC_ENGINE_VER 1u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */",
         'mrec_mode global declaration')
 

@@ -50,6 +50,10 @@
  */
 
 extern int mrec_mode;  /* MiSTer raw-input recorder: 0=idle, 1=recording, 2=playing */
+extern int mister_fps_overlay;  /* Options -> FPS Display. Drawn by
+                                 * native_video_writer.c POST-downscale, into the
+                                 * final 320x224 buffer, so it stays crisp on PAKs
+                                 * that render at 960x480 and get squished 3x. */
 
 void pausemenu()
 {
@@ -137,7 +141,10 @@ void pausemenu()
             snprintf(volbuf, sizeof(volbuf), "SFX Volume: %ld", (long)savedata.effectvol);
             _menutextmshift((option_selector == 1)?pauseoffset[1]:pauseoffset[0],  0, 0, pauseoffset[2], pauseoffset[3], volbuf);
 
-            _menutextmshift((option_selector == 2)?pauseoffset[1]:pauseoffset[0],  2, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
+            snprintf(volbuf, sizeof(volbuf), "FPS Display: %s", mister_fps_overlay ? "On" : "Off");
+            _menutextmshift((option_selector == 2)?pauseoffset[1]:pauseoffset[0],  1, 0, pauseoffset[2], pauseoffset[3], volbuf);
+
+            _menutextmshift((option_selector == 3)?pauseoffset[1]:pauseoffset[0],  3, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
         }
 
         update(1, 0);
@@ -299,12 +306,12 @@ void pausemenu()
             /* -- Options submenu input handling -- */
             if(newkeys & FLAG_MOVEUP)
             {
-                option_selector = (option_selector + 2) % 3;
+                option_selector = (option_selector + 3) % 4;
                 sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
             if(newkeys & FLAG_MOVEDOWN)
             {
-                option_selector = (option_selector + 1) % 3;
+                option_selector = (option_selector + 1) % 4;
                 sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
 
@@ -318,6 +325,10 @@ void pausemenu()
                 else if(option_selector == 1 && savedata.effectvol >= 10)
                 {
                     savedata.effectvol -= 10;
+                }
+                else if(option_selector == 2)
+                {
+                    mister_fps_overlay = 0;
                 }
                 sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
@@ -333,12 +344,21 @@ void pausemenu()
                 {
                     savedata.effectvol += 10;
                 }
+                else if(option_selector == 2)
+                {
+                    mister_fps_overlay = 1;
+                }
                 sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
 
             if(newkeys & (FLAG_JUMP | FLAG_START))
             {
-                if(option_selector == 2)  /* Back */
+                if(option_selector == 2)  /* FPS Display -- toggle */
+                {
+                    mister_fps_overlay = !mister_fps_overlay;
+                    sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
+                }
+                else if(option_selector == 3)  /* Back */
                 {
                     in_options = 0;
                     pauselector = 1;
