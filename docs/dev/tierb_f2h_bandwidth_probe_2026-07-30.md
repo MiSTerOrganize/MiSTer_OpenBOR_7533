@@ -56,6 +56,15 @@ Theoretical port peak = 64 bit x 98.4375 MHz = **787.5 MB/s**.
 | 64 | 512 | 631.0 | 606.4 | 591.2 | 586.0 |
 | 128 | 1024 | **694.6** | **679.1** | **663.1** | **660.7** |
 
+**GAMEPLAY, captured live 2026-07-31 at 44-47 fps** (He-Man, in a level, controller in
+hand) — the run the harness's own instructions asked for and that every earlier revision
+of this document was missing:
+
+| burst | 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| sequential | 45.0 | 87.6 | 155.7 | 256.0 | 378.4 | 503.6 | 605.0 | **676.5** |
+| scattered | 41.6 | 79.8 | 144.2 | 241.9 | **369.9** | **498.7** | 599.2 | **673.0** |
+
 MB/s. "idle" = probe core loaded, no PAK (ARM polling `.s0`). "He-Man loaded" = the 960x480
 PAK mounted and the engine running. **0 swallows in all 32 windows**, and `beats/burst`
 equalled the requested burst length exactly in every one — the bridge is well-behaved under
@@ -119,9 +128,22 @@ at any burst length.
    multi-MB sprite arena. The difference is immaterial at this precision, but the small
    region does flatter scatter slightly.)*
 
-4. **A9 contention is small.** Loading a PAK and running the engine costs ~5% at long
-   bursts (694.6 -> 663.1) and ~15% at burst 1. And this over-states it for Tier-B: under
-   the offload the ARM stops compositing, so its DDR3 load falls rather than rises.
+4. 🛑 **A9 contention is small, and GAMEPLAY IS NOT THE WORST CASE — the title screen is.**
+   Ordering the three states by throughput available to the probe (sequential, burst 128):
+
+   | state | fps | seq-128 | cost vs idle |
+   |---|---:|---:|---:|
+   | idle, no PAK | — | 694.6 | — |
+   | **in a level** | **44-47** | **676.5** | **2.6%** |
+   | title / pause | 102-105 | 663.1-669.5 | 3.6-4.5% |
+
+   Counter-intuitive until you see why: **the engine is uncapped**, so a cheap scene runs
+   at ~102 fps and an expensive one at ~47. Per second, the title screen therefore pushes
+   more than twice as many frames through the DDR3 write path. Gameplay costs more CPU per
+   frame and less DDR3 per second. So the "worst case" this document had been measuring all
+   along was the title screen, and real gameplay is **1-3%**, not the ~5% an earlier
+   revision claimed. It also over-states Tier-B's case doubly: under the offload the ARM
+   stops compositing, so its load falls further.
 
 5. **The reader's bus occupancy is of order 1.4% — an UPPER BOUND, not a clean
    measurement, and NOT the independent confirmation an earlier revision claimed.**
@@ -295,7 +317,14 @@ Recorded so the next person to build on this knows where the thin ice is.
   `_go` terms are mutually exclusive.
 - **`ddr_addr` and `ddr_din` are not in the reset block**, so they are X in simulation until
   the first write. Harmless in hardware (`ddr_rd`/`ddr_we` reset low).
-- 🛑 **STILL OPEN: no measurement under active gameplay.** `read_bw_probe.sh`'s own
+- ✅ **CLOSED 2026-07-31: measured under active gameplay** (44-47 fps, controller in hand).
+  See the gameplay row above. Two things it settled: the A9 costs 1-3%, not ~5%, and
+  gameplay is *not* the worst case; and **`#FPS_BUCKETS.md`'s 34-48 fps He-Man anchor is
+  CONFIRMED, not stale** — measured 44, 47 and 52 fps across the session, inside the
+  documented band, despite the 2026-07-27 affinity inversion and 2026-07-28 16-bit vscreen
+  both landing since. The concern that 14.4.5's per-PAK model was normalised against a dead
+  figure is retired. *(Retained for the record — the original limitation text:)*
+- ~~**No measurement under active gameplay.**~~ `read_bw_probe.sh`'s own
   instructions say to run it during gameplay; every run so far was taken at a PAK title
   screen or pause menu (both ~102-104 fps on this build). An attempt to auto-capture
   gameplay failed because the trigger was calibrated on `#FPS_BUCKETS.md`'s documented
