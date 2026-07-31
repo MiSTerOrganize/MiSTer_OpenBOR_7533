@@ -249,6 +249,11 @@ engine verified live, and sweep #60 after a round of user gameplay:
 
 Spread is **under 1% almost everywhere**; the worst cell is scattered-16 at **3.4%**.
 
+A separate 150-second trace then sampled scattered-128 every 6 s for **25 consecutive
+samples**: range **659.8 - 664.4 MB/s**, spread **0.7%**, with the frame rate pinned at
+101-105 and the audio ring at 55-62 KB throughout. The port's delivered throughput is
+stable to well under a percent over minutes.
+
 🛑 **This settles the one place it mattered.** The reviewer's objection was that the 16-beat
 point misses the 362.7 MB/s requirement by only 5.4%, "inside a run-to-run variation nobody
 has characterised." It is now characterised: scattered-16 spans 343.3-355.0, and **362.7 sits
@@ -276,8 +281,20 @@ Recorded so the next person to build on this knows where the thin ice is.
   `_go` terms are mutually exclusive.
 - **`ddr_addr` and `ddr_din` are not in the reset block**, so they are X in simulation until
   the first write. Harmless in hardware (`ddr_rd`/`ddr_we` reset low).
-- **The harness's own instructions were not followed.** `read_bw_probe.sh` says to run it
-  during active gameplay; these runs were taken at a PAK title screen.
+- 🛑 **STILL OPEN: no measurement under active gameplay.** `read_bw_probe.sh`'s own
+  instructions say to run it during gameplay; every run so far was taken at a PAK title
+  screen or pause menu (both ~102-104 fps on this build). An attempt to auto-capture
+  gameplay failed because the trigger was calibrated on `#FPS_BUCKETS.md`'s documented
+  34-48 fps He-Man figure -- which predates the 2026-07-27 affinity inversion and the
+  2026-07-28 16-bit vscreen, and may itself now be stale. **Two things ride on closing
+  this:** the "A9 contention ~5%" claim, and whether that 34-48 anchor -- which 14.4.5's
+  entire per-PAK model is normalised against -- still holds.
+
+  *(Weak prior that it will not move much: `ddrbusy%` measured **0.0% in every window of
+  every run**, i.e. the framework never once asserted backpressure, and the only ARM effect
+  observed anywhere is the ~5% gap between no-PAK and PAK-loaded. But that is a prior, not
+  a measurement, and assuming it is exactly the mistake that produced the unverified
+  "engine running" claim this document already had to correct once.)*
 - **"beats/burst equalled the requested length" is not a second confirmation of "0
   swallows"** — the FSM can only close a window from `ST_ISSUE` with nothing in flight, so
   the two are the same fact by construction.
