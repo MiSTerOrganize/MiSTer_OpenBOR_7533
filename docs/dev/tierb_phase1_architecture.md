@@ -207,9 +207,10 @@ Three fields the first draft lacked, each mandated by a review finding:
   this frame takes; the FPGA must never infer it from width, because variant selection
   also depends on a pointer alignment the FPGA cannot observe.
 - **`frame_flags`** -- carries the CPU_COMPOSITE marker (9.10) **and the compositor's target
-  framebuffer index** (9.11.1 rule 3; don't-care on a CPU_COMPOSITE frame). The target bit
-  is the one field the compositor's correctness depends on, so it is named here as well as
-  in 9.11.1.
+  framebuffer index** (9.11.1 rule 3; don't-care on a CPU_COMPOSITE frame). It is **2 bits,
+  not one** -- BUF2 is mandatory (9.11.1 C1) and a single bit cannot select three buffers.
+  The target field is the one thing the compositor's correctness depends on, so it is named
+  here as well as in 9.11.1.
 - **The per-band descriptor** (M7) -- source lines vary by +/-1 per band, so a single
   global `band_height` cannot express the geometry. `vcnt` per output row comes from the
   descriptor plus the clamped formula of 8.2. `END_BAND` still terminates each list.
@@ -245,7 +246,8 @@ Opcodes:
 - `SPRITE` — RLE stream, 8-bit indices through `pal_addr`.
 - `LINEAR` — raw RGB565 **or 8-bit indexed** rows. Transparency is per-source-kind and the
   ARM resolves it: a NULL-drawmethod fullscreen background is forced opaque, a plainly
-  blitted parallax layer keys on **palette index 0**, a `background` layer or a script
+  blitted parallax layer is **opaque-indexed when `transbg == 0`** (row 2, 729 measured
+  instances) and keys on **palette index 0** when `transbg != 0`, a `background` layer or a script
   PIXEL_16 screen keys on **RGB565 `0x0000`**, and anything CPU-rasterised (fallback
   sprites, and parallax layers that take a scale/rotate/water path) carries a 1-bit
   coverage plane instead. See the six-row table in 9.7. Used for the background blit **and** for
@@ -262,7 +264,7 @@ every parallax layer needs. It also cannot address the several fallback sprites 
 slot's scratch. The encoding reuses fields that are dead for `LINEAR`:
 
 ```
-  qword 1 [15:0]   source format + transparency mode + coverage stride shift
+  qword 1 [15:0]   source format + transparency mode + coverage stride
                      [0]   src_fmt   0 = RGB565 rows, 1 = 8-bit INDEXED rows
                      [2:1] mode      0 = opaque, no test
                                      1 = key on RGB565 0x0000       (src_fmt 0)
@@ -799,15 +801,21 @@ cannot be handled that way -- see the three-tier table in M4.
 **`LINEAR` has six source kinds and only one of them needs a coverage channel.** An
 earlier revision banned the colour key outright on the grounds that RGB565 has no spare
 bit; that over-reached, because **the shipped engine already keys on exactly `0x0000`**
-(`blendscreen16`, reached from `screen.c:552` with `key = transbg`), so reproducing that
+(`blendscreen16`, reached from `screen.c:554` -- `:552` is the PIXEL_16 guard -- with
+`key = transbg`), so reproducing that
 key is what byte-identity REQUIRES, not what it forbids.
 
 🛑 Round 5 deleted row 4b on the reasoning that every layer screen is `PIXEL_x8`, so a
 PIXEL_16 parallax source "cannot exist". The premise is right and the conclusion is
 wrong: a `background` line never goes through `load_layer` at all, so it never reaches
 the `loadscreen(..., pixelformat, ...)` the premise is about. **Measured over the
-450-PAK library: 19,086 `background` lines, of which 460 author `transbg != 0`, across
-31 PAKs (6.9%)** -- e.g. Raiders Rush 73/73, Barshen Border 35/35, Streets of Vendetta
+450-PAK library: 19,092 `background` lines** (19,086 carry a filename), **of which 460
+author `transbg != 0`. But 9 of those, in 3 PAKs, ALSO carry `watermode && amplitude` and
+therefore take `_putscreen`'s water branch (`screen.c:484`) before the `else` that reads
+`transbg` -- they are row 5, not row 4b. Row 4b is 451 lines across 28 PAKs (6.2%).**
+*(An earlier revision quoted 460/31, omitting the very water filter this section applies to
+rows 2/3/5. The 9 are identical lines in Cowboys Unison, Gunslingers Unison and Recca
+Soldiers - Advance Wars: `transbg=55, watermode=111, amplitude=5`.)* -- e.g. Raiders Rush 73/73, Barshen Border 35/35, Streets of Vendetta
 56/145. (If Step 23's `allocscreen` ever fails the layer stays PIXEL_x8 and becomes
 row 3 instead -- live either way.)
 
@@ -826,7 +834,9 @@ passes the global `pixelformat` (`openbor.c:4142`), which is `PIXEL_x8` and neve
 otherwise (`pixelformat.c:59`; the two writes at `sdl/menu.c:460`/`:809` also write
 `PIXEL_x8`, and `Menu()` is dead in the ship build); and `BGT_BACKGROUND` is a
 `bgl->oldtype` LEVEL-PARSER TAG (`openbor.h:1218`), not a screen format. Neither reaches
-this path: a `background` line never calls `load_layer` at all (`:20481-20483`), so it
+this path: a `background` line never calls `load_layer` **with a filename** (`:20482-20485`;
+`:21301`'s `load_layer(NULL, NULL, i)` runs for every layer, but both bodies are gated on
+`if(filename && ...)`), so it
 never sees that `pixelformat`. **The two rows are distinguished by DRAWMETHOD NULLITY**:
 row 1 is queued at `:45800` with a NULL drawmethod, which forces `transbg = 0`
 (`screen.c:478-483`) and runs `blendscreen16` UNKEYED; row 4b is queued at `:45151` with
@@ -1588,9 +1598,14 @@ head; the steady state is 2 px/clk. Opaque runs need no read at all and are writ
 
 🛑 **The band buffer is NOT the tightest bound -- the fetch engine is.** 9.2 specifies a
 strictly byte-serial RLE FSM: one control byte per state transition. Ninja's 41.67x is
-*sprite* overdraw, so essentially all 5.44 Mpx/frame pass through it, which caps the design
-at roughly **1 px/clk** regardless of how the band buffer is banked. Banking 3-4 ways
-cannot reach 3.31 px/clk if the producer delivers one byte per cycle. Any resolution must
+*sprite* overdraw, so essentially all 5.44 Mpx/frame pass through it. **MEASURED, closing
+the unit caveat this document carried as an open item:** a faithful `encodesprite` port over
+real sprite data gives **0.711 RLE bytes per bounding-box pixel** on Ninja (0.638 on He-Man;
+visible pixels are 68.0% / 62.0% of the bounding box). So the FSM sees ~3.87 M bytes/frame,
+i.e. it must sustain **~2.36 B/clk**, not the 3.31 px/clk the earlier framing implied -- the
+requirement was over-stated ~1.4x because the two figures were in different units (unclipped
+bbox area vs RLE-visible bytes). **The conclusion is unchanged: byte-serial is not enough**,
+and banking 3-4 ways cannot fix a producer that delivers one byte per cycle. Any resolution must
 therefore treat **multi-byte-per-cycle run streaming** and the shared 64-bit DDR3 fetch
 rate as co-equal constraints with the band-buffer ports.
 
@@ -1768,7 +1783,10 @@ old scalar hid is that the achievable rate is a strong function of **burst lengt
 
 Scatter costs almost nothing (0.4% at 128 beats, 7% at 1), so **latency amortisation, not
 DDR3 row locality, is what governs this port**. The A9 costs ~5% at long bursts. The video
-reader measured 1.4%, against 9.8's derived 1.28% -- independent confirmation.
+reader measured 1.4%, against 9.8's derived 1.28% -- **NOT independent confirmation**: the
+probe's counter is an upper bound that also folds in framework backpressure, and 9.8's own
+figure is an undercount (~1.51% with issue+latency). Both are consistent with "the reader
+costs around 1.4-1.5%"; neither confirms the other.
 
 🛑 **The scalar ceiling is therefore replaced by a constraint on the fetch engine:** it must
 issue **>= 32-beat (256 B)** reads. He-Man's ~122.6 MB/s clears at 4 beats, but the worst
@@ -1809,7 +1827,7 @@ items, two of them already closed, and omitted most of the real ones.
 | 12 | **M4 whole-frame-fallback frequency** -- if water/tint PAKs are common they lose the offload entirely. 🛑 **Partly answerable from data already in the repo, and the answer is not reassuring:** `pak_blendscan` gives **67 / 450 PAKs declaring `tint`** (1 declares `channel`), and He-Man's runtime line is `tint = 2734` of 12,779 blits = **21.4%**. 9.5's "the tint population must be measured, not assumed rare" is settled -- it is not rare | 9.14 M4, 9.5 |
 | 13 | **`~10 distinct palettes per band`** is asserted, not measured, and is the sole input to 9.4's bandwidth | 9.4 |
 | 14 | 🛑 **RE-OPENED (round 5's "E-3", lost to a label collision when round 6 reused the tag for an unrelated census fix).** The 2.36x headless-vs-device overdraw ratio does not follow from "96.5% headless vs 71.2% device" -- those are by-count vs by-time, and device by-count is 65.8% -- and it is **not additive** with the bandwidth correction. If He-Man's real port load is **144.9** rather than 122.57, He-Man needs **8-beat** reads, not 4. Every He-Man bandwidth verdict in 14.4.5 and item 0 inherits this | 14.4.5, 14.5 |
-| 14 | **Sprite arena exhaustion headroom.** The observed working set is 44.9 MB on He-Man (46,001 KB) and 150.5 MB at the library max; Lust Rush is 3.12x He-Man's pixel area and has no measurement at all | 9.9.3, 14.4.4 |
+| 15 | **Sprite arena exhaustion headroom.** The observed working set is 44.9 MB on He-Man **on device** (46,001 KB; the committed headless scan says 34,323 KB) and 150.5 MB at the library max; Lust Rush is 3.12x He-Man's pixel area and has no measurement at all | 9.9.3, 14.4.4 |
 
 **Assertions to add to the code:**
 
@@ -1848,9 +1866,9 @@ the capability gate route it to CPU. 🛑 **THIS WHOLE SUBSECTION IS SUPERSEDED 
 which measured overdraw per PAK instead of scaling one PAK's figure by area, and found
 bandwidth tracks OVERDRAW rather than screen size. It is retained only as the record of how
 the budget was originally mis-sized. Do NOT treat 398.6 as measured -- and note the
-anchor was off too: 14.4.5 measures He-Man at **1.55x**, not the 2.52x assumed here. The
-line below claiming "only the He-Man row is anchored in data" is therefore also wrong. Only the He-Man row
-is anchored in data; every other row scales one PAK's overdraw ratio by area.
+anchor was off too: 14.4.5 measures He-Man at **1.55x**, not the 2.52x assumed here -- so
+even the one row this subsection called "anchored in data" was anchored to a wrong value.
+Every other row simply scales that one PAK's overdraw ratio by area.
 
 ### 14.3 Accepted consequences
 - 1-2 frames of publication latency, phase-dependent (section 10).

@@ -158,6 +158,20 @@ engine that this document did not previously state:**
 > staging buffer, with the byte-serial RLE decoder reading from that buffer rather than
 > from DDR3.
 
+**MEASURED, 2026-07-30 — the demand side is no longer an assertion.** "A typical OpenBOR
+RLE row is far shorter than 256 B" was stated without evidence. A faithful `encodesprite`
+port run over real sprite GIFs (~150 images per PAK):
+
+| PAK | row bytes p25 / med / p75 / p95 | median beats | rows <= 64 B (burst <= 8) |
+|---|---|---:|---:|
+| **Ninja - Stealth Assassins** (the worst PAK, and the one this gate is judged against) | 23 / **35** / 53 / 155 | **5** | **77.2%** |
+| He-Man | 39 / **65** / 169 / 1459 | **9** | 43.3% |
+| A Tale of Vengeance | 26 / **38** / 59 / 283 | **5** | 72.7% |
+
+So for the PAK that actually binds, **77% of rows are 8 beats or fewer** — squarely in the
+38-227 MB/s band. The constraint holds, and it is *stronger* than the assertion it replaces.
+*(Caveat: sampled uniformly across images, not weighted by runtime blit frequency.)*
+
 **Four qualifications, because this constraint is softer than it looks:**
 
 - **32 is a property of THIS PROBE, not of the port.** The probe is deliberately single-
