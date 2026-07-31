@@ -82,9 +82,10 @@ Tier-B inverts the ownership of the framebuffer:
 Key properties:
 
 - **The band buffer is on-chip.** This is what makes the bandwidth budget close
-  (**106.7 MB/s for He-Man**, worst PAK 325.9 MB/s, against a 433 MB/s conservative
-  ceiling -- see 14.4.5, and note 14.5: these are upper bounds from a census that excludes
-  the slow path, so the headroom claim is **unsupported until it is re-run**. The earlier "133 vs 369" pair came from the
+  (**~122.6 MB/s for He-Man**, worst PAK **~360 MB/s** once scanout, palette and command
+  traffic are counted -- 14.4.5. Two caveats, both load-bearing: 14.5 shows these are upper
+  bounds from a census that excludes the slow path, **and the 433 MB/s ceiling they are
+  judged against has no derivable source at all** (14.2 register item 0). The earlier "133 vs 369" pair came from the
   superseded 2.52x-overdraw estimate in 14.2b; 369 was never reproducible from any
   measurement and is withdrawn.)
 - **The ARM reads back composited pixels on TEN known paths** -- six predictable (across
@@ -204,7 +205,10 @@ Three fields the first draft lacked, each mandated by a review finding:
 - **`downscale_variant`** (C4) -- the ARM decides which of the five shipped output paths
   this frame takes; the FPGA must never infer it from width, because variant selection
   also depends on a pointer alignment the FPGA cannot observe.
-- **`frame_flags`** -- carries the CPU_COMPOSITE marker (9.10) so the mode is explicit.
+- **`frame_flags`** -- carries the CPU_COMPOSITE marker (9.10) **and the compositor's target
+  framebuffer index** (9.11.1 rule 3; don't-care on a CPU_COMPOSITE frame). The target bit
+  is the one field the compositor's correctness depends on, so it is named here as well as
+  in 9.11.1.
 - **The per-band descriptor** (M7) -- source lines vary by +/-1 per band, so a single
   global `band_height` cannot express the geometry. `vcnt` per output row comes from the
   descriptor plus the clamped formula of 8.2. `END_BAND` still terminates each list.
@@ -764,7 +768,7 @@ scratch region and the ARM emits a `LINEAR` command in its correct z-slot; the C
 only the rasterisation cost, the 28.8% measured in section 2. A **blended** fallback
 cannot be handled that way -- see the three-tier table in M4.
 
-**`LINEAR` has three source kinds and only one of them needs a coverage channel.** An
+**`LINEAR` has five source kinds and only one of them needs a coverage channel.** An
 earlier revision banned the colour key outright on the grounds that RGB565 has no spare
 bit; that over-reached, because **the shipped engine already keys on exactly `0x0000`**
 (`blendscreen16`, reached from `screen.c:552` with `key = transbg`), so for two of the
@@ -1369,7 +1373,8 @@ openborvariant above. And **`blendscreen` is not a script path** -- it is a game
 on the CPU for that frame** and marks the *next* frame CPU_COMPOSITE. Cost is one frame of
 duplicated work; the alternative is a black screenshot. These three paths must be listed
 explicitly alongside the predictable ones (pause, menu return, fade in/out, debug overlay,
-loading bar) -- the earlier enumeration claimed to be exhaustive and omitted all three.
+loading bar) -- the earlier enumeration claimed to be exhaustive and omitted all four.
+*(Note there is no "fade in" path: `fade_out` occupies two sites; see 9.10.)*
 
 ### 9.14 Remaining MAJOR-finding resolutions (M1, M4-M14, M17, M18)
 
@@ -1491,7 +1496,20 @@ Resolution is a Phase-2 decision and needs a **dedicated `[DCV16]` frame mode**:
 on the CPU into `vscreen` as a CPU frame, suppress the ARM's `WriteFrame`, ALSO run the
 display list so the compositor writes its framebuffer, downscale the CPU `vscreen` into a
 private buffer, and compare that against what the FPGA wrote. That frame presents neither
-result. Until this is specified, section 15's headline criterion is unmeasurable.
+result.
+
+🛑 **Two things make this easier than it looks.** First, now that BUF2 is mandatory
+(C1), the probe can simply point the compositor at a **private scratch framebuffer**: no
+ownership rule is touched and no new frame mode is needed. That also dodges a deadlock in
+the frame-mode version -- a `[DCV16]` frame never publishes, so under the target rule its
+completion is never retired, and after one probe frame the compositor has no legal target,
+while section 12 asks for "the first N frames".
+
+Second, **the criterion may not need a same-frame on-device probe at all**: 14.4.3's rungs
+2 and 3 (software model vs CPU headless, then RTL vs model) already establish downscaler
+byte-identity transitively. So section 15's criterion is **measurable by a route this
+document already mandates** -- an earlier revision called it unmeasurable, which overstated
+it.
 
 **M13 -- ">= 2 px/clock" for BLENDED pixels.** Blending is read-modify-write on the band
 buffer, so 2 px/clk needs two reads *and* two writes per cycle. M10K is dual-port, giving one
@@ -1623,11 +1641,11 @@ Built in from the first RTL commit, all marked so the CI gate blocks the binary:
 |---|---|---|
 | 1 | this document | user approval |
 | 1b | blend-mode + alpha histogram **across the 450-PAK library** via `[BLD]`/`[BAL]`/`[A15]` | measurement, not opinion. It sets verification ORDER, not scope -- all six modes are implemented regardless (9.5) |
-| 1c | **DDR3 arbiter** (9.8) written and verified standalone, **plus the reader's missing `ST_WAIT_AUDIO_WR` / `ST_WAIT_AUDIO_RING` timeouts** (9.8) | must precede every compositor block: without the arbiter the first co-existing burst corrupts video, and without the audio timeouts a dropped beat hangs the whole reader FSM |
+| 1c | **DDR3 arbiter** (9.8) written and verified standalone, **plus the full reader-prerequisite list** (9.8): the two audio-state timeouts, `wants_bus`, `abandon`, `fifo_aclr` re-arm. 🛑 **Also here, not phase 5: unify `mister_present`'s separate `mister_frame_cnt`/`mister_active_buf` with `native_video_writer.c`'s** -- it fires on every level load (9.11.1 rule 2), so while two state sets exist the ownership invariant is unenforceable from the first Tier-B frame | must precede every compositor block: without the arbiter the first co-existing burst corrupts video; without `wants_bus` strict priority starves the reader every line |
 | 2 | ARM side only: sprite arena allocator, display-list builder, per-band binning, fallback rasteriser. **Shipped path unchanged** — the list is built and discarded. **The 14.2 register must be cleared first**, including the overdraw census re-run. | list contents validated offline against the CPU's own draw order |
 | 3 | RTL: band walker + RLE fetch engine + palette RAM + band buffer. No blend, no downscale. Opaque sprites only. | VGA visualiser shows correct band traversal |
 | 4 | RTL: blend unit + downscaler (variant 5 first, 9.6) + output write. | `[DCV16]` mismatch = 0 -- **requires the `[DCV16]` frame mode of 9.14 to exist first** |
-| 5 | Ownership: compositor writes the framebuffer + `status_word`; ARM still publishes `ctrl_word`; **keepalive unchanged** (9.11.1). 🛑 **`mister_present`'s separate `mister_frame_cnt`/`mister_active_buf` must be unified with `native_video_writer.c`'s statics BEFORE this phase** -- while two state sets exist the invariant is unenforceable. | singleton-state matrix clean, no black screens |
+| 5 | Ownership: compositor writes the framebuffer + `status_word`; ARM still publishes `ctrl_word`; **keepalive unchanged** (9.11.1). | singleton-state matrix clean, no black screens |
 | 6 | Fallback path + capability gate + all-PAK regression | ATOV + TMNT-RP + modern PAK palette trio verified |
 | 7 | Audit cycles until zero bugs AND zero concerns | section 15 criteria |
 | 8 | Hardware verification, then ship | timing >= +0.3 ns preferred |
@@ -1667,13 +1685,19 @@ items, two of them already closed, and omitted most of the real ones.
 
 | # | item | where |
 |---|---|---|
-| 1 | **Compositing rate**: the specified 2-bank band buffer delivers 2 px/clk; the worst PAK needs ~3.31. Bank 3-4 ways (raising the M10K budget) or gate Ninja-class PAKs to CPU | 9.14 M13 |
+| 1 | **Compositing rate.** 🛑 The binding constraint is the **byte-serial RLE fetch engine (~1 px/clk)**, not the band buffer -- so "bank 3-4 ways" CANNOT reach the 3.31 px/clk the worst PAK needs. Needs multi-byte-per-cycle run streaming, and the DDR3 fetch rate as a co-equal constraint. He-Man has never been checked against this bound at all | 9.14 M13, C9 |
 | 2 | **`[DCV16]` frame mode** -- the probe cannot run under the ownership model, and it gates phase 4 and headlines section 15 | 9.14 |
 | 3 | **Mid-frame whole-frame gates**: pre-scan vs retroactive abandon | 9.14 |
 | 4 | **How the runtime-built blend LUTs reach FPGA M10K.** They are built after `load_models()` (9.5), so they cannot be `.mif`-initialised at synthesis; no transport, region or mechanism exists anywhere in this document | 9.5 |
 | 5 | **The `LINEAR` source home.** 9.9.2 puts only fast-path SPRITES in the arena, but the background and parallax layers are per-frame cached-heap `s_screen`s with no FPGA-readable address | 9.7, 9.9.2 |
 | 6 | **ARM->FPGA register channel** for `compositor_disable` -- none exists today | 9.11.3, 11 |
-| 7 | Ring and per-slot **scratch sizing** (a single 960x480 fallback is 921,600 B) | 9.11.4 |
+| 7 | Ring and per-slot **scratch sizing** -- a single 960x480 fallback is 921,600 B, **plus its coverage plane** (+57,600 B) | 9.11.4, 9.7 |
+| 7a | 🛑 **A THIRD FRAMEBUFFER (BUF2) is required**, not optional: the reader latches its buffer once per vsync, so publishing does not retire the old one and two buffers serialise the compositor behind scanout | 9.11.1 C1 |
+| 7b | **An arbiter-owned, always-alive FPGA->ARM `grant_idle` indication.** The respawn Init sequence and the arena-free rule both wait on it and it exists nowhere | 9.11.3 |
+| 7c | **Reader edits for phase 1c**: a `wants_bus` output ungated by `ddr_busy` (without it strict priority starves the reader every line), an `abandon` output, a `fifo_aclr` re-arm -- and a real swallow-timeout recovery, since `fifo_aclr` cannot cancel outstanding Avalon returns | 9.8 |
+| 7d | **`FILL`**: name the engine cases and add a colour operand, or delete the opcode | 7.2 |
+| 7e | **Doorbell retire semantics** -- nothing defines how a grant bit is cleared, or that the compositor observes it low between two lists in the same slot | 9.11.1 |
+| 7f | **How often row 3 of 9.7 occurs** (a screen-loaded, plainly-blitted layer with `transbg != 0`), which decides whether the indexed keyed path is common or rare | 9.7 |
 
 **Measurements owed (a wrong number changes the budget):**
 
@@ -1692,6 +1716,7 @@ items, two of them already closed, and omitted most of the real ones.
 | # | item | where |
 |---|---|---|
 | 15 | `pitch % 16 == 0` -- the whole variant-selection determinism rests on it | 9.6 |
+| 16 | **E2**: the resolution scanner ignores `data/videopc.txt`, which the engine checks FIRST on Linux builds -- it drives 8.2's `R` table, 9.6's variant counts and 14.4.5's per-resolution bandwidth | 14.5 |
 
 **Closed by the census** (kept so they are not re-opened): band height per PAK -> a band is a
 whole number of OUTPUT rows with `R` chosen per PAK from a pixel budget (section 8); widths
@@ -1769,12 +1794,15 @@ that census. "Sole" means "sole among fast-path blits". Re-select after the cens
 Coverage by resolution: **every resolution is fully covered except 1600x900 (Lust Rush),
 which has ZERO** -- plus small gaps (480x272 **91/98**, 320x240 **273/282**, 640x480 45/46,
 960x540 3/4). **The 19-PAK gap is now FULLY explained**, and both halves are known:
-**12 are the script-compile-fail (`ec=1`) class**, and **7 exited 139 = SIGSEGV** --
+**12 are the script-compile-fail (`ec=1`) class**, and **7 exited 139** --
 Heaven's Anime Girls, Hiryu No Ken [Demo], Memory Loss, Monster Girl Dimensions, Moscow
 RE-Action, Ogres Mayhem, Rescue Command. Those seven are exactly the crash set the
 diff-harness diagnosed: **Signature A** (`pp_lexer` token-buffer bound, commit `45b043c`)
 for four of them and **Signature B** (`load_cached_model` NULL-anim guard, `18b55e3`) for
 the other three -- **both fixed and shipped 2026-07-23**, so a re-scan should recover them.
+*(Exit 139 is not all SIGSEGV: the harness crash handler maps **SIGABRT -> 139** too, so
+Signature A's four are fortify buffer-overflow aborts and only Signature B's three are true
+SIGSEGV.)*
 *(An earlier revision said these seven "ran cleanly" and that a third of the gap was
 unexplained. Both were wrong -- exit 139 is a crash, not a clean run -- and the claim
 contradicted the very next sentence.)*
@@ -1910,10 +1938,10 @@ prerequisite for Phase 2, not a nice-to-have.
 | criterion | target | source |
 |---|---|---|
 | He-Man sustained fps | **59.92 locked** | 20.0 ms and 29.0 ms are measured today; 9.75 ms and 13.21 ms are **predictions**, not measurements |
-| downscale byte-identity | `[DCV16]` mismatch **= 0**, with the acceptance set exercising **variant 5 against 320-wide PAKs** (the majority path, 9.6) | section 12 -- 🛑 **but the probe cannot run as specified; see the UNSETTLED note in 9.14.** A dedicated `[DCV16]` frame mode must be designed in Phase 2 or this criterion is unmeasurable |
+| downscale byte-identity | `[DCV16]` mismatch **= 0**, with the acceptance set exercising **variant 5 against 320-wide PAKs** (the majority path, 9.6) | section 12, but see 9.14: the on-device probe **cannot run as written** and needs either the BUF2 private-scratch form or the transitive 14.4.3 rungs 2+3. Measurable either way -- just not by the mechanism section 12 currently describes |
 | palette regression | ATOV + TMNT-RP + modern PAK all canonical | the locked-palette verification ritual |
-| DDR3 bandwidth | **<= 433 MB/s** (the conservative ceiling) on every PAK | 14.4.5: worst case 325.9 MB/s (**~350.3 corrected**), He-Man 106.7 -- **upper bounds from a census 14.5 shows is incomplete; the re-run is a Phase-2 prerequisite**. The old "<=200 vs budget 133" pair came from the superseded 14.2b estimate and was unmeetable by this document's own table |
-| compositing rate | **UNSETTLED -- see M13.** 2 px/clk is what the specified 2-bank structure delivers; the worst PAK needs **3.31 px/clk** on 14.5's corrected 41.67x overdraw (3.06 on the uncorrected 38.56x) | per-band cycle counters. 2 px/clk sustains 3.29 Mpx/frame; Ninja needs **5.44 Mpx** corrected (5.03 uncorrected). Either bank 3-4 ways (raising the M10K budget) or gate Ninja-class PAKs to CPU |
+| DDR3 bandwidth | 🛑 **CRITERION UNUSABLE AS WRITTEN** -- the 433 MB/s ceiling has no derivable source (14.2 item 0) | 14.4.5 with all port terms: He-Man **~122.6**, worst PAK **~360** MB/s -- and those are upper bounds from a census 14.5 shows is incomplete. Both the ceiling and the census must be settled before this is a gate |
+| compositing rate | **UNSETTLED -- see M13.** The band buffer's 2 banks give 2 px/clk, but the **byte-serial fetch engine caps the whole design near 1 px/clk**, and the worst PAK needs **3.31** | per-band cycle counters. 2 px/clk sustains 3.29 Mpx/frame; Ninja needs **5.44 Mpx**. Banking alone cannot close this -- the fetch path must stream multiple bytes per cycle, or Ninja-class PAKs are gated to CPU |
 | timing | all clocks >= +0.1 ns, `pll_hdmi` >= +0.3 ns preferred | `OpenBOR.sta.summary` |
 | audit | one full cycle reporting **zero bugs, zero concerns** | section 13 phase 7 |
 | **no broken PAKs** | **ZERO changed golden traces across all 431** -- a HEADLESS software-model-vs-CPU comparison, never hardware-vs-golden (M14). 19 PAKs have no trace at all, incl. Lust Rush | section 14.4 |
