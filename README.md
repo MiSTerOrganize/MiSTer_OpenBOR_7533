@@ -150,12 +150,40 @@ Both OpenBOR_4086 and OpenBOR_7533 use the IDENTICAL mapping — sister-core swa
 Press START during gameplay:
 
 - **Continue** — resume gameplay
-- **Options** — adjust Music Volume and SFX Volume with D-pad left/right
+- **Options** — adjust Music Volume and SFX Volume with D-pad left/right, and toggle **FPS Display**
 - **Recording** — record and play back your gameplay (see below)
 - **Reset Pak** — restart the current PAK fresh
 - **Quit** — exit to PAK browser
 
 Navigate with D-pad up/down. Press A to confirm, X to go back.
+
+## FPS Display
+
+*(OpenBOR_7533 build.)*
+
+Pause → **Options** → **FPS Display** turns on a live frame-rate read-out in the
+**bottom-right** corner. D-pad left/right or the select button toggles it.
+
+The number is colour-coded so you can read it at a glance without stopping:
+
+| colour | frame rate |
+|---|---|
+| 🔴 red | below 30 |
+| 🟡 yellow | 30 – 59 |
+| 🟢 green | 60 and above |
+
+It is drawn at the console's final output resolution rather than inside the game
+image, so it stays sharp on every PAK — including the ones that render at much
+higher internal resolutions and get scaled down.
+
+**It works while recording and while playing a recording back**, which is the main
+reason it exists: because replay is deterministic, you can record a session, play
+it back, and read the frame rate at every point of it — the same run, the same
+frames, every time. The read-out never becomes part of the `.inp` file; recordings
+store your button presses, not the picture.
+
+It starts **off** every time you load a PAK. It is a display overlay, so it does
+appear in screenshots while it is on.
 
 ## Recording & Replay
 
