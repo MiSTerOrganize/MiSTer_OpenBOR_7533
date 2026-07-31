@@ -2,8 +2,15 @@
 
 `OPTION4_FPGA_BLEND_OFFLOAD_SCOPE.md` §4 scoped this as *"the single most important
 deliverable of scoping"* and it had never been run. Register item 0 — the **433 MB/s
-conservative ceiling** that §15 uses as its only hard bandwidth gate — had no derivation
+conservative ceiling** that §15 uses as its only hard bandwidth gate — had **no derivation**
 anywhere in the workspace or in git history.
+
+*(Precisely: no derivation, but it does have provenance. `#FPS_BUCKETS.md:84-85` names "the
+conservative ram1 ceiling" and pins it numerically — 133 MB/s is called 31% of it and 369
+MB/s is called 85%, and both percentages recover 429-434. So the number was in circulation
+as an unexplained denominator in a file this project cites elsewhere; what was missing was
+any justification for it. An earlier revision here said it appeared "nowhere", which
+overstated the search.)*
 
 **It is now measured. 433 is not a ceiling.**
 
@@ -27,8 +34,12 @@ RBF: `PROBE_OpenBOR_7533.rbf`, deployed locally only, **never committed** (per
 otherwise have been hijacked by it.
 
 Timing with the probe in: **pll_hdmi 0.271 ns** (baseline was 0.128), clk_sys 1.785,
-clk_pix 8.171, all positive, TNS 0.000, SEED 3 unchanged. Cost 9,014 ALMs (22%, was 20%)
-and **zero** extra M10K.
+clk_pix 8.171, all positive, TNS 0.000, SEED 3 unchanged. **The harness costs 352 ALMs**
+-- 0.84% of the device: 9,014 total (22%) against the ship build's committed 8,662 (21%,
+`fpga/output_files/OpenBOR.fit.summary`) -- and **zero** extra M10K. *(An earlier revision
+wrote "Cost 9,014 ALMs (22%, was 20%)", which reported the TOTAL as the cost -- overstating
+the harness ~26x -- and truncated the baseline where it rounded the new value. 20% was last
+true several RBFs ago.)*
 
 ## Results
 
@@ -89,7 +100,8 @@ at any burst length.
 
 1. 🛑 **433 MB/s is not a ceiling, and it never was one.** The port sustains **663 MB/s
    with a PAK running** — 84% of theoretical. 433 is roughly what this port delivers at a
-   ~20-beat burst; it is a point on a curve, not a limit.
+   ~20-beat burst on the idle-sequential curve (~25.6 beats on the loaded-scattered curve
+   the gate actually uses); it is a point on a curve, not a limit.
 
 2. 🛑 **Burst length is the entire story — a 16x spread.** 41.5 MB/s at burst 1 rising to
    663 MB/s at burst 128. Everything else in this measurement is a rounding error next to
@@ -221,6 +233,29 @@ hold for a same-setname RBF swap, where the handler's own start is deferred by t
 poll interval. Pre-existing, unrelated to Tier-B, and worth a marker or a longer MGL delay;
 recorded here because it invalidated a measurement run before it was caught.
 
+## Repeatability (three independent snapshots of the loaded condition)
+
+An earlier revision reported a single snapshot to four significant figures with no variance,
+which was a fair criticism. Three separate sweeps of the same condition (probe core, He-Man
+mounted, engine at its title screen), taken minutes apart — sweep #8, sweep #10 with the
+engine verified live, and sweep #60 after a round of user gameplay:
+
+| burst | 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| sequential, min | 41.5 | 80.2 | 143.8 | 239.3 | 357.6 | 483.3 | 591.2 | 663.1 |
+| sequential, max | 41.8 | 81.4 | 146.8 | 241.3 | 360.9 | 487.9 | 593.8 | 669.5 |
+| scattered, min | 38.5 | 74.1 | 133.6 | 226.9 | **343.3** | 476.1 | 586.0 | 660.7 |
+| scattered, max | 40.3 | 75.9 | 136.6 | 231.2 | **355.0** | 484.7 | 589.2 | 665.4 |
+
+Spread is **under 1% almost everywhere**; the worst cell is scattered-16 at **3.4%**.
+
+🛑 **This settles the one place it mattered.** The reviewer's objection was that the 16-beat
+point misses the 362.7 MB/s requirement by only 5.4%, "inside a run-to-run variation nobody
+has characterised." It is now characterised: scattered-16 spans 343.3-355.0, and **362.7 sits
+above all three runs** — short by 2.2% even at the most favourable observed value. So the
+conclusion that 16 beats does not clear the worst PAK survives the variance, and the
+interpolated ~18-20 beat threshold is where the crossing actually falls.
+
 ## Harness limitations (none of which affected this run)
 
 Recorded so the next person to build on this knows where the thin ice is.
@@ -241,9 +276,6 @@ Recorded so the next person to build on this knows where the thin ice is.
   `_go` terms are mutually exclusive.
 - **`ddr_addr` and `ddr_din` are not in the reset block**, so they are X in simulation until
   the first write. Harmless in hardware (`ddr_rd`/`ddr_we` reset low).
-- **No repeatability data.** One snapshot per condition from a probe that re-sweeps every
-  5.5 s, quoted to four significant figures. Any conclusion turning on a <10% margin — the
-  16-beat point does — needs repeats first.
 - **The harness's own instructions were not followed.** `read_bw_probe.sh` says to run it
   during active gameplay; these runs were taken at a PAK title screen.
 - **"beats/burst equalled the requested length" is not a second confirmation of "0

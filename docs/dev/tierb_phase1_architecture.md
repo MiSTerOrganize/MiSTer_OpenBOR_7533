@@ -1737,6 +1737,11 @@ Mitigation ladder, in order:
 
 ### 14.2 Open items requiring resolution before Phase 2
 
+🛑 **Units convention (declared, because this document mixes two).** **Bandwidth is
+decimal MB/s** (787.5 = 8 B x 98.4375 MHz). **Memory sizes are binary** despite the MB/KB
+labels -- 150.5 "MB" is 154,131 KB/1024, and "64 KB" of band buffer is 32,768 px x 2 B =
+65,536 B. Read every size as MiB/KiB and every rate as decimal.
+
 🛑 **This is the authoritative register.**
 
 **Register item 0 -- CLOSED BY MEASUREMENT 2026-07-30.**
@@ -1745,14 +1750,17 @@ Mitigation ladder, in order:
 The 433 MB/s "conservative ceiling" never had a derivable source -- it was 55.0% of the
 port's 787.5 with that efficiency factor appearing in no document, memory file, bench or
 datasheet citation anywhere in this project (nor did the 591 "good-burst" figure, which was
-75.0%). Section 4 pointed at 14.4.5 and 14.4.5 merely *used* it. Rather than derive it, the
+75.0%). *(It did have PROVENANCE, just no justification: `#FPS_BUCKETS.md:84-85` names "the
+conservative ram1 ceiling" and pins it numerically -- 133 MB/s called 31% of it, 369 MB/s
+called 85% -- and both percentages recover 429-434. So 433 was in circulation as an
+unexplained denominator in a file this document cites elsewhere.)* Section 4 pointed at 14.4.5 and 14.4.5 merely *used* it. Rather than derive it, the
 go/no-go probe `OPTION4_FPGA_BLEND_OFFLOAD_SCOPE.md` section 4 scoped and never ran was
 built and run.
 
 **Result: 433 is not a ceiling.** Under live contention with the video reader and a running
 PAK, the f2h port sustains **663 MB/s** at 128-beat bursts -- 84% of theoretical. What the
 old scalar hid is that the achievable rate is a strong function of **burst length**, over a
-16x range:
+17x range (the scattered-loaded endpoints below; the sequential pair is 16.0x):
 
 | burst | 1 | 4 | 8 | 16 | 32 | 64 | 128 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -1862,7 +1870,7 @@ any PAK is *no speedup* -- never a regression. Every gate defaults to CPU on dou
 | condition | action |
 |---|---|
 | blend mode outside 1..6 (incl. the 5 PAKs declaring alpha>6) | CPU |
-| sprite needs scale / rotate / water / flipy / shiftx / non-transparent fillcolor | CPU (the measured 29%). *(This is the engine's fast-path gate; it is NOT about the `FILL` opcode of 7.2, which is an FPGA-side primitive for solid rectangles.)* |
+| sprite needs scale / rotate / water / flipy / shiftx / non-transparent fillcolor | CPU (the measured 28.8%). *(This is the engine's fast-path gate; it is NOT about the `FILL` opcode of 7.2, which is an FPGA-side primitive for solid rectangles.)* |
 | sprite working set exceeds the arena | **CPU for the sprites that did not fit** -- per-BLIT, not per-PAK (9.9.4, 14.4.4) |
 | ~~PAK width exceeds the band buffer~~ | **not needed** -- all 450 fit (8.2) |
 | anything the software model has not proven identical | CPU |
