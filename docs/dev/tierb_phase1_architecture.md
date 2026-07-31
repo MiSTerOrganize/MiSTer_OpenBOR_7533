@@ -87,8 +87,8 @@ Key properties:
   the slow path, so the headroom claim is **unsupported until it is re-run**. The earlier "133 vs 369" pair came from the
   superseded 2.52x-overdraw estimate in 14.2b; 369 was never reproducible from any
   measurement and is withdrawn.)
-- **The ARM reads back composited pixels on NINE known paths** -- six predictable (across
-  seven sites) and three that **cannot be predicted a frame ahead**. The canonical
+- **The ARM reads back composited pixels on TEN known paths** -- six predictable (across
+  seven sites) and four that **cannot be predicted a frame ahead**. The canonical
   enumeration is the table in 9.10; do not restate it elsewhere.
   Those frames run in **CPU-COMPOSITE mode** -- see section 9.10. The earlier claim that
   the ARM never reads back was FALSE and is what review finding C3 caught.
@@ -168,7 +168,7 @@ audio ring pointers, BUF0/BUF1, cart data, audio ring). Tier-B adds three region
 | Display-list ring (**3 slots**) | TBD | **sizing open** (9.11.4) | ARM (per frame) | FPGA |
 | Existing window | `0x3A000000` | unchanged | both | both |
 | Output framebuffer BUF0/BUF1 | `0x3A000040` / `0x3A040040` | unchanged | **FPGA on FPGA frames, ARM on CPU frames** | FPGA scanout |
-| Compositor `status_word` (new) | TBD | 8 B | FPGA | ARM (9.11.1) |
+| Compositor `status_word` (new) | TBD | 8 B | FPGA, **and the ARM on a respawn** (9.11.3) | ARM (9.11.1) |
 | **Slot-grant word (new)** | TBD | 8 B | ARM | FPGA -- the doorbell; one bit per slot plus the list base (9.11.1) |
 | **`quiesce_req` (new)** | TBD | 8 B | ARM | FPGA (9.11.3). `quiesce_ack` rides in `status_word`'s upper half |
 | **`compositor_disable`** | n/a -- **a control REGISTER, not DDR3** | -- | ARM | arbiter + compositor, via always-alive logic (9.11.3) |
@@ -256,20 +256,31 @@ every parallax layer needs. It also cannot address the several fallback sprites 
 slot's scratch. The encoding reuses fields that are dead for `LINEAR`:
 
 ```
-  qword 1 [15:0]   transparency mode + coverage stride shift
-                     [1:0] mode  0 = opaque (no test)
-                                 1 = colour-key on RGB565 0x0000   (PIXEL_16 layers)
-                                 2 = colour-key on PALETTE INDEX 0 (PIXEL_x8 layers,
-                                     via putscreenx8p16 -- see 9.7)
-                                 3 = 1-bit coverage plane           (CPU-rasterised)
-                     [7:2] cover_stride, in bytes, as a shift
-                     [15:8] reserved
-  qword 2 [63:32]  cover_addr -- reuses `pal_addr`, which a LINEAR command never uses
+  qword 1 [15:0]   source format + transparency mode + coverage stride shift
+                     [0]   src_fmt   0 = RGB565 rows, 1 = 8-bit INDEXED rows
+                     [2:1] mode      0 = opaque, no test
+                                     1 = key on RGB565 0x0000       (src_fmt 0)
+                                     2 = key on PALETTE INDEX 0     (src_fmt 1)
+                                     3 = 1-bit coverage plane       (src_fmt 0)
+                     [8:3] cover_stride, in bytes, as a shift (mode 3 only)
+                     [15:9] reserved
+  qword 2 [63:32]  pal_addr -- STAYS LIVE. An indexed LINEAR needs it.
 ```
 
-Mode 2 is the common case for level layers, and the four modes are exactly the four rows
-of 9.7's table. The ARM resolves the mode per command from `transbg` and the source
-pixelformat.
+The five rows of 9.7 map to (src_fmt, mode) = (0,0), (1,0), (1,2), (0,1), (0,3).
+
+🛑 **The coverage plane has NO address field -- it is implicit.** An earlier revision put
+`cover_addr` over `pal_addr` on the grounds that "a LINEAR command never uses" it. That is
+false for rows 2 and 3: `putscreenx8p16` writes `dp[i] = remap[sp[i]]`, where `remap` is
+`drawmethod->table` falling back to `src->palette`, and **returns silently if both are
+NULL** (`screen16.c:79-87`) -- so an indexed `LINEAR` must carry a palette. Instead the
+coverage plane is allocated **immediately after the pixel rows in the same scratch block**,
+at `src_addr + n_rows * src_stride`, so only its stride needs encoding. That also removes
+the power-of-two padding an explicit shift-encoded address would have forced.
+
+🛑 `putscreenx8p16`'s `remap` fallback is a **fourth palette-selection rule**, alongside
+the v3.10 discriminator and `plainsprite` (9.3). The ARM must reproduce it, including the
+silent-no-op-on-NULL case, which is also an offload-gate condition.
 - `END_BAND` — terminates the band's list.
 
 Volume scales as **sprites x that PAK's band count**, and band count runs 2 (240x200) to
@@ -369,12 +380,12 @@ Verified across every distinct resolution in the census:
 | 640x360 (Bearz) | 31 | 50 | 32,000 | 8 |
 | 500x650 (Xelam) | 22 | 64 | 32,000 | 11 |
 | 480x360 | 42 | 68 | 32,640 | 6 |
-| 480x272 (98 PAKs) | 56 | 68 | 32,640 | 4 |
+| 480x272 (97 PAKs) | 56 | 68 | 32,640 | 4 |
 | 432x243 (MK Outworld) | 69 | 75 | 32,400 | 4 |
 | 400x300 (Gunman) | 60 | 81 | 32,400 | 4 |
 | 384x224 | 85 | 85 | 32,640 | 3 |
 | 336x240 | 90 | 96 | 32,256 | 3 |
-| 320x240 (282 PAKs) | 95 | 102 | 32,640 | 3 |
+| 320x240 (283 PAKs) | 95 | 102 | 32,640 | 3 |
 | 256x224 | 128 | 128 | 32,768 | 2 |
 | 240x224 | 136 | 136 | 32,640 | 2 |
 | 240x200 | 153 | 136 | 32,640 | 2 |
@@ -531,6 +542,16 @@ proposed gating HALF to CPU as an escape hatch. That was wrong: there is no `_ha
 macro anywhere in the engine -- the masked idiom belongs to the 32-bit `_half`. HALF is
 reproducible in RTL as a shift and an add, and needs no escape hatch.)*
 
+🛑 **There is a SECOND gate, and it is a latent wrong-colours hazard.** The shipped
+`create_blend_tables_x8` is additionally gated on `videomodes.pixel == 2`
+(`apply_patches.py:5004`); the else-branch populates `blending_table_functions32`, whose
+constructors `malloc(256*256)` and index `tbl[(i<<8)|j]` over 0..255, while
+`blend_screen16` reads them at `_ri`/`_bi` 0..1023 and `_gi` 1024..5119 -- in-bounds and
+silently WRONG. It is **unreachable today**: B1 makes vscreen PIXEL_16, so
+`init_videomodes` sets `videomodes.pixel = 2` (`openbor.c:48816`) before the gate runs, and
+the only other writers are dead in the ship build. But a future vscreen format change would
+swap in 8-bit-indexed tables read through 5/6/5 macros with no error.
+
 🛑 **The LUTs do not exist for the whole run.** `create_blend_tables_x8` is called at
 `openbor.c:46513` (the gate is `:46511`), **after `load_models()` at `:46474`**, and is gated on
 `pixelformat == PIXEL_x8` (true in our build). So every blend issued during PAK load --
@@ -574,10 +595,17 @@ to prioritise verification order, not to decide what exists.
 The first draft said `hcnt = src_w / out_w`. Now that variant 1 is known to be dead, the
 320-wide PAKs run variant 5, where `x0 = x` and `x1 = x+1` give `hcnt = 1` -- which is
 exactly what the naive `320/320` yields. So the naive **horizontal** factor happens to be
-right for **340** PAKs and **wrong for 110**. The 340 are variants 2 and 3 (7 + 50), the
-282 320-wide PAKs, **and Lust Rush at 1600 wide** -- there `x0 = 5x`, `x1 = 5x+5`, so
+right for **341** PAKs and **wrong for 109**. The 341 are variants 2 and 3 (7 + 50), the
+283 320-wide PAKs, **and Lust Rush at 1600 wide** -- there `x0 = 5x`, `x1 = 5x+5`, so
 `hcnt = 5` constant, which is exactly the naive `1600/320`. The 110 are the 99 variant-4
-PAKs plus the remaining 11 variant-5 widths. That is not a reprieve: the naive formula omits the **vertical**
+PAKs plus the remaining 11 variant-5 widths.
+
+🛑 **The counts are 283 / 97, not 282 / 98.** `pak_dimension_census.md` derives why:
+Ultimate Super Mega Beatdown is authored `video = 1`, so `GET_ARG(1)` is `"="`,
+`strchr("=", 'x')` is NULL and `atoi("=")` is **0** -- mode 0, which the engine renders at
+**320x240**. The raw scan already had it there. An earlier revision moved it the other way
+and then recorded the reversal as if it were the correction; the error was self-concealing
+because either version sums to 450. That is not a reprieve: the naive formula omits the **vertical**
 box, the truncated reciprocal and the rounding term, which are shared by variants 2-5 and
 wrong for all 450. *(An earlier revision said "wrong for 393 of 450", computed before the
 variant-1 measurement and left standing after it.)*
@@ -592,8 +620,8 @@ variant 1 are actually handled by variant 5:
 | 1 | `width == 320 && ((uintptr_t)src_row & 15) == 0` | **NO BOX AT ALL** -- NEON BGR->RGB swap only, doubly-truncated NN row pick. 🛑 **DEAD CODE: the gate can never be true** (measured, below) | **0** |
 | 2 | `width == NV_FRAME_WIDTH * 3` (960) | 3x horizontal box, `hcnt == 3` | 7 |
 | 3 | `width == NV_FRAME_WIDTH * 2` (640) | 2x horizontal box, `hcnt == 2` | 50 |
-| 4 | `width * 2 == NV_FRAME_WIDTH * 3` (480) | 3:2 box with **per-parity** hcnt -- even dest column `hcnt=1`, odd `hcnt=2`, and **two reciprocals** `rc_e`/`rc_o` | **99** |
-| 5 | else | scalar general box, **per-column** `hcnt = x1 - x0` from `x0=(x*W)/320`, `x1=((x+1)*W)/320`, clamped `if (hcnt > 7) hcnt = 7`, via `recip16[hcnt]` | **294** (12 by width + the 282 that fall through variant 1) |
+| 4 | `width * 2 == NV_FRAME_WIDTH * 3` (480) | 3:2 box with **per-parity** hcnt -- even dest column `hcnt=1`, odd `hcnt=2`, and **two reciprocals** `rc_e`/`rc_o` | **98** |
+| 5 | else | scalar general box, **per-column** `hcnt = x1 - x0` from `x0=(x*W)/320`, `x1=((x+1)*W)/320`, clamped `if (hcnt > 7) hcnt = 7`, via `recip16[hcnt]` | **295** (12 by width + the 283 that fall through variant 1) |
 
 Variant 5's widths: 1600, 800, 720, 500, 432, 400, 384, 336, and **256/240 which are NARROWER
 than 320** -- there `x1 <= x0` clamps to `x0+1`, giving `hcnt = 1` and **column replication,
@@ -677,11 +705,16 @@ from it for many `(sum, n)`. The 16bpp path does **not** clamp to 255; the 32bpp
    mid-session**, and `savesettings()` (`:50443`) persists it to that PAK's `.cfg`.
 
    So the residual is wider than "an imported PC config": it is **settable on the device,
-   in one menu, mid-session, per PAK, and persisted**. The measurement stands (0 of 16
+   in one menu, mid-session, per PAK, and persisted**. 🛑 And Software Filter is only one
+   of the three terms: the same menu's **Display Mode** toggles `savedata.fullscreen` with
+   **no guard at all** (`openbor.c:50355` -> `sdl/video.c:206`), and Scale raises `hwscale`
+   to 4.00 (`:50368-50376`). So a PAK carrying `swfilter != 0` but currently dormant
+   (`fullscreen = 0, hwscale < 2.0`) -- and therefore invisible to the 16-config scan --
+   goes live the moment the user flips Display Mode, without touching Software Filter. The measurement stands (0 of 16
    today) and the design stays safe, but only because consequence 2 keeps the variant
    ARM-resolved per frame -- which is now load-bearing rather than defensive.
 
-   **Consequence: the 282 320-wide PAKs (63% of the library) are served by variant 5**,
+   **Consequence: the 283 320-wide PAKs (63% of the library) are served by variant 5**,
    the general per-column box -- with `x0 = x`, `x1 = x+1`, so `hcnt = 1` and the box is
    vertical-only. The FPGA must reproduce **that**, not the NN row pick. Variant 1 is dead
    code in the ship build and needs no RTL at all.
@@ -708,7 +741,7 @@ from it for many `(sum, n)`. The 16bpp path does **not** clamp to 255; the 32bpp
 3. **The frame header gains a `downscale_variant` field**, and "output-path variant" joins
    the capability gate: any variant the RTL does not implement bit-exactly routes the whole
    frame to CPU-COMPOSITE mode (section 9.10).
-4. **Build order, settled by the measurement: variant 5 FIRST.** It carries **294 PAKs**
+4. **Build order, settled by the measurement: variant 5 FIRST.** It carries **295 PAKs**
    (65%), including every 320-wide one, and it is the hardest of the five -- per-column
    `hcnt`, a truncated reciprocal, the `hcnt > 7` clamp, and the narrow-width upscale case.
    Then 4 (99 PAKs), then 3 and 2 (50 + 7, constant `hcnt`). **Variant 1 is not built.**
@@ -737,34 +770,41 @@ bit; that over-reached, because **the shipped engine already keys on exactly `0x
 (`blendscreen16`, reached from `screen.c:552` with `key = transbg`), so for two of the
 three kinds reproducing that key is what byte-identity REQUIRES, not what it forbids:
 
-| `LINEAR` source | engine behaviour | needs a coverage channel? |
-|---|---|---|
-| fullscreen background (`openbor.c:45800`, NULL drawmethod) | `_putscreen` forces `table=NULL, alpha=0, transbg=0` (`screen.c:476-480`) -> `copyscreen` / per-row `memcpy` | **no -- fully opaque** |
-| level parallax layer, **PIXEL_16 source** (`BGT_BACKGROUND`, Step-23 pre-decoded) | `blendscreen16`, key = `transbg`, tests the RGB565 value `sp[i] == 0` | **no** -- reproduce the `0x0000` key; a coverage plane would DIVERGE |
-| level parallax layer, **PIXEL_x8 source** (every other layer screen) | 🛑 `putscreenx8p16` (`screen.c:548-550`), key = `transbg`, tests the **8-bit PALETTE INDEX** `!sp[i]` | **no** -- but the test is **index 0, not colour 0x0000**. A nonzero index that maps to black IS written |
-| level parallax layer, plainly blitted | `load_layer` (`openbor.c:4127`) routes any layer with `alpha > 0 \|\| transbg` to `loadsprite2`/`spriteq_add_frame` instead -- so a screen-loaded plain layer necessarily has `transbg == 0` | **no -- unkeyed, i.e. identical to row 1** |
-| CPU-rasterised fallback sprite | source RLE transparency (`TRANSPARENT_IDX == 0`) is destroyed by rasterising to RGB565 | **yes -- this is the only case** |
+| # | `LINEAR` source | engine behaviour | transparency |
+|---|---|---|---|
+| 1 | **fullscreen background / anigif frame**, PIXEL_16 (Step-23 / P9 pre-decoded), queued with a **NULL drawmethod** (`openbor.c:45800`) | `_putscreen` forces `table = NULL, alpha = 0, transbg = 0` (`screen.c:478-483`) -> `copyscreen` / `blendscreen16` **unkeyed** | **opaque** |
+| 2 | **level parallax layer**, PIXEL_x8 source, `transbg == 0` | `putscreenx8p16` (`screen.c:548-550`), unkeyed | **opaque, but INDEXED** -- needs a palette |
+| 3 | **level parallax layer**, PIXEL_x8 source, `transbg != 0` | `putscreenx8p16`, `if(!sp[i]) continue;` (`screen16.c:103`, `:142`) | **key on PALETTE INDEX 0** -- not colour `0x0000`. A nonzero index that maps to black IS written. Needs a palette |
+| 4 | **script-allocated PIXEL_16 screen** (P10) via `openbor_drawscreen` (`openborscript.c:1844`) with script-supplied `transbg` | `blendscreen16`, `if(sp[i] == 0) continue;` (`screen16.c:254`, `:293`) | **key on RGB565 `0x0000`** -- this is the only source where that key is armed, and it is in the **unpredictable** bucket (9.11.5), not the parallax bucket |
+| 5 | **CPU-rasterised fallback** (sprite, or a parallax layer taking a scale/rotate/water path) | rasterised to scratch as RGB565 | source transparency is destroyed -- **needs the coverage plane** |
 
-So the coverage plane (1 bit alongside the scratch rows, or 32-bit scratch with an alpha
-byte) is a **fallback-scratch** feature, and its bandwidth is budgeted with M17 and the
-per-slot scratch sizing of 9.11.4. The "28.8% of putsprite time" framing does not apply --
-that is the fallback share, and the background/parallax `LINEAR`s are not part of it.
+🛑 **An earlier revision had a "level parallax layer, PIXEL_16 source (`BGT_BACKGROUND`)"
+row. That source kind CANNOT EXIST.** `loadscreen` passes the global `pixelformat`
+(`openbor.c:4142`), which is `PIXEL_x8` and is never assigned any other value
+(`pixelformat.c:59`; the two writes at `sdl/menu.c:460`/`:809` also write `PIXEL_x8`, and
+`Menu()` is dead in the ship build). `BGT_BACKGROUND` is a `bgl->oldtype` LEVEL-PARSER TAG
+(`openbor.h:1218`), not a screen format -- so that row and row 1 described the same object,
+and its "reproduce the `0x0000` key" instruction was **backwards**: with a NULL drawmethod
+`transbg` is forced to 0, so `blendscreen16` runs its UNKEYED branch, and implementing the
+key would drop legitimately-black background pixels.
 
-🛑 **Parallax layers are not plain backgrounds.** `spriteq_add_screen` at
-`openbor.c:45151` passes `&screenmethod`, carrying `water.watermode`, `amplitude`,
-`scalex`, `rotate`, `xrepeat`/`yrepeat`, `table`, `alpha` and `transbg` -- so `_putscreen`
-routes them to `gfx_draw_plane` / `gfx_draw_water` / `gfx_draw_rotate` / `gfx_draw_scale`
-exactly like a sprite (`screen.c:482-507`).
+🛑 **Every level parallax layer is 8-bit INDEXED.** That is the load-bearing fact: rows
+2 and 3 need a live palette, so `pal_addr` cannot be reused for anything else on a
+`LINEAR` command (see 7.2). A layer whose `screenmethod` selects
+`gfx_draw_scale`/`rotate`/`water` is instead **CPU-rasterised** and takes row 5.
 
-🛑 **Parallax is split TWO ways -- by drawmethod AND by source pixelformat.** By
-drawmethod: a layer whose `screenmethod` selects `gfx_draw_scale`/`rotate`/`water` is
-**CPU-rasterised**, loses its transparency like a fallback sprite, and needs the coverage
-plane. By pixelformat: the global `pixelformat` is `PIXEL_x8` and is never reassigned
-(`pixelformat.c:59` -- the same fact the `create_blend_tables_x8` gate relies on), and
-`loadscreen` passes it straight through (`openbor.c:4142`), so **most layer screens are
-8-bit** and route to `putscreenx8p16`, whose key is the palette INDEX. Only
-`BGT_BACKGROUND` (pre-decoded to PIXEL_16 by Step 23) reaches `blendscreen16` and its
-RGB565 key.
+🛑 **`transbg` is per-layer and PAK-authored** (`openbor.c:20435`, `:20505`, `:20745`),
+not a property of the layer kind -- structurally the same error M2 caught for `alpha`. The
+ARM must resolve it per layer, exactly as it resolves the palette.
+
+🛑 **OPEN: what fraction of layers is screen-loaded at all.** `load_layer`
+(`openbor.c:4127`) routes a layer to `loadsprite2`/`spriteq_add_frame` when
+`*maskfilename || ((alpha > 0 || transbg) && !water.watermode)`. An earlier revision
+quoted that without the `&& !water.watermode` term and concluded a screen-loaded layer
+"necessarily" has `transbg == 0` -- **false**: a layer with `watermode != 0` and
+`transbg != 0` IS screen-loaded, and is plainly blitted whenever `amplitude == 0`, because
+`_putscreen`'s water branch needs both (`screen.c:484`). So row 3 is reachable. What is
+not yet measured is how often -- registered in 14.2.
 
 🛑 **The key is `transbg`, which is per-layer and PAK-authored** (`openbor.c:20435`,
 `:20505`, `:20745`), not a property of the layer kind -- structurally the same error M2
@@ -799,9 +839,15 @@ A **burst-granular, strict-priority** arbiter replaces the static mux.
   synthetic `ddr_busy = 1` is presented to a non-grantee **while another master holds an
   outstanding grant** (masking unconditionally would deadlock at idle: everyone masked
   means nobody ever asserts `rd`, so the arbiter never sees a request). A masked requester
-  must HOLD `rd`/`we` + `addr` until granted, which the reader does for free -- it only
-  clears `ddr_rd` on `!ddr_busy` (`openbor_video_reader.sv:338-339`), and that is what
-  makes "`reader.sv:345` stays correct unmodified" true. `ddr_dout_ready` gating alone is
+  must HOLD `rd`/`we` + `addr` until granted. 🛑 **The reader does NOT do this for free.**
+  `:338-339` only holds an ALREADY-ASSERTED request; every issue point is itself gated on
+  `!ddr_busy` (`:553` in `ST_READ_LINE`, `:496` in `ST_POLL_CTRL`), so a masked reader
+  **never raises `ddr_rd` at all** and the arbiter sees no request from it. Strict priority
+  is then unimplementable and starves: the compositor's `rd` is already high when a grant
+  releases, the reader needs a cycle to observe `!ddr_busy`, so the arbiter re-grants the
+  compositor -- every line. **The reader must export a `wants_bus` output that is NOT gated
+  on `ddr_busy`** (a reader modification, added to the prerequisite list below), or the
+  highest-priority master must never be masked. `ddr_dout_ready` gating alone is
   not enough: `DDRAM_BUSY` is `ram_waitrequest` (`sys_top.v:1868`), and every
   requester's idiom is `if (!ddr_busy) begin ...; ddr_rd <= 1'b1; state <= ST_WAIT_...; end`.
   A non-grantee that sees `!ddr_busy` will "issue" a read into a mux pointed elsewhere,
@@ -851,6 +897,13 @@ Two further requirements the draft missed:
   beat there hangs the whole reader FSM -- video and audio together. Adding a second
   master to the port raises the odds of exactly that slip, so those two states must gain
   timeouts in the same arc as the arbiter.
+- 🛑 **Full reader-prerequisite list** (all of these are reader edits that must land in
+  phase 1c, not later): the two audio-state timeouts; a **`wants_bus`** output ungated by
+  `ddr_busy` (C6); an **abandon** output so the arbiter knows a burst's beats are unclaimed;
+  and a **`fifo_aclr` re-arm** input. 🛑 Note `fifo_aclr` alone is NOT sufficient recovery
+  for a swallow timeout -- it clears only the line FIFO (`:289`, `:693`) and cannot cancel
+  outstanding Avalon returns, which still arrive and still increment `beat_count` (`:345`).
+  A real recovery needs the returns drained or the interface reset; **registered in 14.2**.
 
 ### 9.9 The arena is WRITE-ONLY from the ARM -- the C2 resolution
 
@@ -975,7 +1028,7 @@ overlay is developer-only, and the loading bar is already I/O-bound.
   gate. Section 14.4.1's table is extended accordingly.
 
 ### Verification
-Every one of the nine paths gets an explicit on-device check in the Phase 6 regression set.
+Every one of the ten paths gets an explicit on-device check in the Phase 6 regression set.
 🛑 **THE CANONICAL LIST -- every other enumeration in this document must match it.**
 (Six distinct predictable paths, listed here by SITE, so `fade_out` appears twice.)
 
@@ -991,9 +1044,10 @@ Every one of the nine paths gets an explicit on-device check in the Phase 6 regr
 | 8 | `openborvariant("vscreen")` (+ the `changeopenborvariant` write side) | **no** (9.11.5) |
 | 9 | script `putscreen`/`drawscreen` onto `vscreen` | **no** (9.11.5) |
 | 10 | anigif cutscene capture | **no** (9.11.5) |
+| 11 | `openbor_drawspriteq` (`openborscript.c:15875`, `:15912`) -- composites the sprite queue into `vscreen` at arbitrary time when arg 0 is NULL (`:15895-15902`) | **no** (9.11.5). *(It does NOT drain the queue -- `spriteq_draw` never touches `spritequeue_len`; draining is the separate `spriteq_clear`.)* |
 
 That is **six distinct predictable paths across seven sites** (`fade_out` occupies two)
-**+ three unpredictable = NINE**. 🛑 An earlier revision made it "ten" by relabelling
+**+ four unpredictable = TEN**. 🛑 An earlier revision made it "ten" by relabelling
 `fade_out`'s two sites as "fade in" and "fade out" -- **there is no fade-in read-back
 path**; `openbor.c` has `fade_out` only, and the fade-in-like operation
 (`set_color_correction`, `:45988`) restores gamma and reads no composited pixels. Getting this right matters because a
@@ -1079,6 +1133,10 @@ one level up.
    `video_copy_screen`'s `blit()` is patched out; this path is not. **Phase-1c/2 prerequisite,
    not a Phase-5 chore.** If `mister_present` is disabled outright, `mister_ddr_init` must be
    RETAINED -- it owns the only keepalive thread (`patch_sdl_dummy.py:103`).
+   🛑 **`mister_present` also `memset`s BOTH framebuffers** behind a function-level
+   `static cleared` (`patch_sdl_dummy.py:158-165`), so it re-fires on the first present
+   after **every respawn** -- i.e. at the first `load_background()`. That is a second
+   instance of the C8 Init hazard and must be ordered by the same respawn sequence.
    🛑 **Gate the `WriteFrame` CALL, not the function.** The patched `video_copy_screen`
    body runs `ob_test_frame_advance()`, the video CRC and the deterministic `update_sample`
    mixer pull **before** the `#ifdef` split; early-returning the function stops the synthetic
@@ -1112,13 +1170,29 @@ read M5 fixes in the ARM->FPGA direction, and nothing symmetric existed FPGA->AR
 that do not need to be read atomically with the sequence (quiesce_ack, slot bitmap) may live
 in the upper half.
 
-🛑 **The compositor may not begin a frame whose target framebuffer is published or holds an
-unpublished completion** (C3). With only TWO framebuffers that arithmetic is stricter than
-an earlier revision claimed: one buffer is published, so exactly **one** non-published
-buffer exists, and therefore **at most ONE composite may be in flight** -- "two" would
-require three framebuffers. The consequence is load-bearing and was unstated: **the
-compositor idles until the ARM publishes**, so throughput is capped at the ARM's poll rate.
-A third framebuffer would lift both the cap and the idle; that is a Phase-2 decision. There are only two framebuffers, and the reader re-reads the
+🛑 **THE THIRD FRAMEBUFFER IS MANDATORY, not a Phase-2 option.** An earlier revision
+wrote the target rule as "the compositor may not begin a frame whose target framebuffer is
+published or holds an unpublished completion", on the belief that publishing retires the
+old buffer. **It does not.** The reader latches `buf_base_addr` **once per vsync** in
+`ST_CHECK_CTRL` (`openbor_video_reader.sv:517-536`), reached only from `ST_IDLE` on
+`new_frame_pending`, and then streams that buffer line by line for the whole ~16.7 ms
+display frame. So publishing `b^1` mid-frame does **not** stop the reader reading `b` --
+and the old rule immediately handed `b` to the compositor. A hardware compositor starts in
+microseconds, so it would overwrite a buffer still being scanned out: tearing up to a full
+frame wide. (Today the hazard is near-absent only because the ARM's next `WriteFrame` is an
+engine frame away.)
+
+With TWO framebuffers the correct rule is "not published, **and** not the
+previously-published buffer until the reader has latched the new one" -- i.e. the
+compositor may not start until one vsync after publish, which serialises it behind scanout
+and destroys the throughput case entirely. **Therefore: three framebuffers.** BUF2 lets the
+compositor start immediately on the buffer that is neither latched nor published, and the
+in-flight cap becomes one composite plus one completed-but-unpublished frame.
+
+🛑 Neither side can currently observe the reader's latch state -- `status_word` is
+FPGA->ARM and carries no scanout position. Either the compositor derives "safe to start"
+from vsync directly in fabric, or the reader exports a latched-buffer indication. Registered
+in 14.2. There are only two framebuffers, and the reader re-reads the
 published buffer every frame. Nothing in the round-2 model constrained the compositor's
 buffer choice: with three slots it could run three lists ahead of publication, so one late
 ARM poll (a long engine tick, a re-composite frame per 9.11.5) let it write into the buffer
@@ -1150,7 +1224,7 @@ What this actually buys:
 
 | step | compositor | slots | ARM does | `ctrl_word` |
 |---|---|---|---|---|
-| reset | idle; the FPGA zeroes `status_word` on reset (the ARM never writes it) | all A | zero `ctrl_word`, clear the slot-grant word, publish a black frame as today | ARM |
+| reset | idle. On a **hardware** reset the FPGA zeroes `status_word`; on an **ARM-process respawn** the FPGA is NOT reset, so the ARM zeroes it (9.11.3) | all A | disable -> grant-idle -> clear slot-grant -> zero `status_word` -> zero `ctrl_word` + `memset` framebuffers -> release | ARM |
 | first frame (always CPU) | idle | all A | `WriteFrame` -> BUF0, publish | ARM |
 | steady FPGA frame N | walks slot k | k=F, others A | read status; publish frame N-1's buffer; build list N into a free slot; mark it F | ARM |
 | in-flight cap reached (or no free slot) | busy | 1 granted, others A | **drop**: skip presentation, keep playing, keepalive holds the reader | ARM (keepalive) |
@@ -1172,6 +1246,8 @@ Two rules that were previously unstated and are load-bearing:
 #### 9.11.3 Quiesce, and a disable the ARM can assert unilaterally
 
 Arena memory is recycled under a running compositor, so the ARM must be able to stop it.
+Both quiesce signals are DDR3 words polled by each side -- there is no wire (arch #22); the
+compositor polls once per band, so a quiesce costs at most one band.
 
 🛑 **The IN-PROCESS triggers are model unload, level load and mode change. PAK load,
 hot-swap and `.s1` replay reset are NOT quiesce triggers -- they are process EXITS.** Per
@@ -1184,8 +1260,20 @@ the disable register and slot grants survive in whatever state the exit left the
 
 **Normative Init sequence for a respawned process** -- this is the DOMINANT reset path,
 not an edge case: assert `compositor_disable` -> wait for the arbiter to report no grant
-outstanding -> clear the slot-grant word -> zero `status_word` -> only then `memset` the
-framebuffers and zero `ctrl_word` -> release disable. Both signals are DDR3
+outstanding -> clear the slot-grant word -> **zero `status_word`** -> only then `memset` the
+framebuffers and zero `ctrl_word` -> release disable.
+
+🛑 **The ARM must be the one to zero `status_word` here.** The FPGA is not reset on a
+respawn, so it will not; if neither does, the new process reads the previous session's
+`completed_seq`, sees it as new against its own zeroed baseline, and publishes
+`completed_buf` -- a framebuffer it is concurrently `memset`ing. Black or garbage on every
+PAK load, hot-swap and `.s1` replay. **The ARM's own sequence numbering must also start at
+>= 1**, or "no completion" is indistinguishable from "completed seq 0".
+
+🛑 **Step 2 has no channel yet.** "Wait for the arbiter to report no grant outstanding"
+needs an arbiter-owned, always-alive FPGA->ARM indication; `status_word` carries no such
+bit, and a disabled compositor cannot write it anyway (that write would itself need a
+grant). Registered in 14.2 -- **the respawn sequence is unimplementable without it**. Both signals are DDR3
 words polled by each side -- **there is no wire** (arch #22); the compositor polls once per
 band, not once per frame, so a quiesce costs at most one band, not up to 16.7 ms.
 
@@ -1196,6 +1284,9 @@ band, not once per frame, so a quiesce costs at most one band, not up to 16.7 ms
   ARM:  wait for quiesce_ack (bounded), THEN free/reuse
   ARM:  clear quiesce_req to resume
 ```
+
+(**`quiesce_req` and `quiesce_ack`** are the DDR3 words -- there is no wire for those.
+`compositor_disable` is NOT one of them; see below.)
 
 🛑 **`compositor_disable` is a REGISTER, not a DDR3 word, and not part of the
 handshake.** A DDR3 word only takes effect when the compositor polls it -- and a wedged
@@ -1245,7 +1336,7 @@ open sizing item, not a fixed 128 KB.
 
 | budget | bound |
 |---|---|
-| per row | `src_w * 3 + 1` **bytes**. 🛑 The bound is in BYTES because **no pixel-derived bound exists**: `clearcount = 0, viscount = 0` repeated is explicitly legal (section 5) and advances `dst_x` by zero, so an adversarial stream makes no pixel progress at all. 3 B/px is the tightest byte cap for a row that *does* cover `src_w` pixels; real `encodesprite` output peaks near `1.5 * src_w + 2` |
+| per row | `src_w * 3 + 1` **bytes**. 🛑 The bound is in BYTES because it must guard **corrupt or non-conformant** data, for which no pixel-derived bound exists: a `clearcount = 0, viscount = 0` stream advances `dst_x` by zero forever. (`encodesprite` itself can never emit that pair -- a `viscount == 0` is only reachable after a `clearcount == 0xFE` cap, `sprite.c:754`/`:778`, so every CONFORMANT pair advances at least one pixel. The byte budget is robustness, not a format property.) 3 B/px is the tightest byte cap for a row that *does* cover `src_w` pixels; real `encodesprite` output peaks near `1.5 * src_w + 2` |
 | per command | `n_rows * (src_w * 3 + 1)` **bytes** (bytes, NOT beats; a beat is 8 bytes on the 64-bit port) |
 | per band | a fixed cycle budget, to catch a pathological list rather than one bad row |
 
@@ -1315,9 +1406,18 @@ and a `__sync_synchronize()` before it (the shipped writer already does this at
 `native_video_writer.c:723` for exactly this reason). The FPGA reads the sequence number
 first, then the body, then **re-reads the sequence number and discards the frame if it
 changed**. 🛑 **This governs the FRAME HEADER within a slot. The publication event for the
-slot itself is the doorbell grant bit of 9.11.1** (body -> barrier -> grant bit); the
-header re-read remains necessary because a slot the ARM still owns may be rewritten while
-the FPGA is speculatively reading it. The two are complementary, not alternatives. Without that, geometry from frame N can pair with a sequence from N+1.
+slot itself is the doorbell grant bit of 9.11.1** (body -> barrier -> grant bit).
+
+🛑 **NORMATIVE: the compositor may NOT read a slot before its grant bit is set.** An
+earlier revision justified the header re-read by saying "a slot the ARM still owns may be
+rewritten while the FPGA is speculatively reading it" -- but that permission breaks rule 3.
+The ARM can only compute the target buffer AFTER publishing the previous completion (step
+(b) precedes step (c) in 9.11.1), so the target bit lands late in `frame_flags`; it does not
+change the sequence number in qword 2, so the re-read fires no discard and a speculating
+compositor would latch a **stale target** and write the published, currently-scanned-out
+buffer. With pre-grant reads forbidden, the barrier ordering alone guarantees a complete
+body, and the header re-read is retained only as defence against a mid-flight ABANDON that
+returns the slot to the ARM. Without that, geometry from frame N can pair with a sequence from N+1.
 
 **M6 -- command volume.** Folded into 9.11.4: the bound is computed **per PAK** from its band
 count (2 for 240x200, 56 for Lust Rush), and overflow falls back rather than truncating.
@@ -1611,8 +1711,8 @@ area across the census gives:
 | 960x540 (4 PAKs) | 518,400 | 62.1 | 78.3 | 8.6 | 149.0 | ok |
 | **He-Man 960x480** | 460,800 | 55.2 | 69.6 | 8.6 | **133.4** | ok (the measured anchor) |
 | 640x480 (46 PAKs) | 307,200 | 36.8 | 46.4 | 8.6 | 91.8 | ok |
-| 480x272 (98 PAKs) | 130,560 | 15.6 | 19.7 | 8.6 | 44.0 | ok |
-| 320x240 (282 PAKs) | 76,800 | 9.2 | 11.6 | 8.6 | 29.4 | ok |
+| 480x272 (97 PAKs) | 130,560 | 15.6 | 19.7 | 8.6 | 44.0 | ok |
+| 320x240 (283 PAKs) | 76,800 | 9.2 | 11.6 | 8.6 | 29.4 | ok |
 
 **Only Lust Rush is anywhere near the ceiling**, and it is a single PAK at 3.12x He-Man's
 area. Everything else has 3x margin or better. Options, to settle in Phase 2: measure Lust
