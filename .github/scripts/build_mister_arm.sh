@@ -24,6 +24,26 @@ require_file() { [ -f "$1" ] || { echo "ERROR: $2" >&2; exit 1; }; }
 # leaves us in the wrong directory under `set +e` -- the build then blunders on
 # for another ~15 min and dies confusingly at a missing header (zlib, 2026-07-31).
 require_dir()  { [ -d "$1" ] || { echo "ERROR: $2" >&2; exit 1; }; }
+# Fetch a tarball and PROVE it is a valid archive before accepting it.
+# `wget URL1 || wget URL2` is NOT enough: a mirror that answers 200 with a
+# truncated body or an HTML error page makes wget exit 0, so the fallback never
+# runs and the corrupt file sails through the -f check -- which is exactly how a
+# bad zlib tarball took two builds down (2026-08-01), reaching the extraction
+# guard instead of the mirror. `tar tzf` lists without extracting, so it proves
+# gzip integrity in a few ms. Deletes the file on failure so require_file
+# reports it.
+fetch_verify() {
+    _fv_out="$1"; shift
+    for _fv_url in "$@"; do
+        rm -f "$_fv_out"
+        if wget -q "$_fv_url" -O "$_fv_out" && tar tzf "$_fv_out" >/dev/null 2>&1; then
+            return 0
+        fi
+        echo "WARN: $_fv_url did not yield a valid archive; trying the next mirror" >&2
+    done
+    rm -f "$_fv_out"
+    return 1
+}
 
 SDL_PREFIX=/tmp/sdl2
 
@@ -42,7 +62,7 @@ apt-get clean
 # instability (DCurrent reverted past this version).
 echo "=== Building SDL 2.0.8 ==="
 cd /tmp
-wget -q https://www.libsdl.org/release/SDL2-2.0.8.tar.gz
+fetch_verify SDL2-2.0.8.tar.gz https://www.libsdl.org/release/SDL2-2.0.8.tar.gz \n    https://github.com/libsdl-org/SDL/releases/download/release-2.0.8/SDL2-2.0.8.tar.gz
 require_file SDL2-2.0.8.tar.gz "SDL2 download failed"
 tar xzf SDL2-2.0.8.tar.gz
 require_dir SDL2-2.0.8 "SDL2 extraction failed (corrupt or truncated tarball)"
@@ -87,7 +107,7 @@ test -f $SDL_PREFIX/lib/libSDL2.a || { echo "ERROR: SDL2 build/install failed �
 # ── Build SDL2_gfx 1.0.4 ─────────────────────────────────────────
 echo "=== Building SDL2_gfx 1.0.4 ==="
 cd /tmp
-wget -q https://www.ferzkopp.net/Software/SDL2_gfx/SDL2_gfx-1.0.4.tar.gz
+fetch_verify SDL2_gfx-1.0.4.tar.gz https://www.ferzkopp.net/Software/SDL2_gfx/SDL2_gfx-1.0.4.tar.gz
 require_file SDL2_gfx-1.0.4.tar.gz "SDL2_gfx download failed"
 tar xzf SDL2_gfx-1.0.4.tar.gz
 require_dir SDL2_gfx-1.0.4 "SDL2_gfx extraction failed (corrupt or truncated tarball)"
@@ -111,7 +131,7 @@ test -f $SDL_PREFIX/lib/libSDL2_gfx.a || { echo "ERROR: SDL2_gfx build/install f
 # ── Build libogg 1.3.5 ───────────────────────────────────────────
 echo "=== Building libogg ==="
 cd /tmp
-wget -q https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz
+fetch_verify libogg-1.3.5.tar.gz https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz \n    https://github.com/xiph/ogg/releases/download/v1.3.5/libogg-1.3.5.tar.gz
 require_file libogg-1.3.5.tar.gz "libogg download failed"
 tar xzf libogg-1.3.5.tar.gz
 require_dir libogg-1.3.5 "libogg extraction failed (corrupt or truncated tarball)"
@@ -123,7 +143,7 @@ make install --quiet
 # ── Build libvorbis 1.3.7 ────────────────────────────────────────
 echo "=== Building libvorbis ==="
 cd /tmp
-wget -q https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz
+fetch_verify libvorbis-1.3.7.tar.gz https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz \n    https://github.com/xiph/vorbis/releases/download/v1.3.7/libvorbis-1.3.7.tar.gz
 require_file libvorbis-1.3.7.tar.gz "libvorbis download failed"
 tar xzf libvorbis-1.3.7.tar.gz
 require_dir libvorbis-1.3.7 "libvorbis extraction failed (corrupt or truncated tarball)"
@@ -139,7 +159,7 @@ rm -rf libogg-1.3.5 libogg-1.3.5.tar.gz
 # ── Build zlib 1.2.13 ────────────────────────────────────────────
 echo "=== Building zlib ==="
 cd /tmp
-wget -q https://zlib.net/fossils/zlib-1.2.13.tar.gz || wget -q https://github.com/madler/zlib/releases/download/v1.2.13/zlib-1.2.13.tar.gz
+fetch_verify zlib-1.2.13.tar.gz https://github.com/madler/zlib/releases/download/v1.2.13/zlib-1.2.13.tar.gz \n    https://zlib.net/fossils/zlib-1.2.13.tar.gz
 if [ ! -f zlib-1.2.13.tar.gz ]; then echo "ERROR: zlib download failed"; exit 1; fi
 tar xzf zlib-1.2.13.tar.gz
 require_dir zlib-1.2.13 "zlib extraction failed (corrupt or truncated tarball)"
@@ -151,7 +171,7 @@ make install --quiet
 # ── Build libpng 1.6.39 ──────────────────────────────────────────
 echo "=== Building libpng ==="
 cd /tmp
-wget -q https://download.sourceforge.net/libpng/libpng-1.6.39.tar.gz
+fetch_verify libpng-1.6.39.tar.gz https://download.sourceforge.net/libpng/libpng-1.6.39.tar.gz \n    https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.39.tar.gz
 require_file libpng-1.6.39.tar.gz "libpng download failed"
 tar xzf libpng-1.6.39.tar.gz
 require_dir libpng-1.6.39 "libpng extraction failed (corrupt or truncated tarball)"
