@@ -63,6 +63,15 @@ if [ -f /tmp/openbor_recmode ]; then
             if [ -n "$_PAK" ]; then
                 cp -f "/media/fat/saves/OpenBOR_7533/$_PAK.sav"      "$_SCR/saves/"       2>/dev/null
                 cp -f "/media/fat/config/$_PAK.hi"                   "$_SCR/saves/"       2>/dev/null
+                # NOTE: OpenBOR has NO emulator-style save states. This directory
+                # holds saveScriptFile()/loadScriptFile() output -- a PAK's own
+                # SCRIPT persistent variables (unlocks, mod-tracked progress),
+                # which is real game state and so must be isolated. "SaveStates"
+                # is just the MiSTer-side directory name we chose for it.
+                # Both extensions are copied on purpose: the engine writes .scr
+                # (getPakName case 2), but devices carry .s00 files from earlier
+                # builds, and seeding the wrong one silently loses progress.
+                cp -f "/media/fat/savestates/OpenBOR_7533/$_PAK.scr" "$_SCR/savestates/"  2>/dev/null
                 cp -f "/media/fat/savestates/OpenBOR_7533/$_PAK.s00" "$_SCR/savestates/"  2>/dev/null
                 echo "[REC] seeded scratch from your saves for: $_PAK"
             fi

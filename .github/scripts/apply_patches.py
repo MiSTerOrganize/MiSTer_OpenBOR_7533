@@ -757,7 +757,17 @@ extern int mrec_isolate;
     write(os.path.join(obor, 'source/utils.c'), src)
     print("  Save path redirected; log path absolute (/media/fat/logs/OpenBOR_7533/).")
 
-    # ── 6c. Patch openbor.c — route .cfg/.hi to Config, .s00 to SaveStates ──
+    # ── 6c. Patch openbor.c — route .cfg/.hi to Config, .scr to SaveStates ──
+    # TERMINOLOGY: OpenBOR has NO emulator-style save states -- no freeze/
+    # quick-save/arbitrary snapshot. "SaveStates" is only the MiSTer-side
+    # directory NAME we chose. What lands there is saveScriptFile()/
+    # loadScriptFile() output: a PAK's own SCRIPT persistent variables
+    # (unlocks, mod-tracked progress), written as <pak>.scr per getPakName
+    # case 2. That IS game state, which is why the recorder isolates it.
+    # Comments here said ".s00" for a long time; that was never what the
+    # engine writes (CLAUDE.md recorded the same correction 2026-05-19),
+    # though devices do carry .s00 files from earlier builds -- the handler
+    # seeds BOTH extensions so neither is silently missed.
     print("Patching openbor.c (split save directories)...")
     obor_c = read(os.path.join(obor, 'openbor.c'))
 
@@ -786,23 +796,23 @@ extern int mrec_isolate;
         count=2
     )
 
-    # .s00 save states (saveScriptFile uses tmpvalue)
+    # .scr script-save data (saveScriptFile uses tmpvalue) -- NOT a save state
     obor_c = strict_replace(
         obor_c,
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpvalue, 2);//.scr',
         '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "SaveStates", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpvalue, 2);//.scr',
-        '.s00 saveScriptFile path -> SaveStates'
+        '.scr saveScriptFile path -> SaveStates'
     )
     # loadScriptFile uses tmpname
     obor_c = strict_replace(
         obor_c,
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpname, 2);//.scr',
         '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "SaveStates", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 2);//.scr',
-        '.s00 loadScriptFile path -> SaveStates'
+        '.scr loadScriptFile path -> SaveStates'
     )
 
     write(os.path.join(obor, 'openbor.c'), obor_c)
-    print("  .cfg/.hi -> /media/fat/config/, .s00 -> /media/fat/savestates/OpenBOR_7533/")
+    print("  .cfg/.hi -> /media/fat/config/, .scr script-save -> /media/fat/savestates/OpenBOR_7533/")
 
     # ── Step 31 v2 (2026-05-28): Respect cart's EXPLICIT subject_to_gravity 0
     #
