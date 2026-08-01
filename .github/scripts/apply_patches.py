@@ -709,6 +709,15 @@ extern int mrec_isolate;
         } else if (strcmp(name, "SaveStates") == 0) { \\
             strcpy(buf, mrec_isolate ? "/media/fat/games/OpenBOR/Replays/.state/savestates/" \\
                                      : "/media/fat/savestates/OpenBOR_7533/"); \\
+        } else if (strcmp(name, "HighScores") == 0) { \\
+            /* Split out of Config purely so it can be isolated: a qualifying \\
+             * score changes whether an initials-entry screen appears, which \\
+             * adds frames and desyncs a replay. Config itself must NOT be \\
+             * redirected -- it holds key bindings. Normal runs resolve to the \\
+             * same /media/fat/config/ as before, so existing .hi files are \\
+             * found exactly where they always were. */ \\
+            strcpy(buf, mrec_isolate ? "/media/fat/games/OpenBOR/Replays/.state/saves/" \\
+                                     : "/media/fat/config/"); \\
         } else if (strcmp(name, "Config") == 0) { \\
             strcpy(buf, "/media/fat/config/"); \\
         } else if (strcmp(name, "Logs") == 0) { \\
@@ -772,8 +781,8 @@ extern int mrec_isolate;
     obor_c = strict_replace(
         obor_c,
         'getBasePath(path, "Saves", 0);\n    getPakName(tmpname, 1);',
-        '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "Config", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 1);',
-        '.hi (high score) path -> Config',
+        '#ifdef MISTER_NATIVE_VIDEO\n    getBasePath(path, "HighScores", 0);\n#else\n    getBasePath(path, "Saves", 0);\n#endif\n    getPakName(tmpname, 1);',
+        '.hi (high score) path -> HighScores (Config dir, but isolatable)',
         count=2
     )
 
@@ -2848,9 +2857,11 @@ extern int mrec_isolate;
             "                    char _mr_b[MAX_BUFFER_LEN]; int _mr_i, _mr_mx = 0;\n"
             "                    strcpy(_mr_b, \"/media/fat/games/OpenBOR/Replays/\"); mrec_content_id(_mr_nm, MAX_BUFFER_LEN);   /* OSD-browsable (SC1 opens at games/OpenBOR/). Identity-derived stem, NOT getPakName's basename: same-named PAKs in different Paks/ subfolders would otherwise share one library AND pass the match guard, and the wrong replay would PLAY. Also drops the old strstr(\".inp\") strip, which cut at the FIRST match and so mangled any PAK with .inp in its own name. */\n"
             "                    strcat(_mr_b, _mr_nm);\n"
-            "                    for(_mr_i = 1; _mr_i <= 999; _mr_i++)\n"
-            "                    { sprintf(_mr_path, \"%s_%d.inp\", _mr_b, _mr_i);\n"
-            "                      { FILE *_mr_t = fopen(_mr_path, \"rb\"); if(_mr_t){ fclose(_mr_t); _mr_mx = _mr_i; } } }\n"
+            "                    { int _mr_miss = 0;   /* Stop after a short run of gaps instead of always sweeping to the ceiling. The old fixed 1..999 probe cost ~999 fopen/fclose pairs on exFAT, run twice per session (arm, and again at every Stop) -- a measurable SD stall that also widened the window for a swap-thread _exit mid-flush. It also hard-capped the library: at 999 the writer computed 999+1 forever and silently overwrote _1000. Tolerating a few gaps keeps hand-deleted takes discoverable while making the normal contiguous case ~N probes. */\n"
+            "                      for(_mr_i = 1; _mr_i <= 9999 && _mr_miss < 8; _mr_i++)\n"
+            "                      { sprintf(_mr_path, \"%s_%d.inp\", _mr_b, _mr_i);\n"
+            "                        { FILE *_mr_t = fopen(_mr_path, \"rb\");\n"
+            "                          if(_mr_t){ fclose(_mr_t); _mr_mx = _mr_i; _mr_miss = 0; } else _mr_miss++; } } }\n"
             "                    sprintf(_mr_path, \"%s_%d.inp\", _mr_b, _mr_mx > 0 ? _mr_mx : 1);\n"
             "                }\n"
             "                if(_mr_m[0] == 'P')\n"
@@ -2942,9 +2953,11 @@ extern int mrec_isolate;
             "                    char _mr_b[MAX_BUFFER_LEN]; int _mr_i, _mr_mx = 0;\n"
             "                    strcpy(_mr_b, \"/media/fat/games/OpenBOR/Replays/\"); mrec_content_id(_mr_nm, MAX_BUFFER_LEN);   /* OSD-browsable (SC1 opens at games/OpenBOR/). Identity-derived stem, NOT getPakName's basename: same-named PAKs in different Paks/ subfolders would otherwise share one library AND pass the match guard, and the wrong replay would PLAY. Also drops the old strstr(\".inp\") strip, which cut at the FIRST match and so mangled any PAK with .inp in its own name. */\n"
             "                    strcat(_mr_b, _mr_nm);\n"
-            "                    for(_mr_i = 1; _mr_i <= 999; _mr_i++)\n"
-            "                    { sprintf(_mr_path, \"%s_%d.inp\", _mr_b, _mr_i);\n"
-            "                      { FILE *_mr_t = fopen(_mr_path, \"rb\"); if(_mr_t){ fclose(_mr_t); _mr_mx = _mr_i; } } }\n"
+            "                    { int _mr_miss = 0;   /* Stop after a short run of gaps instead of always sweeping to the ceiling. The old fixed 1..999 probe cost ~999 fopen/fclose pairs on exFAT, run twice per session (arm, and again at every Stop) -- a measurable SD stall that also widened the window for a swap-thread _exit mid-flush. It also hard-capped the library: at 999 the writer computed 999+1 forever and silently overwrote _1000. Tolerating a few gaps keeps hand-deleted takes discoverable while making the normal contiguous case ~N probes. */\n"
+            "                      for(_mr_i = 1; _mr_i <= 9999 && _mr_miss < 8; _mr_i++)\n"
+            "                      { sprintf(_mr_path, \"%s_%d.inp\", _mr_b, _mr_i);\n"
+            "                        { FILE *_mr_t = fopen(_mr_path, \"rb\");\n"
+            "                          if(_mr_t){ fclose(_mr_t); _mr_mx = _mr_i; _mr_miss = 0; } else _mr_miss++; } } }\n"
             "                    sprintf(_mr_path, \"%s_%d.inp\", _mr_b, _mr_mx + 1);\n"
             "                }\n"
             "                if(_mr_len <= 0 || !_mr_buf)\n"
@@ -2993,6 +3006,17 @@ extern int mrec_isolate;
             "                }\n"
             "            }\n"
             "        }\n"
+            "        if(mrec_mode == 1 && _mr_len >= 2000000L)\n"
+            "        {   /* At the cap, STOP and flush rather than silently dropping frames while\n"
+            "             * still showing \"Stop Recording\" in the menu -- the player would carry on\n"
+            "             * for another hour believing it was still capturing, and the file would\n"
+            "             * just end mid-session with nothing recording that it was truncated.\n"
+            "             * Re-uses the normal stop path by dropping its marker, so the flush logic\n"
+            "             * stays in exactly one place. */\n"
+            "            FILE *_mr_cf = fopen(\"/tmp/openbor_recstop\", \"w\");\n"
+            "            if(_mr_cf) fclose(_mr_cf);\n"
+            "            printf(\"[REC] frame cap reached (%ld frames) -- stopping and saving\\n\", _mr_len);\n"
+            "        }\n"
             "        if(mrec_mode == 1 && _mr_len < 2000000L)\n"
             "        {   /* record: append (interval + raw input) EVERY frame, including the\n"
             "             * pause menu's own. Deliberately NOT gated on !_pause.\n"
@@ -3039,9 +3063,26 @@ extern int mrec_isolate;
             "             * NOT gated on !_pause, matching the capture side above -- the menu\n"
             "             * frames are in the stream, so they must be injected for the replay to\n"
             "             * navigate and close the menu the way the recording did. */\n"
+            "            static u64 _mr_pl[4] = {0,0,0,0};   /* OUR snapshot of live held-buttons */\n"
             "            int _mr_live = 0;\n"
+            "            /* Take-over must edge-detect against a snapshot WE own. The engine's\n"
+            "             * newkeyflags is derived from the struct's own previous keyflags --\n"
+            "             * which the injector below overwrote last frame with the RECORDED\n"
+            "             * value -- so reading it gives both false positives (a continuously\n"
+            "             * HELD button looks freshly pressed the frame after the recording's\n"
+            "             * own value for that bit goes 1->0, aborting a good replay) and false\n"
+            "             * negatives (a real press is masked whenever the recording held the\n"
+            "             * same bit last frame). keyflags itself is still the true live state:\n"
+            "             * control_update sets it immediately before this block runs.\n"
+            "             * Seed on the first replayed frame rather than from 0, or anything\n"
+            "             * already held when the PAK finishes loading reads as a fresh press\n"
+            "             * and kills playback at frame 0. */\n"
             "            for(_mr_p=0; _mr_p<MAX_PLAYERS && _mr_p<4; _mr_p++)\n"
-            "                if(playercontrolpointers[_mr_p]->newkeyflags){ _mr_live=1; break; }\n"
+            "            {\n"
+            "                u64 _mr_k = playercontrolpointers[_mr_p]->keyflags;\n"
+            "                if(_mr_pos > 0 && (_mr_k & ~_mr_pl[_mr_p])) _mr_live = 1;\n"
+            "                _mr_pl[_mr_p] = _mr_k;\n"
+            "            }\n"
             "            if(_mr_live || _mr_pos >= _mr_len)\n"
             "            { if(_mr_buf){free(_mr_buf);_mr_buf=NULL;} _mr_cap=0; _mr_len=0; mrec_mode=0; }\n"
             "            else if(_mr_buf)\n"
