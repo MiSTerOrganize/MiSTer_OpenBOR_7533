@@ -94,8 +94,9 @@ void pausemenu()
      * NOTHING (update(1,0) below does still call inputrefresh every iteration,
      * but both the capture and the inject are gated on !_pause and _pause is 2
      * in here), so the replay would hang with nothing in the stream able to
-     * close it. Recordings made after the mrec_drop_last fix
-     * below no longer contain such a press; this guard covers older files. */
+     * close it. Recordings can still CONTAIN such a press (the frame that opens the
+     * menu ticks in full, so it is deliberately kept) -- this guard is what makes
+     * that safe, by refusing to open the menu instead of altering the stream. */
     if(mrec_mode == 2)
     {
         freescreen(&pausebuffer);
@@ -122,12 +123,18 @@ void pausemenu()
     _pause = 2;
     bothnewkeys = 0;
 
-    /* The press that opened this menu was already captured by the recorder
-     * earlier in THIS frame. Flag it for removal on the next inputrefresh --
-     * otherwise a replay re-enters this modal menu and hangs (see the guard
-     * above). Eliding the pause is deterministic: the engine does not tick
-     * while paused, so the replayed game timeline is identical. */
-    if(mrec_mode == 1) mrec_drop_last = 1;
+    /* NOTE: the press that opened this menu is deliberately LEFT IN the
+     * recording. An earlier fix dropped it -- reasoning that the engine does
+     * not tick while paused, so the pause could be elided -- but that is only
+     * true of the PAUSED frames. pausemenu() is called at the END of update(),
+     * after inputrefresh() and after the while(_time < newtime) tick loop, so
+     * the frame that opens this menu ticks in FULL and only then lands here.
+     * Dropping it left the replay one input sample short and desynced
+     * everything after the pause (user-reported 2026-08-01).
+     * Nothing extra is needed: the mrec_mode == 2 guard above keeps a replay
+     * out of this menu, so the frame replays as a normal ticking frame and the
+     * next recorded frame follows -- correct, because the paused frames
+     * contributed no ticks and were never captured in the first place. */
 
     while(!quit)
     {
