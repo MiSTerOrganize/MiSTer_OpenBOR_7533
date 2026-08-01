@@ -30,9 +30,11 @@
  *
  *   FLOW: pause -> Recording -> "Record" restarts the PAK and records everything
  *   you do from the title on. pause -> Recording -> "Stop Recording" writes the
- *   stream to /media/fat/saves/OpenBOR_7533/<pak>.inp (magic "MREC1" + seed + len
- *   + frames) and resumes play. pause -> Recording -> "Play Recording" restarts +
- *   replays it hands-free; press ANY button to take over.
+ *   stream to /media/fat/games/OpenBOR/Replays/<pak>_N.inp (numbered library --
+ *   never overwrites; magic "MREC4" + engine_ver + build_date + pak_name + seed
+ *   + len + per-frame interval/keyflags) and resumes play. pause -> Recording ->
+ *   "Play Recording" restarts + replays the highest-numbered take hands-free;
+ *   press ANY button to take over. The OSD SC1 "Load Replay" slot plays any file.
  *
  *   DETERMINISM: OpenBOR seeds its RNG only inside the record/replay funcs (no
  *   srand during PAK/level load), so the recorder captures getseed() at Record and
@@ -71,12 +73,28 @@ void pausemenu()
      * vscreen) is not a no-op (copyscreen early-returns on format mismatch). */
     s_screen *pausebuffer = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_16);
 
+    /* allocscreen returns NULL on malloc failure and copyscreen dereferences
+     * dest->pixelformat immediately -- so an unchecked failure here is a
+     * SIGSEGV. It is not a trivial allocation: a 960x480 PAK needs ~900 KB
+     * CONTIGUOUS, requested fresh on every pause. And it is worst exactly when
+     * it matters most: the recorder may be holding 70-140 MB and has just
+     * fragmented the heap with doubling reallocs, and the pause menu is the
+     * ONLY way to reach Stop Recording. Crashing here would lose the take.
+     * Bail out cleanly instead -- the game simply stays unpaused. */
+    if(!pausebuffer)
+    {
+        printf("[PAUSE] out of memory for the pause buffer -- not opening the menu\n");
+        return;
+    }
+
     /* A pause press can only reach here DURING PLAYBACK if it was INJECTED: a
      * live press is caught by the recorder's take-over first, which ends
      * playback before the engine acts on the press. And an injected one must be
-     * refused -- this menu is modal (inputrefresh, and therefore the recorder,
-     * does not run inside it), so the replay would hang here with nothing in the
-     * stream able to close it. Recordings made after the mrec_drop_last fix
+     * refused -- while this menu is open the recorder captures and injects
+     * NOTHING (update(1,0) below does still call inputrefresh every iteration,
+     * but both the capture and the inject are gated on !_pause and _pause is 2
+     * in here), so the replay would hang with nothing in the stream able to
+     * close it. Recordings made after the mrec_drop_last fix
      * below no longer contain such a press; this guard covers older files. */
     if(mrec_mode == 2)
     {
