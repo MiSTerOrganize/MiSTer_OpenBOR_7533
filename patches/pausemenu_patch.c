@@ -87,21 +87,25 @@ void pausemenu()
         return;
     }
 
-    /* A pause press can only reach here DURING PLAYBACK if it was INJECTED: a
-     * live press is caught by the recorder's take-over first, which ends
-     * playback before the engine acts on the press. And an injected one must be
-     * refused -- while this menu is open the recorder captures and injects
-     * NOTHING (update(1,0) below does still call inputrefresh every iteration,
-     * but both the capture and the inject are gated on !_pause and _pause is 2
-     * in here), so the replay would hang with nothing in the stream able to
-     * close it. Recordings can still CONTAIN such a press (the frame that opens the
-     * menu ticks in full, so it is deliberately kept) -- this guard is what makes
-     * that safe, by refusing to open the menu instead of altering the stream. */
-    if(mrec_mode == 2)
-    {
-        freescreen(&pausebuffer);
-        return;
-    }
+    /* NOTE: this menu runs NORMALLY during playback -- there is deliberately no
+     * mrec_mode == 2 early-return here.
+     *
+     * One was added and then removed (2026-08-01). It refused to open the menu
+     * on an injected pause press, to stop a replay hanging inside a modal loop
+     * the recorded stream could not close. But the engine pauses audio BEFORE
+     * calling us --
+     *     sound_pause_music(1); sound_pause_sample(1); pausemenu();
+     * -- and it is THIS function's exit that calls sound_pause_music(0). An
+     * early return therefore left the engine's audio paused for the rest of the
+     * run: the user heard the pause sound, saw no menu, and then lost all
+     * gameplay audio.
+     *
+     * The hang it was working around had a different cause: capture and inject
+     * used to be gated on !_pause, so the menu's own frames were never recorded
+     * and the stream had nothing able to close the menu. That gate is gone, so
+     * the menu frames are recorded and replayed like any others -- the recorded
+     * navigation drives this loop and the recorded Continue exits it, restoring
+     * audio on the way out exactly as it did live. */
 
     copyscreen(pausebuffer, vscreen);
     spriteq_draw(pausebuffer, 0, MIN_INT, MAX_INT, 0, 0);
