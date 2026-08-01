@@ -324,7 +324,32 @@ void pausemenu()
                 case 3:  /* Reset Pak -- write marker so _handler.sh keeps .s0,
                           * then exit; the daemon relaunch re-mounts the PAK. */
                     {
-                        FILE *_m = fopen("/tmp/openbor_reset_marker", "w");
+                        FILE *_m;
+                        /* Reset RESTARTS a recording rather than silently
+                         * ending it. Previously only the reset marker was
+                         * written, so the respawn found no recmode marker and
+                         * came up idle: the take vanished with no warning and
+                         * no log line. The bad case is not losing it -- it is
+                         * not NOTICING, and playing on believing you are still
+                         * recording. A recording is title-anchored, so it
+                         * always begins at the PAK's start, and Reset returns
+                         * you to exactly that point: "Reset while recording"
+                         * is therefore almost always "let me do that run
+                         * again", and re-arming gives a clean re-take.
+                         * Playback is deliberately NOT re-armed -- Reset during
+                         * a replay is a manual intervention, and take-over
+                         * already covers stopping one. */
+                        if (mrec_mode == 1)
+                        {
+                            _m = fopen("/tmp/openbor_recmode", "w");
+                            if (_m) { fputs("REC", _m); fclose(_m); }
+                            printf("[REC] reset while recording -- restarting the take\n");
+                        }
+                        else if (mrec_mode == 2)
+                        {
+                            printf("[REC] reset during playback -- playback ended\n");
+                        }
+                        _m = fopen("/tmp/openbor_reset_marker", "w");
                         if (_m) fclose(_m);
                     }
                     exit(0);
