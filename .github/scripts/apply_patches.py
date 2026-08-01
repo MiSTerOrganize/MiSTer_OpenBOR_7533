@@ -682,12 +682,33 @@ endif
     # because the data is build-specific). This prevents cross-build log
     # mixing when both binaries dispatch under the unified "OpenBOR" setname.
     new_macro = """#ifdef MISTER_NATIVE_VIDEO
+/* MiSTer recorder save-isolation. A recording is title-anchored -- it restarts
+ * the PAK -- but the title anchor restarts the PROCESS, not the SD card. So a
+ * <pak>.sav written during the record run is still there when the playback run
+ * boots, and the two runs start from different worlds: different progress,
+ * different unlocked characters, and a different item count in the LOAD GAME
+ * menu, which alone is enough to send replayed navigation to the wrong slot.
+ *
+ * While a session is armed, Saves and SaveStates resolve to a scratch dir that
+ * _handler.sh wipes on every launch, so record and playback both begin from an
+ * identical empty state. The user's real saves are never touched.
+ *
+ * Config is deliberately NOT redirected: it holds per-PAK KEY BINDINGS, and
+ * resetting a player's controls the moment they press Record would be a worse
+ * problem than the one being solved. The residual risk is <pak>.hi -- a
+ * qualifying score can change whether an initials-entry screen appears -- which
+ * is documented rather than fixed.
+ *
+ * Logs stay put: diagnostics should not vanish into a scratch dir. */
+extern int mrec_isolate;
 #define COPY_ROOT_PATH(buf, name) \\
     do { \\
         if (strcmp(name, "Saves") == 0) { \\
-            strcpy(buf, "/media/fat/saves/OpenBOR_7533/"); \\
+            strcpy(buf, mrec_isolate ? "/media/fat/games/OpenBOR/Replays/.state/saves/" \\
+                                     : "/media/fat/saves/OpenBOR_7533/"); \\
         } else if (strcmp(name, "SaveStates") == 0) { \\
-            strcpy(buf, "/media/fat/savestates/OpenBOR_7533/"); \\
+            strcpy(buf, mrec_isolate ? "/media/fat/games/OpenBOR/Replays/.state/savestates/" \\
+                                     : "/media/fat/savestates/OpenBOR_7533/"); \\
         } else if (strcmp(name, "Config") == 0) { \\
             strcpy(buf, "/media/fat/config/"); \\
         } else if (strcmp(name, "Logs") == 0) { \\
@@ -2729,11 +2750,31 @@ endif
         "a_playrecstatus *playrecstatus = NULL;",
         "a_playrecstatus *playrecstatus = NULL;\n"
         "int mrec_mode = 0; /* MiSTer raw-input recorder: 0=idle 1=rec 2=play */\n"
+        "int mrec_isolate = 0; /* 1 for a record/playback session: redirects Saves+SaveStates to a scratch dir so both runs boot from identical persistent state. Set at the TOP of openborMain, NOT at the recorder arm -- the engine reads <pak>.sav and the high-score table long before the first inputrefresh, so the flag must be up before any of that. Read by COPY_ROOT_PATH in source/utils.c. */\n"
         "int mister_fps_overlay = 0; /* pause menu -> Options -> FPS Display. Read by native_video_writer.c, which draws it POST-downscale. Defined in BOTH builds so the replaced pausemenu() links headless. Defaults OFF every launch so it can never silently contaminate a frame-hash run. */\n"
         "#define MREC_ENGINE_VER 1u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */",
         'mrec_mode global declaration')
 
     if not HEADLESS:
+        # (a1) raise the save-isolation flag before ANY persistent state is read.
+        # openborMain() runs ahead of every loadGameFile()/loadHighScoreFile()
+        # call site, whereas the recorder does not arm until the first
+        # inputrefresh -- by which point the engine has already read <pak>.sav
+        # and recomputed `bonus` from it. Reading the marker here (without
+        # consuming it; the arm block still owns that) is what makes the
+        # redirect cover the boot-time load.
+        ob = strict_replace(
+            ob,
+            "void openborMain(int argc, char **argv)\n{\n    sprite_map = NULL;",
+            "void openborMain(int argc, char **argv)\n{\n"
+            "    {   /* MiSTer recorder: isolate persistent state for this session. */\n"
+            "        FILE *_iso = fopen(\"/tmp/openbor_recmode\", \"r\");\n"
+            "        if(_iso) { fclose(_iso); mrec_isolate = 1; }\n"
+            "    }\n"
+            "    sprite_map = NULL;",
+            'recorder: raise mrec_isolate at openborMain entry')
+        print("  save-isolation flag raised at openborMain entry.")
+
         # (a2) content-IDENTITY helper for the replay match guard.
         # getPakName() returns the BASENAME only, so two PAKs with the same
         # filename in different Paks/ subfolders were indistinguishable: the

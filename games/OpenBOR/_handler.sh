@@ -23,6 +23,18 @@ cd "$GAMEDIR" || exit 1
 # which the browser can't reach. (Logs/ is created below, once $LOGDIR is known.)
 mkdir -p "$GAMEDIR/Paks" "$GAMEDIR/Replays" 2>/dev/null
 
+# Recorder save-isolation scratch. While a recording or replay is armed the
+# engine resolves Saves and SaveStates here instead of the real dirs (see
+# COPY_ROOT_PATH in source/utils.c), so both runs boot from identical
+# persistent state -- otherwise a <pak>.sav written while recording is still
+# present when the replay boots, and the two runs start in different worlds.
+# Wiped on EVERY launch: Record and Play each reset the PAK through this
+# handler, so wiping here is what guarantees the two starting states match.
+# Cheap and safe for normal launches too, since nothing outside a session
+# ever reads it. The user's real saves are never touched.
+rm -rf "$GAMEDIR/Replays/.state" 2>/dev/null
+mkdir -p "$GAMEDIR/Replays/.state/saves" "$GAMEDIR/Replays/.state/savestates" 2>/dev/null
+
 # Read MiSTer Main's argv to find the loaded RBF filename.
 # `pidof MiSTer` may return multiple PIDs (older lingering shells); take
 # the one whose argv contains an .rbf path.
