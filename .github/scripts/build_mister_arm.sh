@@ -19,6 +19,11 @@ set +e
 # Fail loudly + immediately if a required artifact is missing (a build under
 # set +e otherwise limps on and fails much later with a confusing message).
 require_file() { [ -f "$1" ] || { echo "ERROR: $2" >&2; exit 1; }; }
+# Extraction guard. A download guard is NOT enough: a CORRUPT/truncated tarball
+# passes the -f check, then `tar xzf` fails and the following `cd` silently
+# leaves us in the wrong directory under `set +e` -- the build then blunders on
+# for another ~15 min and dies confusingly at a missing header (zlib, 2026-07-31).
+require_dir()  { [ -d "$1" ] || { echo "ERROR: $2" >&2; exit 1; }; }
 
 SDL_PREFIX=/tmp/sdl2
 
@@ -40,6 +45,7 @@ cd /tmp
 wget -q https://www.libsdl.org/release/SDL2-2.0.8.tar.gz
 require_file SDL2-2.0.8.tar.gz "SDL2 download failed"
 tar xzf SDL2-2.0.8.tar.gz
+require_dir SDL2-2.0.8 "SDL2 extraction failed (corrupt or truncated tarball)"
 cd SDL2-2.0.8
 
 # Patch the dummy video driver -- this is what runs when
@@ -84,6 +90,7 @@ cd /tmp
 wget -q https://www.ferzkopp.net/Software/SDL2_gfx/SDL2_gfx-1.0.4.tar.gz
 require_file SDL2_gfx-1.0.4.tar.gz "SDL2_gfx download failed"
 tar xzf SDL2_gfx-1.0.4.tar.gz
+require_dir SDL2_gfx-1.0.4 "SDL2_gfx extraction failed (corrupt or truncated tarball)"
 cd SDL2_gfx-1.0.4
 ./autogen.sh 2>/dev/null
 # Use sdl2-config from our SDL2 install so headers/libs resolve.
@@ -107,6 +114,7 @@ cd /tmp
 wget -q https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz
 require_file libogg-1.3.5.tar.gz "libogg download failed"
 tar xzf libogg-1.3.5.tar.gz
+require_dir libogg-1.3.5 "libogg extraction failed (corrupt or truncated tarball)"
 cd libogg-1.3.5
 ./configure --prefix=$SDL_PREFIX --disable-shared --enable-static --quiet
 make -j$(nproc) --quiet
@@ -118,6 +126,7 @@ cd /tmp
 wget -q https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz
 require_file libvorbis-1.3.7.tar.gz "libvorbis download failed"
 tar xzf libvorbis-1.3.7.tar.gz
+require_dir libvorbis-1.3.7 "libvorbis extraction failed (corrupt or truncated tarball)"
 cd libvorbis-1.3.7
 ./configure --prefix=$SDL_PREFIX --disable-shared --enable-static --with-ogg=$SDL_PREFIX --quiet
 make -j$(nproc) --quiet
@@ -133,6 +142,7 @@ cd /tmp
 wget -q https://zlib.net/fossils/zlib-1.2.13.tar.gz || wget -q https://github.com/madler/zlib/releases/download/v1.2.13/zlib-1.2.13.tar.gz
 if [ ! -f zlib-1.2.13.tar.gz ]; then echo "ERROR: zlib download failed"; exit 1; fi
 tar xzf zlib-1.2.13.tar.gz
+require_dir zlib-1.2.13 "zlib extraction failed (corrupt or truncated tarball)"
 cd zlib-1.2.13
 ./configure --prefix=$SDL_PREFIX --static
 make -j$(nproc) --quiet
@@ -144,6 +154,7 @@ cd /tmp
 wget -q https://download.sourceforge.net/libpng/libpng-1.6.39.tar.gz
 require_file libpng-1.6.39.tar.gz "libpng download failed"
 tar xzf libpng-1.6.39.tar.gz
+require_dir libpng-1.6.39 "libpng extraction failed (corrupt or truncated tarball)"
 cd libpng-1.6.39
 CPPFLAGS="-I$SDL_PREFIX/include" LDFLAGS="-L$SDL_PREFIX/lib" \
 ./configure --prefix=$SDL_PREFIX --disable-shared --enable-static --quiet
