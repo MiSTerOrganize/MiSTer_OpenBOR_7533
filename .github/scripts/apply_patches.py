@@ -2735,6 +2735,38 @@ endif
         'mrec_mode global declaration')
 
     if not HEADLESS:
+        # (a2) content-IDENTITY helper for the replay match guard.
+        # getPakName() returns the BASENAME only, so two PAKs with the same
+        # filename in different Paks/ subfolders were indistinguishable: the
+        # guard passed and the WRONG PAK's replay played -- the single case
+        # where a bad recording is not refused. Key on the path relative to
+        # Paks/ instead. Relative (not absolute) so relocating the whole
+        # library does not invalidate every recording.
+        ob = strict_replace(
+            ob,
+            "void inputrefresh(int playrecmode)",
+            "static void mrec_content_id(char *out, int outsz)\n"
+            "{\n"
+            "    const char *root = \"/media/fat/games/OpenBOR/Paks/\";\n"
+            "    size_t rl = strlen(root);\n"
+            "    const char *p = packfile;\n"
+            "    char *d;\n"
+            "    if(strncmp(packfile, root, rl) == 0) p = packfile + rl;   /* else keep the full path */\n"
+            "    snprintf(out, outsz, \"%s\", p);\n"
+            "    d = strrchr(out, '.');\n"
+            "    if(d && strcasecmp(d, \".pak\") == 0) *d = 0;              /* drop the extension */\n"
+            "    /* Flatten separators so this doubles as the FILENAME stem. A flat Paks/\n"
+            "     * gives exactly the old basename, so existing layouts are unchanged; a\n"
+            "     * subfoldered one yields Beat_em_ups_Foo instead of a bare Foo, which\n"
+            "     * disambiguates the library BY CONSTRUCTION rather than relying on the\n"
+            "     * guard to refuse a collision after the fact. */\n"
+            "    for(d = out; *d; d++) if(*d == '/' || *d == '\\\\') *d = '_';\n"
+            "}\n"
+            "\n"
+            "void inputrefresh(int playrecmode)",
+            'recorder: content-identity helper (path relative to Paks/)')
+        print("  recorder content-identity helper injected.")
+
         # (b) the recorder itself, right after the shared raw controller read
         rec_arm_anchor = "    control_update(playercontrolpointers, MAX_PLAYERS);"
         rec_arm_new = rec_arm_anchor + "\n" + (
@@ -2744,7 +2776,16 @@ endif
             "        static u64 _mr_seed = 0;   /* MUST be u64. getseed() returns u64 and rand32() uses all 64 bits, but `unsigned long` is 4 bytes on armhf -- this silently truncated, and srand32(low32) then CLOBBERED a state that was already correct. Benign only while the state is still the boot constant at arm time; one rand32() before that (an in-engine animated title) makes it a whole-run desync. */\n"
             "        static int _mr_armed = 0;\n"
             "        char _mr_path[MAX_BUFFER_LEN], _mr_nm[MAX_BUFFER_LEN];\n"
+            "        char _mr_id[256];\n"
             "        int _mr_p;\n"
+            "        /* Content IDENTITY for the match guard. getPakName gives the BASENAME\n"
+            "         * only, so two PAKs with the same filename in different subfolders of\n"
+            "         * Paks/ were indistinguishable -- the guard passed and the wrong PAK's\n"
+            "         * replay PLAYED, the one case where a bad file is not refused. Use the\n"
+            "         * path relative to Paks/ instead: it separates subfolders, and staying\n"
+            "         * relative means moving the whole library does not invalidate anything.\n"
+            "         * The FILENAME still uses the basename, so Replays/ stays browsable. */\n"
+            "        #define MREC_PAKS_ROOT \"/media/fat/games/OpenBOR/Paks/\"\n"
             "        if(!_mr_armed)\n"
             "        {   /* arm once per process; respawn lands at the PAK title */\n"
             "            FILE *_mr_f = fopen(\"/tmp/openbor_recmode\", \"r\");\n"
@@ -2765,8 +2806,8 @@ endif
             "                remove(\"/tmp/openbor_recmode\");\n"
             "                {   /* default path = HIGHEST-numbered <pak>_N.inp (numbered library); OSD 'Load Replay' overrides below */\n"
             "                    char _mr_b[MAX_BUFFER_LEN]; int _mr_i, _mr_mx = 0;\n"
-            "                    strcpy(_mr_b, \"/media/fat/games/OpenBOR/Replays/\"); getPakName(_mr_nm, 3);   /* OSD-browsable (SC1 opens at games/OpenBOR/) */\n"
-            "                    { char *_d = strstr(_mr_nm, \".inp\"); if(_d) *_d = 0; } strcat(_mr_b, _mr_nm);\n"
+            "                    strcpy(_mr_b, \"/media/fat/games/OpenBOR/Replays/\"); mrec_content_id(_mr_nm, MAX_BUFFER_LEN);   /* OSD-browsable (SC1 opens at games/OpenBOR/). Identity-derived stem, NOT getPakName's basename: same-named PAKs in different Paks/ subfolders would otherwise share one library AND pass the match guard, and the wrong replay would PLAY. Also drops the old strstr(\".inp\") strip, which cut at the FIRST match and so mangled any PAK with .inp in its own name. */\n"
+            "                    strcat(_mr_b, _mr_nm);\n"
             "                    for(_mr_i = 1; _mr_i <= 999; _mr_i++)\n"
             "                    { sprintf(_mr_path, \"%s_%d.inp\", _mr_b, _mr_i);\n"
             "                      { FILE *_mr_t = fopen(_mr_path, \"rb\"); if(_mr_t){ fclose(_mr_t); _mr_mx = _mr_i; } } }\n"
@@ -2787,20 +2828,22 @@ endif
             "                    if(_mr_pf)\n"
             "                    {\n"
             "                        char _mr_h[5]; _mr_h[0]=0;\n"
-            "                        unsigned int _mr_ev = 0; char _mr_bd[12]; _mr_bd[0]=0; char _mr_pk[128]; _mr_pk[0]=0;\n"
+            "                        unsigned int _mr_ev = 0; char _mr_bd[12]; _mr_bd[0]=0; char _mr_pk[256]; _mr_pk[0]=0;\n"
             "                        if(fread(_mr_h,1,5,_mr_pf)==5 && _mr_h[0]=='M' && _mr_h[1]=='R'\n"
             "                           && _mr_h[2]=='E' && _mr_h[3]=='C' && _mr_h[4]=='5'\n"
             "                           && fread(&_mr_ev,sizeof(unsigned int),1,_mr_pf)==1\n"
             "                           && fread(_mr_bd,1,12,_mr_pf)==12\n"
-            "                           && fread(_mr_pk,1,128,_mr_pf)==128\n"
+            "                           && fread(_mr_pk,1,256,_mr_pf)==256\n"
             "                           && fread(&_mr_seed,sizeof(u64),1,_mr_pf)==1\n"
             "                           && fread(&_mr_len,sizeof(long),1,_mr_pf)==1\n"
             "                           && _mr_len>0 && _mr_len<=2000000L)   /* <= : the writer lets _mr_len REACH 2000000, so < rejected a maximum-length recording the same build had just written */\n"
             "                        {\n"
-            "                            /* PAK-match guard: NEVER play a replay recorded for a different PAK (guaranteed desync) */\n"
-            "                            char _mr_cur[MAX_BUFFER_LEN]; getPakName(_mr_cur, 3);\n"
-            "                            { char *_d = strstr(_mr_cur, \".inp\"); if(_d) *_d = 0; }\n"
-            "                            _mr_pk[127] = 0;\n"
+            "                            /* PAK-match guard: NEVER play a replay recorded for a different PAK (guaranteed desync).\n"
+            "                             * Compares the IDENTITY (path relative to Paks/), not getPakName's\n"
+            "                             * basename -- with the basename, two same-named PAKs in different\n"
+            "                             * subfolders compared EQUAL and the wrong replay played. */\n"
+            "                            char _mr_cur[256]; mrec_content_id(_mr_cur, sizeof(_mr_cur));\n"
+            "                            _mr_pk[255] = 0;\n"
             "                            if(strcmp(_mr_pk, _mr_cur) != 0)\n"
             "                            { printf(\"[REPLAY] this recording is for PAK '%s' but '%s' is loaded -- not playing; load the matching PAK first\\n\", _mr_pk, _mr_cur); _mr_len=0; }\n"
             "                            else\n"
@@ -2862,8 +2905,8 @@ endif
             "                fclose(_mr_s); remove(\"/tmp/openbor_recstop\");\n"
             "                {   /* numbered library: save to <pak>_<maxN+1>.inp (never overwrite a prior replay) */\n"
             "                    char _mr_b[MAX_BUFFER_LEN]; int _mr_i, _mr_mx = 0;\n"
-            "                    strcpy(_mr_b, \"/media/fat/games/OpenBOR/Replays/\"); getPakName(_mr_nm, 3);   /* OSD-browsable (SC1 opens at games/OpenBOR/) */\n"
-            "                    { char *_d = strstr(_mr_nm, \".inp\"); if(_d) *_d = 0; } strcat(_mr_b, _mr_nm);\n"
+            "                    strcpy(_mr_b, \"/media/fat/games/OpenBOR/Replays/\"); mrec_content_id(_mr_nm, MAX_BUFFER_LEN);   /* OSD-browsable (SC1 opens at games/OpenBOR/). Identity-derived stem, NOT getPakName's basename: same-named PAKs in different Paks/ subfolders would otherwise share one library AND pass the match guard, and the wrong replay would PLAY. Also drops the old strstr(\".inp\") strip, which cut at the FIRST match and so mangled any PAK with .inp in its own name. */\n"
+            "                    strcat(_mr_b, _mr_nm);\n"
             "                    for(_mr_i = 1; _mr_i <= 999; _mr_i++)\n"
             "                    { sprintf(_mr_path, \"%s_%d.inp\", _mr_b, _mr_i);\n"
             "                      { FILE *_mr_t = fopen(_mr_path, \"rb\"); if(_mr_t){ fclose(_mr_t); _mr_mx = _mr_i; } } }\n"
@@ -2886,13 +2929,13 @@ endif
             "                    sprintf(_mr_tmp, \"%s.part\", _mr_path);\n"
             "                    _mr_wf = fopen(_mr_tmp, \"wb\");\n"
             "                    if(_mr_wf)\n"
-            "                    { unsigned int _mr_ev = MREC_ENGINE_VER; char _mr_bd[12]; char _mr_pk[128];\n"
+            "                    { unsigned int _mr_ev = MREC_ENGINE_VER; char _mr_bd[12];\n"
             "                      _mr_ok = fwrite(\"MREC5\",1,5,_mr_wf)==5;\n"
             "                      _mr_ok = _mr_ok && fwrite(&_mr_ev,sizeof(unsigned int),1,_mr_wf)==1;\n"
             "                      memset(_mr_bd,0,12); strncpy(_mr_bd, __DATE__, 11);\n"
             "                      _mr_ok = _mr_ok && fwrite(_mr_bd,1,12,_mr_wf)==12;\n"
-            "                      memset(_mr_pk,0,128); strncpy(_mr_pk, _mr_nm, 127);   /* PAK identity (getPakName base, stripped) -- checked on playback */\n"
-            "                      _mr_ok = _mr_ok && fwrite(_mr_pk,1,128,_mr_wf)==128;\n"
+            "                      { char _mr_pk2[256]; memset(_mr_pk2,0,256); strncpy(_mr_pk2, _mr_nm, 255);   /* PAK identity = path relative to Paks/ -- checked on playback */\n"
+            "                        _mr_ok = _mr_ok && fwrite(_mr_pk2,1,256,_mr_wf)==256; }\n"
             "                      _mr_ok = _mr_ok && fwrite(&_mr_seed,sizeof(u64),1,_mr_wf)==1;\n"
             "                      _mr_ok = _mr_ok && fwrite(&_mr_len,sizeof(long),1,_mr_wf)==1;\n"
             "                      _mr_ok = _mr_ok && fwrite(_mr_buf,9*sizeof(u64),(size_t)_mr_len,_mr_wf)==(size_t)_mr_len;\n"
@@ -2964,6 +3007,29 @@ endif
         ob = strict_replace(ob, rec_arm_anchor, rec_arm_new,
                             'title-anchored raw-input recorder + take-over')
         print("  title-anchored raw-input recorder injected (menus + gameplay, take-over)")
+
+    # ── Recorder: make playgif() deterministic while recording/replaying ──
+    #
+    # playgif's loop consumes ONE recorder sample per rendered iteration
+    # (update(0,x) -> inputrefresh), but advances its progress counter by
+    # sound_getinterval() -- REAL time, because samplesplayed is bumped by the
+    # DDR3 audio thread. mixing_active is 1 once anything plays, so synctosound
+    # is TRUE on MiSTer. If an intro cutscene takes N iterations on record and
+    # N' on playback (different frame cost -- FPS overlay, thermal, cache), the
+    # input stream is permanently offset by N'-N from that point: every later
+    # press lands on the wrong frame. Affects any PAK using playscene's
+    # `animation` -- intros, story panels, endings, i.e. most of them.
+    #
+    # The `else` branch is already deterministic: it advances on `_time`, which
+    # the interval-lock reproduces exactly. So force it while the recorder is
+    # active. Outside record/replay nothing changes.
+    if not HEADLESS:
+        ob = strict_replace(
+            ob,
+            "    synctosound = (sound_getinterval() != 0xFFFFFFFF);",
+            "    synctosound = (sound_getinterval() != 0xFFFFFFFF) && (mrec_mode == 0);   /* MiSTer recorder: the audio clock is real time and would offset the input stream past a cutscene; the else-branch advances on _time, which the interval-lock replays exactly */",
+            'playgif: game-clock pacing while the recorder is active')
+        print("  playgif() paces on the game clock while recording/replaying.")
 
     # Step 1: loadsprite uses PIXEL_x8 ONLY for legacy-remap PAKs (ATOV-style).
     # Modern PAKs keep upstream behavior: `nopalette ? PIXEL_x8 : PIXEL_8`.
