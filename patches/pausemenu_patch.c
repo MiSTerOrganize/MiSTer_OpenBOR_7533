@@ -71,6 +71,19 @@ void pausemenu()
      * vscreen) is not a no-op (copyscreen early-returns on format mismatch). */
     s_screen *pausebuffer = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_16);
 
+    /* A pause press can only reach here DURING PLAYBACK if it was INJECTED: a
+     * live press is caught by the recorder's take-over first, which ends
+     * playback before the engine acts on the press. And an injected one must be
+     * refused -- this menu is modal (inputrefresh, and therefore the recorder,
+     * does not run inside it), so the replay would hang here with nothing in the
+     * stream able to close it. Recordings made after the mrec_drop_last fix
+     * below no longer contain such a press; this guard covers older files. */
+    if(mrec_mode == 2)
+    {
+        freescreen(&pausebuffer);
+        return;
+    }
+
     copyscreen(pausebuffer, vscreen);
     spriteq_draw(pausebuffer, 0, MIN_INT, MAX_INT, 0, 0);
     spriteq_clear();
@@ -90,6 +103,13 @@ void pausemenu()
     sound_pause_sample(1);
     _pause = 2;
     bothnewkeys = 0;
+
+    /* The press that opened this menu was already captured by the recorder
+     * earlier in THIS frame. Flag it for removal on the next inputrefresh --
+     * otherwise a replay re-enters this modal menu and hangs (see the guard
+     * above). Eliding the pause is deterministic: the engine does not tick
+     * while paused, so the replayed game timeline is identical. */
+    if(mrec_mode == 1) mrec_drop_last = 1;
 
     while(!quit)
     {

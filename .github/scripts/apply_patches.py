@@ -2729,6 +2729,7 @@ endif
         "a_playrecstatus *playrecstatus = NULL;",
         "a_playrecstatus *playrecstatus = NULL;\n"
         "int mrec_mode = 0; /* MiSTer raw-input recorder: 0=idle 1=rec 2=play */\n"
+        "int mrec_drop_last = 0; /* set by pausemenu() when it opens while recording; the recorder drops the frame whose press opened it, so a replay never re-enters the modal pause menu with nothing able to close it */\n"
         "int mister_fps_overlay = 0; /* pause menu -> Options -> FPS Display. Read by native_video_writer.c, which draws it POST-downscale. Defined in BOTH builds so the replaced pausemenu() links headless. Defaults OFF every launch so it can never silently contaminate a frame-hash run. */\n"
         "#define MREC_ENGINE_VER 1u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */",
         'mrec_mode global declaration')
@@ -2844,6 +2845,16 @@ endif
             "                if(_mr_buf){free(_mr_buf);_mr_buf=NULL;} _mr_cap=0; _mr_len=0;\n"
             "                mrec_mode = 0;\n"
             "            }\n"
+            "        }\n"
+            "        if(mrec_drop_last)\n"
+            "        {   /* pausemenu() opened while recording (see pausemenu_patch.c). The press\n"
+            "             * that opened it was captured earlier in THAT frame; drop it, or on\n"
+            "             * playback it re-enters the modal menu -- inputrefresh does not run in\n"
+            "             * there, so the stream is frozen out and the replay hangs on the pause\n"
+            "             * screen. Deterministic to elide: the engine does not tick while paused,\n"
+            "             * so the replayed game timeline is unchanged. */\n"
+            "            mrec_drop_last = 0;\n"
+            "            if(mrec_mode == 1 && _mr_len > 0) _mr_len--;\n"
             "        }\n"
             "        if(mrec_mode == 1 && !_pause && _mr_len < 2000000L)\n"
             "        {   /* record: append (interval + raw input) each gameplay frame */\n"
