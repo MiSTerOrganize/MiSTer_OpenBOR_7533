@@ -241,7 +241,36 @@ void pausemenu()
                          * the RNG seed, then drives the menus into the level and plays
                          * back hands-free. Press any button to take control. */
                         {
-                            FILE *_rm = fopen("/tmp/openbor_recmode", "w");
+                            FILE *_rm;
+                            /* Resolve WHICH take now, at selection time, and hand the
+                             * path to the handler. The handler has to restore that
+                             * take's save snapshot before the binary starts -- the
+                             * engine reads <pak>.sav during startup, long before the
+                             * recorder arms and could work out the filename itself.
+                             * The OSD "Load Replay" path already writes this file;
+                             * writing it here too means both routes look identical to
+                             * the handler. */
+                            char _pb[MAX_BUFFER_LEN], _pn[MAX_BUFFER_LEN];
+                            int _pi, _pmx = 0, _pmiss = 0;
+                            strcpy(_pb, "/media/fat/games/OpenBOR/Replays/");
+                            mrec_content_id(_pn, MAX_BUFFER_LEN);
+                            strcat(_pb, _pn);
+                            for(_pi = 1; _pi <= 9999 && _pmiss < 8; _pi++)
+                            {
+                                char _pp[MAX_BUFFER_LEN];
+                                FILE *_pt;
+                                sprintf(_pp, "%s_%d.inp", _pb, _pi);
+                                _pt = fopen(_pp, "rb");
+                                if(_pt){ fclose(_pt); _pmx = _pi; _pmiss = 0; } else _pmiss++;
+                            }
+                            if(_pmx > 0)
+                            {
+                                char _pp[MAX_BUFFER_LEN];
+                                sprintf(_pp, "%s_%d.inp", _pb, _pmx);
+                                _rm = fopen("/tmp/openbor_playfile", "w");
+                                if(_rm) { fputs(_pp, _rm); fclose(_rm); }
+                            }
+                            _rm = fopen("/tmp/openbor_recmode", "w");
                             if(_rm) { fputs("PLAY", _rm); fclose(_rm); }
                             _rm = fopen("/tmp/openbor_reset_marker", "w");
                             if(_rm) fclose(_rm);

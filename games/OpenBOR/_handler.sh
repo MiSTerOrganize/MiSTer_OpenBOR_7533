@@ -35,6 +35,52 @@ mkdir -p "$GAMEDIR/Paks" "$GAMEDIR/Replays" 2>/dev/null
 rm -rf "$GAMEDIR/Replays/.state" 2>/dev/null
 mkdir -p "$GAMEDIR/Replays/.state/saves" "$GAMEDIR/Replays/.state/savestates" 2>/dev/null
 
+# Seed the scratch so a session can start from YOUR progress.
+#
+# Isolating to EMPTY made recordings deterministic but also made it impossible
+# to record from anywhere except a fresh game -- Record resets to the title,
+# and with nothing to continue from you could only ever capture a run from the
+# very beginning. So:
+#
+#   REC  -> copy this PAK's real save/high-score/savestate in. You boot with
+#           your progress and load it through the PAK's own menus, and that
+#           navigation is recorded (takes are title-anchored).
+#   PLAY -> restore the snapshot stored WITH the take instead, so the replay
+#           boots against exactly the data the recording started from. Using
+#           current saves would change the LOAD GAME menu's shape and send the
+#           recorded D-pad presses to a different slot.
+#
+# This runs in the handler, not the engine, because loadGameFile() happens
+# during startup -- far too early for the recorder itself to do it.
+# Real saves are only ever READ.
+if [ -f /tmp/openbor_recmode ]; then
+    _MODE=$(cat /tmp/openbor_recmode 2>/dev/null)
+    _SCR="$GAMEDIR/Replays/.state"
+    case "$_MODE" in
+        REC*)
+            _S0=$(cat /media/fat/config/OpenBOR.s0 2>/dev/null | tr -d '\0')
+            _PAK=$(basename "${_S0%.pak}" 2>/dev/null)
+            if [ -n "$_PAK" ]; then
+                cp -f "/media/fat/saves/OpenBOR_7533/$_PAK.sav"      "$_SCR/saves/"       2>/dev/null
+                cp -f "/media/fat/config/$_PAK.hi"                   "$_SCR/saves/"       2>/dev/null
+                cp -f "/media/fat/savestates/OpenBOR_7533/$_PAK.s00" "$_SCR/savestates/"  2>/dev/null
+                echo "[REC] seeded scratch from your saves for: $_PAK"
+            fi
+            ;;
+        PLAY*)
+            _INP=$(cat /tmp/openbor_playfile 2>/dev/null | tr -d '\0')
+            _SNAP="${_INP%.inp}.state"
+            if [ -n "$_INP" ] && [ -d "$_SNAP" ]; then
+                cp -f "$_SNAP/saves/"* "$_SCR/saves/" 2>/dev/null
+                cp -f "$_SNAP/savestates/"* "$_SCR/savestates/" 2>/dev/null
+                echo "[REC] restored the save snapshot recorded with: $_INP"
+            else
+                echo "[REC] no save snapshot for this take -- starting empty"
+            fi
+            ;;
+    esac
+fi
+
 # Read MiSTer Main's argv to find the loaded RBF filename.
 # `pidof MiSTer` may return multiple PIDs (older lingering shells); take
 # the one whose argv contains an .rbf path.
