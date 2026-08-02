@@ -112,7 +112,22 @@ if [ -f /tmp/openbor_recmode ]; then
             if [ -n "$_INP" ] && [ -d "$_SNAP" ]; then
                 cp -f "$_SNAP/saves/"* "$_SCR/saves/" 2>/dev/null
                 cp -f "$_SNAP/savestates/"* "$_SCR/savestates/" 2>/dev/null
-                echo "[REC] restored the save snapshot recorded with: $_INP"
+                # Count what LANDED. The old line printed "restored" whenever the
+                # directory merely EXISTED -- an empty or unreadable snapshot, or a
+                # cp that failed into 2>/dev/null, all reported success.
+                _N=$(ls -A "$_SCR/saves" "$_SCR/savestates" 2>/dev/null | grep -vc '^$')
+                if [ "${_N:-0}" -gt 0 ]; then
+                    echo "[REC] restored $_N save file(s) for: $_INP"
+                else
+                    echo "[REC] snapshot for this take is empty or unreadable -- starting empty"
+                fi
+                # KNOWN LIMITATION, not fixed here. The snapshot is keyed on the
+                # take's BASENAME, and take names are <content-id>_<N>.inp -- which
+                # is identical on every machine for the same PAK. So a take copied
+                # in from someone else whose name collides with one of yours will
+                # restore YOUR snapshot and report it as that take's data. Only an
+                # in-band payload fixes it (step 21 of #INP_SHARING_DESIGN.md);
+                # until then a received take is not trustworthy on this path.
             else
                 echo "[REC] no save snapshot for this take -- starting empty"
             fi
