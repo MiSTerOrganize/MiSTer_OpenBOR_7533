@@ -41,6 +41,11 @@ mkdir -p "$GAMEDIR/Paks" "$GAMEDIR/Replays" 2>/dev/null
 #     and .sNN script-saves are all game state. OpenBOR has no emulator save
 #     states at all -- "savestates" is only the directory name we chose.
 REPSTATE="/media/fat/saves/OpenBOR_7533/.replays"
+
+# Keep only the 20 newest per-take snapshots. Nothing pruned these before, so
+# they accumulated one directory per Stop Recording, forever, under saves/.
+# Everything else in this project auto-prunes (see the log rotation below).
+ls -dt "$REPSTATE"/*.* 2>/dev/null | tail -n +21 | xargs -r rm -rf
 rm -rf "$REPSTATE/.scratch" 2>/dev/null
 mkdir -p "$REPSTATE/.scratch/saves" "$REPSTATE/.scratch/savestates" 2>/dev/null
 
