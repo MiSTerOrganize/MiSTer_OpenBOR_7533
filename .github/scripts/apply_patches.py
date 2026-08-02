@@ -704,10 +704,10 @@ extern int mrec_isolate;
 #define COPY_ROOT_PATH(buf, name) \\
     do { \\
         if (strcmp(name, "Saves") == 0) { \\
-            strcpy(buf, mrec_isolate ? "/media/fat/saves/OpenBOR_7533/.replays/.scratch/saves/" \\
+            strcpy(buf, mrec_isolate ? "/media/fat/replays/OpenBOR_7533/.scratch/saves/" \\
                                      : "/media/fat/saves/OpenBOR_7533/"); \\
         } else if (strcmp(name, "SaveStates") == 0) { \\
-            strcpy(buf, mrec_isolate ? "/media/fat/saves/OpenBOR_7533/.replays/.scratch/savestates/" \\
+            strcpy(buf, mrec_isolate ? "/media/fat/replays/OpenBOR_7533/.scratch/savestates/" \\
                                      : "/media/fat/savestates/OpenBOR_7533/"); \\
         } else if (strcmp(name, "HighScores") == 0) { \\
             /* Split out of Config purely so it can be isolated: a qualifying \\
@@ -716,7 +716,7 @@ extern int mrec_isolate;
              * redirected -- it holds key bindings. Normal runs resolve to the \\
              * same /media/fat/config/ as before, so existing .hi files are \\
              * found exactly where they always were. */ \\
-            strcpy(buf, mrec_isolate ? "/media/fat/saves/OpenBOR_7533/.replays/.scratch/saves/" \\
+            strcpy(buf, mrec_isolate ? "/media/fat/replays/OpenBOR_7533/.scratch/saves/" \\
                                      : "/media/fat/config/"); \\
         } else if (strcmp(name, "Config") == 0) { \\
             strcpy(buf, "/media/fat/config/"); \\
@@ -2769,6 +2769,22 @@ extern int mrec_isolate;
         "a_playrecstatus *playrecstatus = NULL;",
         "a_playrecstatus *playrecstatus = NULL;\n"
         "int mrec_mode = 0; /* MiSTer raw-input recorder: 0=idle 1=rec 2=play */\n"
+        "int mrec_slot = 0; /* 1..MREC_SLOTS, 0 = not yet chosen. BOUNDED slot library, like\n"
+        "                    * savestates: you pick a number, Record overwrites it, Play reads\n"
+        "                    * it. Replaces the old unbounded <content>_N library, whose only\n"
+        "                    * access path was the OSD file browser -- which starts at the\n"
+        "                    * core's games/ home and would have needed the user to navigate up\n"
+        "                    * and out to reach the takes folder. A slot number needs no\n"
+        "                    * browsing and matches a mental model users already have.\n"
+        "                    * 8 rather than savestates' 4: a savestate is scratch you overwrite\n"
+        "                    * constantly, a take is an artifact you keep (a bug repro, a run\n"
+        "                    * worth sharing), so 4 fills up fast. The count is free here\n"
+        "                    * because the picker lives in our pause menu, not in CONF_STR\n"
+        "                    * status bits where 2 bits would force exactly 4.\n"
+        "                    * CARRIED ACROSS THE RESET via /tmp/openbor_recslot: Record and\n"
+        "                    * Play both exit() and respawn, so a slot chosen in the menu would\n"
+        "                    * otherwise be forgotten before the take is written. */\n"
+        "#define MREC_SLOTS 8\n"
         "int mrec_isolate = 0; /* 1 for a record/playback session: redirects Saves+SaveStates to a scratch dir so both runs boot from identical persistent state. Set at the TOP of openborMain, NOT at the recorder arm -- the engine reads <pak>.sav and the high-score table long before the first inputrefresh, so the flag must be up before any of that. Read by COPY_ROOT_PATH in source/utils.c. */\n"
         + (
             # pausemenu() is replaced in BOTH builds -- that is why mrec_mode and
@@ -3006,7 +3022,7 @@ extern int mrec_isolate;
             "static int mrec_highest(const char *stem)\n"
             "{\n"
             "    DIR *d; struct dirent *e; int best = 0; size_t sl = strlen(stem);\n"
-            "    d = opendir(\"/media/fat/games/OpenBOR/Replays\"); if(!d) return 0;\n"
+            "    d = opendir(\"/media/fat/replays/OpenBOR_7533\"); if(!d) return 0;\n"
             "    while((e = readdir(d)) != NULL)\n"
             "    {\n"
             "        const char *n = e->d_name; size_t nl = strlen(n); const char *p; int v = 0;\n"
@@ -3092,7 +3108,7 @@ extern int mrec_isolate;
             "         * relative means moving the whole library does not invalidate anything.\n"
             "         * The FILENAME still uses the basename, so Replays/ stays browsable. */\n"
             "        #define MREC_PAKS_ROOT \"/media/fat/games/OpenBOR/Paks/\"\n"
-            "        #define MREC_SCRATCH \"/media/fat/saves/OpenBOR_7533/.replays/.scratch\"\n"
+            "        #define MREC_SCRATCH \"/media/fat/replays/OpenBOR_7533/.scratch\"\n"
             "        /* The state the run STARTED from. The scratch is written INTO all\n"
             "         * session long, so snapshotting IT at Stop pairs the take with POST-run\n"
             "         * saves: a PAK that autosaves on stage clear, or a qualifying score that\n"
@@ -3102,8 +3118,8 @@ extern int mrec_isolate;
             "         * The handler fills this immediately after seeding, before the engine\n"
             "         * runs. PICO-8 has always kept the distinction (P8REC_ARMSNAP vs the\n"
             "         * live scratch); this is OpenBOR catching up. */\n"
-            "        #define MREC_ARMSNAP \"/media/fat/saves/OpenBOR_7533/.replays/.armsnap\"\n"
-            "        #define MREC_REPSTATE \"/media/fat/saves/OpenBOR_7533/.replays\"\n"
+            "        #define MREC_ARMSNAP \"/media/fat/replays/OpenBOR_7533/.armsnap\"\n"
+            "        #define MREC_REPSTATE \"/media/fat/replays/OpenBOR_7533/.snapshots\"\n"
             "        if(!_mr_armed)\n"
             "        {   /* arm once per process; respawn lands at the PAK title */\n"
             "            FILE *_mr_f = fopen(\"/tmp/openbor_recmode\", \"r\");\n"
@@ -3116,6 +3132,16 @@ extern int mrec_isolate;
             "             * before it began. Only ever consumed while mrec_mode==1, so it can\n"
             "             * never be cleared by the normal path in a fresh process. */\n"
             "            remove(\"/tmp/openbor_recstop\");\n"
+            "            /* Recover the slot chosen in the pause menu. Record and Play both exit()\n"
+            "             * and respawn, so the menu's choice does not survive in memory -- without\n"
+            "             * this the take would always land in the fallback slot and the picker\n"
+            "             * would appear to do nothing. Consumed once, like recmode. */\n"
+            "            { FILE *_mr_sf = fopen(\"/tmp/openbor_recslot\", \"r\");\n"
+            "              if(_mr_sf)\n"
+            "              { char _mr_sb[8]; _mr_sb[0]=0;\n"
+            "                if(fgets(_mr_sb, sizeof(_mr_sb), _mr_sf)) { int _v = atoi(_mr_sb);\n"
+            "                  if(_v >= 1 && _v <= MREC_SLOTS) mrec_slot = _v; }\n"
+            "                fclose(_mr_sf); remove(\"/tmp/openbor_recslot\"); } }\n"
             "            if(_mr_f)\n"
             "            {\n"
             "                char _mr_m[8]; _mr_m[0] = 0;\n"
@@ -3124,11 +3150,15 @@ extern int mrec_isolate;
             "                remove(\"/tmp/openbor_recmode\");\n"
             "                {   /* default path = HIGHEST-numbered <pak>_N.inp (numbered library); OSD 'Load Replay' overrides below */\n"
             "                    char _mr_b[MAX_BUFFER_LEN]; int _mr_i, _mr_mx = 0;\n"
-            "                    strcpy(_mr_b, \"/media/fat/games/OpenBOR/Replays/\"); mrec_content_id(_mr_nm, MAX_BUFFER_LEN);   /* OSD-browsable (SC1 opens at games/OpenBOR/). Identity-derived stem, NOT getPakName's basename: same-named PAKs in different Paks/ subfolders would otherwise share one library AND pass the match guard, and the wrong replay would PLAY. Also drops the old strstr(\".inp\") strip, which cut at the FIRST match and so mangled any PAK with .inp in its own name. */\n"
+            "                    strcpy(_mr_b, \"/media/fat/replays/OpenBOR_7533/\"); mrec_content_id(_mr_nm, MAX_BUFFER_LEN);   /* OSD-browsable (SC1 opens at games/OpenBOR/). Identity-derived stem, NOT getPakName's basename: same-named PAKs in different Paks/ subfolders would otherwise share one library AND pass the match guard, and the wrong replay would PLAY. Also drops the old strstr(\".inp\") strip, which cut at the FIRST match and so mangled any PAK with .inp in its own name. */\n"
             "                    { size_t _mr_bl = strlen(_mr_b); snprintf(_mr_b + _mr_bl, sizeof(_mr_b) - _mr_bl, \"%s\", _mr_nm); }   /* was strcat, bounded only by upstream MAX_FILENAME_LEN=256 in a different file */\n"
             "                    { int _mr_miss = 0;   /* Stop after a short run of gaps instead of always sweeping to the ceiling. The old fixed 1..999 probe cost ~999 fopen/fclose pairs on exFAT, run twice per session (arm, and again at every Stop) -- a measurable SD stall that also widened the window for a swap-thread _exit mid-flush. It also hard-capped the library: at 999 the writer computed 999+1 forever and silently overwrote _1000. Tolerating a few gaps keeps hand-deleted takes discoverable while making the normal contiguous case ~N probes. */\n"
             "                      (void)_mr_miss; (void)_mr_i; _mr_mx = mrec_highest(_mr_nm); } /* enumerate, never probe -- see mrec_highest */\n"
-            "                    sprintf(_mr_path, \"%s_%d.inp\", _mr_b, _mr_mx > 0 ? _mr_mx : 1);\n"
+            "                    /* PLAY reads the chosen slot. If none was chosen, fall back to the\n"
+            "                     * newest occupied one so Play-without-touching-anything still does\n"
+            "                     * what it always did: play the most recent take. */\n"
+            "                    if(mrec_slot < 1 || mrec_slot > MREC_SLOTS) mrec_slot = (_mr_mx > 0 && _mr_mx <= MREC_SLOTS) ? _mr_mx : 1;\n"
+            "                    sprintf(_mr_path, \"%s_%d.inp\", _mr_b, mrec_slot);\n"
             "                }\n"
             "                if(_mr_m[0] == 'P')\n"
             "                {\n"
@@ -3324,11 +3354,30 @@ extern int mrec_isolate;
             "                fclose(_mr_s); remove(\"/tmp/openbor_recstop\");\n"
             "                {   /* numbered library: save to <pak>_<maxN+1>.inp (never overwrite a prior replay) */\n"
             "                    char _mr_b[MAX_BUFFER_LEN]; int _mr_i, _mr_mx = 0;\n"
-            "                    strcpy(_mr_b, \"/media/fat/games/OpenBOR/Replays/\"); mrec_content_id(_mr_nm, MAX_BUFFER_LEN);   /* OSD-browsable (SC1 opens at games/OpenBOR/). Identity-derived stem, NOT getPakName's basename: same-named PAKs in different Paks/ subfolders would otherwise share one library AND pass the match guard, and the wrong replay would PLAY. Also drops the old strstr(\".inp\") strip, which cut at the FIRST match and so mangled any PAK with .inp in its own name. */\n"
+            "                    strcpy(_mr_b, \"/media/fat/replays/OpenBOR_7533/\"); mrec_content_id(_mr_nm, MAX_BUFFER_LEN);   /* OSD-browsable (SC1 opens at games/OpenBOR/). Identity-derived stem, NOT getPakName's basename: same-named PAKs in different Paks/ subfolders would otherwise share one library AND pass the match guard, and the wrong replay would PLAY. Also drops the old strstr(\".inp\") strip, which cut at the FIRST match and so mangled any PAK with .inp in its own name. */\n"
             "                    { size_t _mr_bl = strlen(_mr_b); snprintf(_mr_b + _mr_bl, sizeof(_mr_b) - _mr_bl, \"%s\", _mr_nm); }   /* was strcat, bounded only by upstream MAX_FILENAME_LEN=256 in a different file */\n"
             "                    { int _mr_miss = 0;   /* Stop after a short run of gaps instead of always sweeping to the ceiling. The old fixed 1..999 probe cost ~999 fopen/fclose pairs on exFAT, run twice per session (arm, and again at every Stop) -- a measurable SD stall that also widened the window for a swap-thread _exit mid-flush. It also hard-capped the library: at 999 the writer computed 999+1 forever and silently overwrote _1000. Tolerating a few gaps keeps hand-deleted takes discoverable while making the normal contiguous case ~N probes. */\n"
             "                      (void)_mr_miss; (void)_mr_i; _mr_mx = mrec_highest(_mr_nm); } /* enumerate, never probe -- see mrec_highest */\n"
-            "                    sprintf(_mr_path, \"%s_%d.inp\", _mr_b, _mr_mx + 1);\n"
+            "                    /* RECORD writes the chosen slot. Bounded, so this OVERWRITES --\n"
+            "                     * which is the point, but it must never be silent: losing a take\n"
+            "                     * you meant to keep is exactly the class of failure this project\n"
+            "                     * keeps writing rules about. Say so on screen, and name the slot.\n"
+            "                     * With no slot chosen, take the first FREE one so a first-time\n"
+            "                     * user cannot clobber anything by accident. */\n"
+            "                    if(mrec_slot < 1 || mrec_slot > MREC_SLOTS)\n"
+            "                    { int _mr_s; mrec_slot = MREC_SLOTS;\n"
+            "                      for(_mr_s = 1; _mr_s <= MREC_SLOTS; _mr_s++)\n"
+            "                      { FILE *_mr_t; char _mr_p2[MAX_BUFFER_LEN];\n"
+            "                        sprintf(_mr_p2, \"%s_%d.inp\", _mr_b, _mr_s);\n"
+            "                        _mr_t = fopen(_mr_p2, \"rb\");\n"
+            "                        if(!_mr_t){ mrec_slot = _mr_s; break; }\n"
+            "                        fclose(_mr_t); } }\n"
+            "                    sprintf(_mr_path, \"%s_%d.inp\", _mr_b, mrec_slot);\n"
+            "                    { FILE *_mr_ex = fopen(_mr_path, \"rb\");\n"
+            "                      if(_mr_ex){ char _mr_ow[96]; fclose(_mr_ex);\n"
+            "                        snprintf(_mr_ow, sizeof(_mr_ow), \"Replaced the recording in slot %d\", mrec_slot);\n"
+            "                        NativeVideoWriter_Notice(_mr_ow, 5);\n"
+            "                        printf(\"[REC] slot %d already held a take -- overwriting\\n\", mrec_slot); } }\n"
             "                }\n"
             "                if(_mr_len <= 0 || !_mr_buf)\n"
             "                {   /* NEVER create an empty .inp. It would take the highest index,\n"

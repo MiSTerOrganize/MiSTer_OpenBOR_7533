@@ -30,11 +30,24 @@
  *
  *   FLOW: pause -> Recording -> "Record" restarts the PAK and records everything
  *   you do from the title on. pause -> Recording -> "Stop Recording" writes the
- *   stream to /media/fat/games/OpenBOR/Replays/<pak>_N.inp (numbered library --
- *   never overwrites; magic "MREC4" + engine_ver + build_date + pak_name + seed
- *   + len + per-frame interval/keyflags) and resumes play. pause -> Recording ->
- *   "Play Recording" restarts + replays the highest-numbered take hands-free;
- *   press ANY button to take over. The OSD SC1 "Load Replay" slot plays any file.
+ *   stream to /media/fat/replays/OpenBOR_7533/<pak>_<slot>.inp and resumes play.
+ *   pause -> Recording -> "Play Recording" restarts + replays that slot
+ *   hands-free; press ANY button to take over.
+ *
+ *   SLOTS: a BOUNDED library of MREC_SLOTS (8) per PAK, chosen with left/right on
+ *   the "Slot N of 8" item, exactly like savestates -- so no file browsing is
+ *   needed. It replaced an unbounded <pak>_N library whose only access path was
+ *   the OSD picker, which starts at the core's games/ home and would have forced
+ *   the user to navigate up and out to reach the takes folder. Record OVERWRITES
+ *   the chosen slot, which is the point, but never silently: the item shows
+ *   "(used)" or "(empty)" beforehand and a notice names the slot afterwards. The
+ *   chosen slot travels across the reset via /tmp/openbor_recslot, because this
+ *   process exits before the take is written. 8 rather than savestates' 4: a take
+ *   is an artifact you keep, not scratch you overwrite. The OSD SC1 "Load Replay"
+ *   slot still plays an arbitrary file, for takes received from other people.
+ *
+ *   Header: magic "MREC" + container + engine_ver + build_date + pak_name + seed
+ *   + len + crc32, then the identity section, then per-frame interval/keyflags.
  *
  *   DETERMINISM: OpenBOR seeds its RNG only inside the record/replay funcs (no
  *   srand during PAK/level load), so the recorder captures getseed() at Record and
@@ -52,6 +65,10 @@
  */
 
 extern int mrec_mode;  /* MiSTer raw-input recorder: 0=idle, 1=recording, 2=playing */
+extern int mrec_slot;  /* 1..MREC_SLOTS bounded take slot, chosen on the idle
+                        * submenu. Defined in openbor.c beside mrec_mode, along
+                        * with MREC_SLOTS, both of which precede this function in
+                        * the spliced file. */
 extern int mister_fps_overlay;  /* Options -> FPS Display. Drawn by
                                  * native_video_writer.c POST-downscale, into the
                                  * final 320x224 buffer, so it stays crisp on PAKs
@@ -143,7 +160,11 @@ void pausemenu()
     while(!quit)
     {
         int recmode = mrec_mode;   /* 0=idle, 1=recording, 2=playing */
-        int rec_items = (recmode == 0) ? 3 : 2;
+        /* The slot picker is on the IDLE list only. During a recording or a
+         * replay the submenu is the 2-item form, so the shape a recorded run
+         * ever sees is unchanged -- which is the invariant that keeps injected
+         * navigation landing on the same items on playback. */
+        int rec_items = (recmode == 0) ? 4 : 2;
 
         if(in_recording)
         {
@@ -164,9 +185,22 @@ void pausemenu()
             }
             else
             {
+                /* Slot label shows whether the slot is occupied, so Record never
+                 * surprises you: "Slot 3 (empty)" vs "Slot 3 (used)". Overwriting
+                 * is the point of a bounded library, but it should be a choice you
+                 * can see before you make it, not something you discover after. */
+                char _sl[64]; char _sp[MAX_BUFFER_LEN]; char _sn[MAX_BUFFER_LEN]; FILE *_st;
+                if(mrec_slot < 1 || mrec_slot > MREC_SLOTS) mrec_slot = 1;
+                mrec_content_id(_sn, sizeof(_sn));
+                snprintf(_sp, sizeof(_sp), "/media/fat/replays/OpenBOR_7533/%s_%d.inp", _sn, mrec_slot);
+                _st = fopen(_sp, "rb");
+                snprintf(_sl, sizeof(_sl), "Slot %d of %d (%s)", mrec_slot, MREC_SLOTS, _st ? "used" : "empty");
+                if(_st) fclose(_st);
+
                 _menutextmshift((rec_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Record"));
                 _menutextmshift((rec_selector == 1)?pauseoffset[1]:pauseoffset[0],  0, 0, pauseoffset[2], pauseoffset[3], Tr("Play Recording"));
-                _menutextmshift((rec_selector == 2)?pauseoffset[1]:pauseoffset[0],  2, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
+                _menutextmshift((rec_selector == 2)?pauseoffset[1]:pauseoffset[0],  1, 0, pauseoffset[2], pauseoffset[3], _sl);
+                _menutextmshift((rec_selector == 3)?pauseoffset[1]:pauseoffset[0],  3, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
             }
         }
         else if(!in_options)
@@ -213,6 +247,23 @@ void pausemenu()
                 rec_selector = (rec_selector + 1) % rec_items;
                 sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
+            /* Left/right adjust the slot. Cycling forward with JUMP alone would
+             * mean up to seven presses to step back one, which is why savestate
+             * UIs use a two-directional control. JUMP still cycles forward, so
+             * the item is usable on a pad with no working left/right. */
+            if(recmode == 0 && rec_selector == 2)
+            {
+                if(newkeys & FLAG_MOVELEFT)
+                {
+                    mrec_slot = (mrec_slot <= 1) ? MREC_SLOTS : mrec_slot - 1;
+                    sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
+                }
+                if(newkeys & FLAG_MOVERIGHT)
+                {
+                    mrec_slot = (mrec_slot >= MREC_SLOTS) ? 1 : mrec_slot + 1;
+                    sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
+                }
+            }
 
             if(newkeys & (FLAG_JUMP | FLAG_START))
             {
@@ -230,6 +281,11 @@ void pausemenu()
                         {
                             FILE *_rm = fopen("/tmp/openbor_recmode", "w");
                             if(_rm) { fputs("REC", _rm); fclose(_rm); }
+                            /* Carry the slot: this process is about to exit, so a
+                             * choice held only in memory would be lost and every
+                             * take would land in the fallback slot. */
+                            _rm = fopen("/tmp/openbor_recslot", "w");
+                            if(_rm) { fprintf(_rm, "%d", mrec_slot); fclose(_rm); }
                             _rm = fopen("/tmp/openbor_reset_marker", "w");
                             if(_rm) fclose(_rm);
                         }
@@ -252,7 +308,7 @@ void pausemenu()
                              * the handler. */
                             char _pb[MAX_BUFFER_LEN], _pn[MAX_BUFFER_LEN];
                             int _pmx = 0;
-                            strcpy(_pb, "/media/fat/games/OpenBOR/Replays/");
+                            strcpy(_pb, "/media/fat/replays/OpenBOR_7533/");
                             mrec_content_id(_pn, MAX_BUFFER_LEN);
                             strcat(_pb, _pn);
                             /* ENUMERATE, never probe. This used to walk _1.._9999 and

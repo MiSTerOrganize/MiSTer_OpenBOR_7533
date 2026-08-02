@@ -15,13 +15,32 @@ GAMEDIR="/media/fat/games/OpenBOR"
 
 cd "$GAMEDIR" || exit 1
 
-# Auto-create ALL of the core's game folders so they always exist for every user
-# (standing hybrid-core rule: the handler owns every folder — content + recordings
-# + logs). Paks/ = PAK game modules (SC0 "Load PAK"); Replays/ = recorder .inp files
-# (SC1 "Load Replay"). Both live under games/OpenBOR/ so the OSD file browser (which
-# opens at the core's games/<setname>/ HomeDir) can reach them; NOT under saves/,
-# which the browser can't reach. (Logs/ is created below, once $LOGDIR is known.)
-mkdir -p "$GAMEDIR/Paks" "$GAMEDIR/Replays" 2>/dev/null
+# Auto-create ALL of the core's folders so they always exist for every user
+# (standing hybrid-core rule: the handler owns every folder — content +
+# recordings + logs). Paks/ = PAK game modules (SC0 "Load PAK").
+mkdir -p "$GAMEDIR/Paks" 2>/dev/null
+
+# EVERYTHING the recorder owns lives here: takes plus the hidden working dirs.
+# Top-level and per-build, matching saves/, savestates/, config/ and logs/ --
+# there was never a principled reason for replays alone to sit under games/.
+#
+# It moved out of saves/ (2026-08-02) because the scratch used to be a hidden dir
+# INSIDE the real saves directory, so any careless glob over saves/OpenBOR_7533/*
+# would have destroyed a user's .sav progress. That hazard had to be worked
+# around with defensive checks; now it simply does not exist. Nothing of the
+# user's is under this tree, so rm -rf on it is always safe.
+#
+# The per-take snapshots and scratch are DOT-directories so the OSD "Load Replay"
+# picker never lists them -- that was the original reason for keeping them out of
+# the takes folder, and hiding them solves it without a second location.
+#
+# 🛑 mkdir -p on EVERY launch is load-bearing, not tidiness: MiSTer's browser
+# starts at the core's games/ home, and Selected_S[] only remembers a different
+# directory while that directory still EXISTS. If this vanished, "Load Replay"
+# would silently snap back to games/OpenBOR/ and the user's takes would look gone.
+REPLAYS="/media/fat/replays/OpenBOR_7533"
+REPSTATE="$REPLAYS/.snapshots"
+mkdir -p "$REPLAYS" "$REPSTATE" 2>/dev/null
 
 # Recorder save-isolation scratch. While a recording or replay is armed the
 # engine resolves Saves and SaveStates here instead of the real dirs (see
@@ -32,22 +51,13 @@ mkdir -p "$GAMEDIR/Paks" "$GAMEDIR/Replays" 2>/dev/null
 # handler, so wiping here is what guarantees the two starting states match.
 # Cheap and safe for normal launches too, since nothing outside a session
 # ever reads it. The user's real saves are never touched.
-# Lives under saves/, NOT inside Replays/ and NOT under savestates/.
-#   - Not in Replays/ because the OSD "Load Replay" picker lists directories as
-#     well as files, so scratch and per-take snapshots showed up as decoy folders
-#     that open EMPTY (they hold saves; the picker filters to .inp). Replays/ now
-#     contains nothing but .inp takes.
-#   - Under saves/ because that is what this data IS: .sav progress, .hi scores
-#     and .sNN script-saves are all game state. OpenBOR has no emulator save
-#     states at all -- "savestates" is only the directory name we chose.
-REPSTATE="/media/fat/saves/OpenBOR_7533/.replays"
 
 # Keep only the 20 newest per-take snapshots. Nothing pruned these before, so
 # they accumulated one directory per Stop Recording, forever, under saves/.
 # Everything else in this project auto-prunes (see the log rotation below).
 ls -dt "$REPSTATE"/*.* 2>/dev/null | tail -n +21 | xargs -r rm -rf
-rm -rf "$REPSTATE/.scratch" 2>/dev/null
-mkdir -p "$REPSTATE/.scratch/saves" "$REPSTATE/.scratch/savestates" 2>/dev/null
+rm -rf "$REPLAYS/.scratch" 2>/dev/null
+mkdir -p "$REPLAYS/.scratch/saves" "$REPLAYS/.scratch/savestates" 2>/dev/null
 
 # Seed the scratch so a session can start from YOUR progress.
 #
@@ -75,7 +85,7 @@ _RECLOG="/media/fat/logs/OpenBOR_7533/OpenBOR.log"
 mkdir -p /media/fat/logs/OpenBOR_7533 2>/dev/null
 if [ -f /tmp/openbor_recmode ]; then
     _MODE=$(cat /tmp/openbor_recmode 2>/dev/null)
-    _SCR="$REPSTATE/.scratch"
+    _SCR="$REPLAYS/.scratch"
     case "$_MODE" in
         REC*)
             _S0=$(cat /media/fat/config/OpenBOR.s0 2>/dev/null | tr -d '\0')
@@ -110,10 +120,10 @@ if [ -f /tmp/openbor_recmode ]; then
             #
             # PICO-8 has always kept this distinction (P8REC_ARMSNAP vs the live
             # scratch). This is OpenBOR catching up.
-            rm -rf "$REPSTATE/.armsnap" 2>/dev/null
-            mkdir -p "$REPSTATE/.armsnap/saves" "$REPSTATE/.armsnap/savestates" 2>/dev/null
-            cp -f "$_SCR/saves/"*       "$REPSTATE/.armsnap/saves/"       2>/dev/null
-            cp -f "$_SCR/savestates/"*  "$REPSTATE/.armsnap/savestates/"  2>/dev/null
+            rm -rf "$REPLAYS/.armsnap" 2>/dev/null
+            mkdir -p "$REPLAYS/.armsnap/saves" "$REPLAYS/.armsnap/savestates" 2>/dev/null
+            cp -f "$_SCR/saves/"*       "$REPLAYS/.armsnap/saves/"       2>/dev/null
+            cp -f "$_SCR/savestates/"*  "$REPLAYS/.armsnap/savestates/"  2>/dev/null
             ;;
         PLAY*)
             _INP=$(cat /tmp/openbor_playfile 2>/dev/null | tr -d '\0')
