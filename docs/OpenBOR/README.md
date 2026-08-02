@@ -199,6 +199,23 @@ by hand. That makes an issue easy to pin down and easy to confirm once it's fixe
 (replay the same recording and see if it's gone). The `.inp` file captures the whole
 run, so you can keep it or share it.
 
+> ### What a recording contains, before you share one
+>
+> A `.inp` is not only your button presses — it also carries **that PAK's save
+> data**: your progress (`.sav`), the high-score table (`.hi`), and the
+> script-saves that hold unlocked characters. That is what lets someone else
+> replay a run you recorded partway through a game.
+>
+> So when you share a recording, you are sharing that PAK's save data with it —
+> including any name or initials you entered on a high-score screen.
+>
+> **Only replay recordings from people you trust.** Playing one restores the save
+> data it carries before the PAK starts, and OpenBOR's script-saves are
+> *executable engine script* — that is how mods persist unlocked characters, and
+> it is why they have to be included for a replay to match. Your own saves are
+> kept separate and are never modified, but a recording from a stranger does run
+> their data on your machine.
+
 **Recordings are saved as `.inp` files** in `/media/fat/games/OpenBOR/Replays/`.
 Each **Stop Recording** saves a **new numbered file** — `<pak>_1.inp`, `<pak>_2.inp`,
 … — so a new recording never overwrites an older one; you build a library per PAK.
