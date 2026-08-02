@@ -23,6 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Runs FIRST and is a hard gate: it exercises the payload parser, which
+      # turns a stranger's bytes into filenames on a root filesystem. Needs no
+      # hardware and no ARM -- it cuts the shipped extractor out of the emitted
+      # C and compiles it natively -- so there is no reason for it to be
+      # anything other than mandatory on every run.
+      - name: Save-payload extractor tests (untrusted input)
+        run: python3 tools/harness/test_snap_extract.py
       - name: Build OpenBOR headless (x86-64)
         run: bash .github/scripts/build_headless.sh
       - name: Stage binary
