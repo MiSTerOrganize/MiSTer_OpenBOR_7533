@@ -26,7 +26,19 @@
 
 #ifdef MISTER_NATIVE_VIDEO
 /* Crash handler — prints fault address and backtrace to stderr
- * so we can see exactly where the segfault happens. */
+ * so we can see exactly where the segfault happens.
+ *
+ * NOTE: apply_patches.py splices this file from the literal marker
+ * "#ifdef MISTER_NATIVE_VIDEO\n/* Crash handler" to EOF. Do NOT insert anything
+ * between that #ifdef and this comment -- the marker stops matching, the splice
+ * silently applies NOTHING from this file, and the dry-run still reports
+ * "All patches applied successfully". Add declarations below the handler. */
+/* Defined in openbor.c. Validates a take (container version + content hash)
+ * WITHOUT reading the frame block, so the .s1 pick can refuse BEFORE the reset
+ * rather than after the PAK has already reloaded. Declared here, below the
+ * splice marker above -- see that note. */
+extern int mrec_probe_take(const char *path, char *why, int whysz);
+
 static void mister_crash_handler(int sig, siginfo_t *info, void *ucontext)
 {
     void *bt[30];
@@ -167,6 +179,22 @@ static void *mister_swap_thread(void *arg)
                     else snprintf(rfull, sizeof(rfull), "/media/fat/%s", rp);
                     fprintf(stderr, "MiSTer: replay pick (.s1): %s\n", rfull);
                     fflush(stderr);
+                    /* Probe before the reset. THIS is where wrong picks come from:
+                     * the OSD browser will hand us a take for any PAK in the
+                     * library, and this path used to arm and _exit(1) without
+                     * opening the file -- destroying the run and explaining itself
+                     * only after the reload. Refusing here leaves it untouched. */
+                    {
+                        char rwhy[128];
+                        if (!mrec_probe_take(rfull, rwhy, (int)sizeof(rwhy))) {
+                            fprintf(stderr, "MiSTer: replay refused: %s\n", rwhy);
+                            fflush(stderr);
+                            NativeVideoWriter_Notice(rwhy, 6);
+                            /* baseline already advanced below, so this does not re-fire */
+                            mister_replay_mtime = (long)s1st.st_mtime;
+                            continue;
+                        }
+                    }
                     mister_swap_requested = 1;
                     mf = fopen("/tmp/openbor_playfile", "w"); if (mf) { fputs(rfull, mf); fclose(mf); }
                     mf = fopen("/tmp/openbor_recmode", "w"); if (mf) { fputs("PLAY", mf); fclose(mf); }

@@ -265,8 +265,20 @@ void pausemenu()
                             }
                             if(_pmx > 0)
                             {
-                                char _pp[MAX_BUFFER_LEN];
+                                char _pp[MAX_BUFFER_LEN]; char _pw[128];
                                 sprintf(_pp, "%s_%d.inp", _pb, _pmx);
+                                /* Validate BEFORE the reset. This used to arm and
+                                 * exit(0) unconditionally, so a damaged take -- or
+                                 * one for a PAK that has since been modified --
+                                 * cost the user their session and explained itself
+                                 * only in the next process. Refusing here leaves
+                                 * the pause menu on screen to carry the reason. */
+                                if(!mrec_probe_take(_pp, _pw, (int)sizeof(_pw)))
+                                {
+                                    printf("[REPLAY] not arming: %s\n", _pw);
+                                    NativeVideoWriter_Notice(_pw, 6);
+                                    break;   /* stay in the menu, run untouched */
+                                }
                                 _rm = fopen("/tmp/openbor_playfile", "w");
                                 if(_rm) { fputs(_pp, _rm); fclose(_rm); }
                             }
