@@ -47,11 +47,19 @@ NATIVE_COPIES = ["native_video_writer.c", "native_video_writer.h",
                  "native_sha1.h"]
 
 TEST_MAIN = r"""
-/* Test driver: calls the extractor exactly as main() does. */
+/* Test driver: calls the extractor exactly as main() does.
+ *
+ * Exit codes are DISTINCT on purpose. This driver returns 2 for a usage error,
+ * while the extractor returns 0 (accepted) or 1 (refused). The first version
+ * used `argc < 4`, so every no-stem call bailed with 2 before reaching the
+ * parser -- and because the refusal checks only asserted "rc != 0", eleven of
+ * them passed while testing nothing at all. Refusal checks now demand rc == 1
+ * specifically, so a driver error can never again read as a refusal.
+ */
 int main(int argc, char **argv)
 {
-    if (argc < 4) { fprintf(stderr, "usage: %s <inp> <destdir> [stem]\n", argv[0]); return 2; }
-    return mrec_extract_snap(argv[1], argv[2], argc >= 5 ? argv[4] : (argc >= 4 ? argv[3] : NULL));
+    if (argc < 3) { fprintf(stderr, "usage: %s <inp> <destdir> [stem]\n", argv[0]); return 2; }
+    return mrec_extract_snap(argv[1], argv[2], argc >= 4 ? argv[3] : NULL);
 }
 """
 
@@ -184,7 +192,7 @@ def main():
             d = os.path.join(work, "d_bad")
             shutil.rmtree(d, ignore_errors=True)
             rc, out, landed = run(exe, p, d)
-            check("refuse: %s" % label, rc != 0 and not landed,
+            check("refuse: %s" % label, rc == 1 and not landed,
                   "rc=%d landed=%s" % (rc, landed))
 
         # A rejected entry must refuse the WHOLE payload, not skip and continue:
@@ -195,31 +203,31 @@ def main():
         shutil.rmtree(d, ignore_errors=True)
         rc, out, landed = run(exe, p, d)
         check("refuse: one bad entry rejects the ENTIRE payload",
-              rc != 0 and not landed, "landed=%s" % landed)
+              rc == 1 and not landed, "landed=%s" % landed)
 
         # ---- container guards ------------------------------------------------
         p = take("newer.inp", pak="TestPak", frames=2, container=3)
         rc, out, _ = run(exe, p, os.path.join(work, "d_new"))
-        check("refuse: newer container", rc != 0 and "v2" in out.lower() or rc != 0, out.strip())
+        check("refuse: newer container", rc == 1, out.strip())
 
         p = take("older.inp", pak="TestPak", frames=2, container=1)
         rc, out, _ = run(exe, p, os.path.join(work, "d_old"))
-        check("refuse: older container", rc != 0, out.strip())
+        check("refuse: older container", rc == 1, out.strip())
 
         p = take("magic.inp", pak="TestPak", frames=2, bad_magic=True)
         rc, out, _ = run(exe, p, os.path.join(work, "d_magic"))
-        check("refuse: bad magic", rc != 0, out.strip())
+        check("refuse: bad magic", rc == 1, out.strip())
 
         # A ~290-byte header claiming two million frames allocated 144 MB before
         # the read failed -- on a 1 GB board shared with the FPGA.
         p = take("huge.inp", pak="TestPak", frames=1, claim_frames=mrec_synth.MAX_FRAMES)
         rc, out, _ = run(exe, p, os.path.join(work, "d_huge"))
-        check("refuse: frame count larger than the file", rc != 0, out.strip())
+        check("refuse: frame count larger than the file", rc == 1, out.strip())
 
         p = take("trunc.inp", pak="TestPak", frames=8,
                  payload=[("TestPak.sav", b"X" * 64)], truncate_after=340)
         rc, out, _ = run(exe, p, os.path.join(work, "d_trunc"))
-        check("refuse: truncated mid-file", rc != 0, out.strip())
+        check("refuse: truncated mid-file", rc == 1, out.strip())
 
         # ---- absent payload is not corruption --------------------------------
         p = take("nopay.inp", pak="TestPak", frames=4, payload=[])
