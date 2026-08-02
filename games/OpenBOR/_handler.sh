@@ -67,6 +67,12 @@ mkdir -p "$REPSTATE/.scratch/saves" "$REPSTATE/.scratch/savestates" 2>/dev/null
 # This runs in the handler, not the engine, because loadGameFile() happens
 # during startup -- far too early for the recorder itself to do it.
 # Real saves are only ever READ.
+# These echoes used to go to the handler's inherited stdout, which nothing
+# captures -- and they run long before $LOGDIR exists, so even redirecting would
+# have been erased by the truncating redirect further down. The recorder is
+# 7533-only, so the path is known here.
+_RECLOG="/media/fat/logs/OpenBOR_7533/OpenBOR.log"
+mkdir -p /media/fat/logs/OpenBOR_7533 2>/dev/null
 if [ -f /tmp/openbor_recmode ]; then
     _MODE=$(cat /tmp/openbor_recmode 2>/dev/null)
     _SCR="$REPSTATE/.scratch"
@@ -90,7 +96,7 @@ if [ -f /tmp/openbor_recmode ]; then
                 # multi-set PAKs, which is exactly where the progress lives.
                 cp -f "/media/fat/savestates/OpenBOR_7533/$_PAK".s[0-9][0-9] "$_SCR/savestates/" 2>/dev/null
                 cp -f "/media/fat/savestates/OpenBOR_7533/$_PAK".scr        "$_SCR/savestates/" 2>/dev/null
-                echo "[REC] seeded scratch from your saves for: $_PAK"
+                echo "[REC] seeded scratch from your saves for: $_PAK" >> "$_RECLOG"
             fi
             # Keep a PRISTINE copy of exactly what the run is about to boot with.
             #
@@ -111,8 +117,6 @@ if [ -f /tmp/openbor_recmode ]; then
             ;;
         PLAY*)
             _INP=$(cat /tmp/openbor_playfile 2>/dev/null | tr -d '\0')
-            # Snapshot is keyed by the take's BASENAME under $REPSTATE (it is no
-            # longer a sidecar next to the .inp -- see the note above).
             # Keyed on the take's SEED, read from the .inp header, NOT on its
             # name. Take names are <content-id>_<N>.inp, identical on every
             # machine for the same PAK, so a received take whose name collided
@@ -133,12 +137,12 @@ if [ -f /tmp/openbor_recmode ]; then
                 # cp that failed into 2>/dev/null, all reported success.
                 _N=$(ls -A "$_SCR/saves" "$_SCR/savestates" 2>/dev/null | grep -vc '^$')
                 if [ "${_N:-0}" -gt 0 ]; then
-                    echo "[REC] restored $_N save file(s) for: $_INP"
+                    echo "[REC] restored $_N save file(s) for: $_INP" >> "$_RECLOG"
                 else
-                    echo "[REC] snapshot for this take is empty or unreadable -- starting empty"
+                    echo "[REC] snapshot for this take is empty or unreadable -- starting empty" >> "$_RECLOG"
                 fi
             else
-                echo "[REC] no save snapshot for this take -- starting empty"
+                echo "[REC] no save snapshot for this take -- starting empty" >> "$_RECLOG"
             fi
             ;;
     esac
