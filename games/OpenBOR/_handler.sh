@@ -32,8 +32,17 @@ mkdir -p "$GAMEDIR/Paks" "$GAMEDIR/Replays" 2>/dev/null
 # handler, so wiping here is what guarantees the two starting states match.
 # Cheap and safe for normal launches too, since nothing outside a session
 # ever reads it. The user's real saves are never touched.
-rm -rf "$GAMEDIR/Replays/.state" 2>/dev/null
-mkdir -p "$GAMEDIR/Replays/.state/saves" "$GAMEDIR/Replays/.state/savestates" 2>/dev/null
+# Lives under saves/, NOT inside Replays/ and NOT under savestates/.
+#   - Not in Replays/ because the OSD "Load Replay" picker lists directories as
+#     well as files, so scratch and per-take snapshots showed up as decoy folders
+#     that open EMPTY (they hold saves; the picker filters to .inp). Replays/ now
+#     contains nothing but .inp takes.
+#   - Under saves/ because that is what this data IS: .sav progress, .hi scores
+#     and .sNN script-saves are all game state. OpenBOR has no emulator save
+#     states at all -- "savestates" is only the directory name we chose.
+REPSTATE="/media/fat/saves/OpenBOR_7533/.replays"
+rm -rf "$REPSTATE/.scratch" 2>/dev/null
+mkdir -p "$REPSTATE/.scratch/saves" "$REPSTATE/.scratch/savestates" 2>/dev/null
 
 # Seed the scratch so a session can start from YOUR progress.
 #
@@ -55,7 +64,7 @@ mkdir -p "$GAMEDIR/Replays/.state/saves" "$GAMEDIR/Replays/.state/savestates" 2>
 # Real saves are only ever READ.
 if [ -f /tmp/openbor_recmode ]; then
     _MODE=$(cat /tmp/openbor_recmode 2>/dev/null)
-    _SCR="$GAMEDIR/Replays/.state"
+    _SCR="$REPSTATE/.scratch"
     case "$_MODE" in
         REC*)
             _S0=$(cat /media/fat/config/OpenBOR.s0 2>/dev/null | tr -d '\0')
@@ -81,7 +90,9 @@ if [ -f /tmp/openbor_recmode ]; then
             ;;
         PLAY*)
             _INP=$(cat /tmp/openbor_playfile 2>/dev/null | tr -d '\0')
-            _SNAP="${_INP%.inp}.state"
+            # Snapshot is keyed by the take's BASENAME under $REPSTATE (it is no
+            # longer a sidecar next to the .inp -- see the note above).
+            _SNAP="$REPSTATE/$(basename "${_INP%.inp}")"
             if [ -n "$_INP" ] && [ -d "$_SNAP" ]; then
                 cp -f "$_SNAP/saves/"* "$_SCR/saves/" 2>/dev/null
                 cp -f "$_SNAP/savestates/"* "$_SCR/savestates/" 2>/dev/null

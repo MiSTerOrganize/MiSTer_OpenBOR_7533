@@ -704,10 +704,10 @@ extern int mrec_isolate;
 #define COPY_ROOT_PATH(buf, name) \\
     do { \\
         if (strcmp(name, "Saves") == 0) { \\
-            strcpy(buf, mrec_isolate ? "/media/fat/games/OpenBOR/Replays/.state/saves/" \\
+            strcpy(buf, mrec_isolate ? "/media/fat/saves/OpenBOR_7533/.replays/.scratch/saves/" \\
                                      : "/media/fat/saves/OpenBOR_7533/"); \\
         } else if (strcmp(name, "SaveStates") == 0) { \\
-            strcpy(buf, mrec_isolate ? "/media/fat/games/OpenBOR/Replays/.state/savestates/" \\
+            strcpy(buf, mrec_isolate ? "/media/fat/saves/OpenBOR_7533/.replays/.scratch/savestates/" \\
                                      : "/media/fat/savestates/OpenBOR_7533/"); \\
         } else if (strcmp(name, "HighScores") == 0) { \\
             /* Split out of Config purely so it can be isolated: a qualifying \\
@@ -716,7 +716,7 @@ extern int mrec_isolate;
              * redirected -- it holds key bindings. Normal runs resolve to the \\
              * same /media/fat/config/ as before, so existing .hi files are \\
              * found exactly where they always were. */ \\
-            strcpy(buf, mrec_isolate ? "/media/fat/games/OpenBOR/Replays/.state/saves/" \\
+            strcpy(buf, mrec_isolate ? "/media/fat/saves/OpenBOR_7533/.replays/.scratch/saves/" \\
                                      : "/media/fat/config/"); \\
         } else if (strcmp(name, "Config") == 0) { \\
             strcpy(buf, "/media/fat/config/"); \\
@@ -3009,8 +3009,17 @@ extern int mrec_isolate;
             "                             * The scratch still holds that state -- the session only\n"
             "                             * ever wrote INTO it -- so copying it out is enough. */\n"
             "                            char _mr_sc[MAX_BUFFER_LEN];\n"
-            "                            sprintf(_mr_sc, \"cp -r '/media/fat/games/OpenBOR/Replays/.state' '%.*s.state' 2>/dev/null\",\n"
-            "                                    (int)(strlen(_mr_path) - 4), _mr_path);\n"
+            "                            /* Stored under saves/, NOT beside the .inp: the OSD Load Replay\n"
+            "                             * picker lists directories too, so a sidecar per take filled that\n"
+            "                             * picker with decoy folders that open EMPTY (they hold saves, and\n"
+            "                             * the picker filters to .inp). Replays/ now holds only takes.\n"
+            "                             * Under saves/ rather than savestates/ because that is what this\n"
+            "                             * data is -- .sav progress, .hi scores and .sNN script-saves are\n"
+            "                             * all game state; OpenBOR has no emulator save states at all. */\n"
+            "                            const char *_mr_bn = strrchr(_mr_path, '/');\n"
+            "                            _mr_bn = _mr_bn ? _mr_bn + 1 : _mr_path;\n"
+            "                            sprintf(_mr_sc, \"mkdir -p '/media/fat/saves/OpenBOR_7533/.replays' && cp -r '/media/fat/saves/OpenBOR_7533/.replays/.scratch' '/media/fat/saves/OpenBOR_7533/.replays/%.*s' 2>/dev/null\",\n"
+            "                                    (int)(strlen(_mr_bn) - 4), _mr_bn);\n"
             "                            if(system(_mr_sc) != 0) printf(\"[REC] could not store the save snapshot\\n\");\n"
             "                        }\n"
             "                        printf(\"[REC] wrote %s (%ld frames)\\n\", _mr_path, _mr_len);\n"
