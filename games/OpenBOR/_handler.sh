@@ -123,11 +123,19 @@ if [ -f /tmp/openbor_recmode ]; then
             # with one of yours used to restore YOUR snapshot and report it as
             # that take's data -- wrong save state, asserted as correct.
             #
-            # Header: magic 5 + ver 4 + build_date 12 + pak 256 = seed at byte
-            # 277, 8 bytes. The engine names the snapshot with the same bytes in
-            # the same order, so this matches by construction. A received take
-            # finds no local snapshot and says so, which is the honest answer.
-            _SEED=$(dd if="$_INP" bs=1 skip=277 count=8 2>/dev/null | od -An -tx1 | tr -d ' \n')
+            # Header: magic 4 + container 4 + engine_ver 4 + build_date 12 +
+            # pak 256 = seed at byte 280, 8 bytes. The engine names the snapshot
+            # with the same bytes in the same order, so this matches by
+            # construction. A received take finds no local snapshot and says so,
+            # which is the honest answer.
+            #
+            # This said 277 and "magic 5" until 2026-08-02. The magic shrank
+            # 5 -> 4 without this moving, so it read three bytes early, every
+            # snapshot name mismatched, and PLAY always reported "no save
+            # snapshot for this take" -- for every take, on every PAK. If a
+            # header field is ever added or resized, MREC_OFF_SEED in
+            # apply_patches.py moves and THIS NUMBER MUST MOVE WITH IT.
+            _SEED=$(dd if="$_INP" bs=1 skip=280 count=8 2>/dev/null | od -An -tx1 | tr -d ' \n')
             _SNAP="$REPSTATE/$(basename "${_INP%.inp}").$_SEED"
             if [ -n "$_INP" ] && [ -d "$_SNAP" ]; then
                 cp -f "$_SNAP/saves/"* "$_SCR/saves/" 2>/dev/null

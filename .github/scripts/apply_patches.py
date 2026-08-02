@@ -2772,7 +2772,26 @@ extern int mrec_isolate;
         "int mrec_isolate = 0; /* 1 for a record/playback session: redirects Saves+SaveStates to a scratch dir so both runs boot from identical persistent state. Set at the TOP of openborMain, NOT at the recorder arm -- the engine reads <pak>.sav and the high-score table long before the first inputrefresh, so the flag must be up before any of that. Read by COPY_ROOT_PATH in source/utils.c. */\n"
         "static void mrec_content_id(char *out, int outsz);   /* defined beside inputrefresh; forward-declared because pausemenu() sits far earlier in this file and resolves the replay path at selection time */\n"
         "int mister_fps_overlay = 0; /* pause menu -> Options -> FPS Display. Read by native_video_writer.c, which draws it POST-downscale. Defined in BOTH builds so the replaced pausemenu() links headless. Defaults OFF every launch so it can never silently contaminate a frame-hash run. */\n"
-        "#define MREC_ENGINE_VER 1u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */",
+        "#define MREC_ENGINE_VER 1u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */\n"
+        "/* Header geometry, derived from the field widths rather than hand-counted.\n"
+        " * Every offset in this format was previously written as a literal sum in\n"
+        " * three separate places -- reader, size check, and the shell handler -- and\n"
+        " * when the magic shrank 5 -> 4 none of them moved. The reader then ate the\n"
+        " * container u32's low byte as magic, read the version from the following\n"
+        " * four bytes as 0x01000000, and rejected EVERY take this build wrote as\n"
+        " * 'not a valid recording'. Derive them once; adding a field updates all\n"
+        " * consumers, and a stale literal cannot survive a rebuild. */\n"
+        "#define MREC_OFF_MAGIC   0\n"
+        "#define MREC_LEN_MAGIC   4                                  /* \"MREC\", no NUL */\n"
+        "#define MREC_OFF_CONT    (MREC_OFF_MAGIC + MREC_LEN_MAGIC)  /* u32 container   */\n"
+        "#define MREC_OFF_ENGVER  (MREC_OFF_CONT  + 4)               /* u32 logic ver   */\n"
+        "#define MREC_OFF_BUILD   (MREC_OFF_ENGVER+ 4)               /* char[12] __DATE__ */\n"
+        "#define MREC_OFF_PAK     (MREC_OFF_BUILD + 12)              /* char[256] name  */\n"
+        "#define MREC_OFF_SEED    (MREC_OFF_PAK   + 256)             /* u64 seed  == 280 */\n"
+        "#define MREC_OFF_FRAMES  (MREC_OFF_SEED  + 8)               /* u32 count       */\n"
+        "#define MREC_OFF_CRC     (MREC_OFF_FRAMES+ 4)               /* u32 crc32       */\n"
+        "#define MREC_HDR_BYTES   (MREC_OFF_CRC   + 4)               /* frame block == 296 */\n"
+        "#define MREC_FRAME_BYTES (9 * 8)                            /* 9 x u64, fixed width */",
         'mrec_mode global declaration')
 
     if not HEADLESS:
@@ -2990,7 +3009,7 @@ extern int mrec_isolate;
             "                        char _mr_h[5]; _mr_h[0]=0;\n"
             "                        unsigned int _mr_cv = 0, _mr_n32 = 0, _mr_crc = 0;\n"
             "                        unsigned int _mr_ev = 0; char _mr_bd[12]; _mr_bd[0]=0; char _mr_pk[256]; _mr_pk[0]=0;\n"
-            "                        if(fread(_mr_h,1,5,_mr_pf)==5 && _mr_h[0]=='M' && _mr_h[1]=='R'\n"
+            "                        if(fread(_mr_h,1,MREC_LEN_MAGIC,_mr_pf)==MREC_LEN_MAGIC && _mr_h[0]=='M' && _mr_h[1]=='R'\n"
             "                           && _mr_h[2]=='E' && _mr_h[3]=='C'\n"
             "                           && fread(&_mr_cv,sizeof(unsigned int),1,_mr_pf)==1\n"
             "                           && _mr_cv==1u   /* container version; a mismatch is reported below, not treated as corruption */\n"
@@ -3001,7 +3020,7 @@ extern int mrec_isolate;
             "                           && fread(&_mr_n32,sizeof(unsigned int),1,_mr_pf)==1\n"
             "                           && fread(&_mr_crc,sizeof(unsigned int),1,_mr_pf)==1\n"
             "                           && (_mr_len = (long)_mr_n32, 1)\n"
-            "                           && _mr_len>0 && _mr_len<=2000000L && fseek(_mr_pf,0,SEEK_END)==0 && ftell(_mr_pf) >= (long)(277+8+(long)sizeof(long)+_mr_len*72) && fseek(_mr_pf,(long)(277+8+(long)sizeof(long)),SEEK_SET)==0)   /* <= : the writer lets _mr_len REACH 2000000, so < rejected a maximum-length recording the same build had just written. The size check is new: the file must actually HOLD the frames it claims, or a ~290-byte header saying len=2000000 allocated 144 MB before the read failed -- repeatable, on a 1 GB board shared with the FPGA. */\n"
+            "                           && _mr_len>0 && _mr_len<=2000000L && fseek(_mr_pf,0,SEEK_END)==0 && ftell(_mr_pf) >= (long)(MREC_HDR_BYTES+_mr_len*MREC_FRAME_BYTES) && fseek(_mr_pf,(long)MREC_HDR_BYTES,SEEK_SET)==0)   /* <= : the writer lets _mr_len REACH 2000000, so < rejected a maximum-length recording the same build had just written. The size check: the file must actually HOLD the frames it claims, or a ~290-byte header saying len=2000000 allocated 144 MB before the read failed -- repeatable, on a 1 GB board shared with the FPGA. Offsets are derived (MREC_HDR_BYTES), never hand-summed: the old literal 277+8+sizeof(long) was 289 against a writer that starts frames at 296, and sizeof(long) differs 4 vs 8 by producer. */\n"
             "                        {\n"
             "                            /* PAK-match guard: NEVER play a replay recorded for a different PAK (guaranteed desync).\n"
             "                             * Compares the IDENTITY (path relative to Paks/), not getPakName's\n"
@@ -5910,6 +5929,13 @@ extern int mrec_isolate;
                 'PIXEL_16)) == NULL',                               # Path B: 16-bit vscreen
                 'int mrec_mode = 0;',                               # raw-input recorder global
                 'title-anchored raw-input recorder',                # recorder hook body
+                # Container geometry. Nothing here asserted the .inp layout until
+                # 2026-08-02, which is how a 5-vs-4 magic mismatch shipped and made
+                # the reader reject every take the same build wrote. These two
+                # signatures fail the build if the derived offsets are replaced by
+                # hand-summed literals again -- the defect class, not the instance.
+                '#define MREC_HDR_BYTES',                           # derived header geometry
+                'fread(_mr_h,1,MREC_LEN_MAGIC,_mr_pf)==MREC_LEN_MAGIC',  # reader uses it
             ],
             'source/gamelib/sprite.c': [
                 'has_remap_directive && !drawmethod->has_palette_directive',  # step 4 v2 gate
