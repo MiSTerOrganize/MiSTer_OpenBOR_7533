@@ -2770,10 +2770,27 @@ extern int mrec_isolate;
         "a_playrecstatus *playrecstatus = NULL;\n"
         "int mrec_mode = 0; /* MiSTer raw-input recorder: 0=idle 1=rec 2=play */\n"
         "int mrec_isolate = 0; /* 1 for a record/playback session: redirects Saves+SaveStates to a scratch dir so both runs boot from identical persistent state. Set at the TOP of openborMain, NOT at the recorder arm -- the engine reads <pak>.sav and the high-score table long before the first inputrefresh, so the flag must be up before any of that. Read by COPY_ROOT_PATH in source/utils.c. */\n"
-        "static void mrec_content_id(char *out, int outsz);   /* defined beside inputrefresh; forward-declared because pausemenu() sits far earlier in this file and resolves the replay path at selection time */\n"
-        "int mrec_probe_take(const char *path, char *why, int whysz);   /* same reason; also called from sdl/sdlport.c's .s1 pick, so NOT static */\n"
-        "static int mrec_highest(const char *stem);   /* same reason; pausemenu() must ENUMERATE Replays/, not probe _1.._N */\n"
-        "int mister_fps_overlay = 0; /* pause menu -> Options -> FPS Display. Read by native_video_writer.c, which draws it POST-downscale. Defined in BOTH builds so the replaced pausemenu() links headless. Defaults OFF every launch so it can never silently contaminate a frame-hash run. */\n"
+        + (
+            # pausemenu() is replaced in BOTH builds -- that is why mrec_mode and
+            # mister_fps_overlay are defined in both -- so every symbol it calls has
+            # to EXIST in both. The real recorder bodies are ship-only, so headless
+            # gets inert stubs. Without these the headless link dies with
+            # "undefined reference to mrec_content_id / mrec_highest /
+            # mrec_probe_take / NativeVideoWriter_Notice", which is a build the ship
+            # dry-run cannot see.
+            "static void mrec_content_id(char *out, int outsz);   /* defined beside inputrefresh; forward-declared because pausemenu() sits far earlier in this file and resolves the replay path at selection time */\n"
+            "int mrec_probe_take(const char *path, char *why, int whysz);   /* same reason; also called from sdl/sdlport.c's .s1 pick, so NOT static */\n"
+            "static int mrec_highest(const char *stem);   /* same reason; pausemenu() must ENUMERATE Replays/, not probe _1.._N */\n"
+            if not HEADLESS else
+            "/* HEADLESS stubs: pausemenu() is replaced in both builds and calls these,\n"
+            " * but the recorder bodies are ship-only. Inert, never reached -- headless\n"
+            " * has no pause menu -- and present purely so the link succeeds. */\n"
+            "static void mrec_content_id(char *out, int outsz){ if(out && outsz>0) out[0]=0; }\n"
+            "int mrec_probe_take(const char *path, char *why, int whysz){ (void)path; if(why && whysz>0) why[0]=0; return 0; }\n"
+            "static int mrec_highest(const char *stem){ (void)stem; return 0; }\n"
+            "void NativeVideoWriter_Notice(const char *msg, int seconds){ (void)msg; (void)seconds; }\n"
+        )
+        + "int mister_fps_overlay = 0; /* pause menu -> Options -> FPS Display. Read by native_video_writer.c, which draws it POST-downscale. Defined in BOTH builds so the replaced pausemenu() links headless. Defaults OFF every launch so it can never silently contaminate a frame-hash run. */\n"
         "#define MREC_ENGINE_VER 1u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */\n"
         "/* Header geometry, derived from the field widths rather than hand-counted.\n"
         " * Every offset in this format was previously written as a literal sum in\n"
