@@ -29,6 +29,16 @@ void NativeVideoWriter_Shutdown(void);
 /// @param pitch    Source row stride in BYTES (SDL_Surface->pitch)
 /// @param bpp      Bits per pixel (8, 16, or 32)
 /// @param palette  Palette data for 8bpp (SDL_Color array), NULL otherwise
+/// Show a short line at the top of the screen for `seconds` (0 = default 4).
+/// Uppercased and word-wrapped, up to 3 lines, drawn POST-downscale so it is
+/// not squished with the game image on a PAK that renders above 320x224.
+///
+/// For anything the player must KNOW — a refused replay, a version mismatch,
+/// take-over, playback finishing. Those all used to go only to OpenBorLog.txt,
+/// which is unreadable from a couch. Keep the log line too: this is the
+/// headline, the log is the detail.
+void NativeVideoWriter_Notice(const char* msg, int seconds);
+
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                   int pitch, int bpp, const void* palette);
 

@@ -180,6 +180,60 @@ static const uint8_t nv_font5x7[10][7] = {
 #define NV_GLYPH_GAP 2
 #define NV_FPS_MARGIN 4
 
+/* A-Z for the notice overlay. The fps read-out only ever needed digits, so
+ * until now every message this recorder emitted went to OpenBorLog.txt -- which
+ * nobody reads while sitting in front of a TV holding a controller. */
+static const uint8_t nv_font_az[26][7] = {
+    {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11}, {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E},
+    {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E}, {0x1E,0x11,0x11,0x11,0x11,0x11,0x1E},
+    {0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F}, {0x1F,0x10,0x10,0x1E,0x10,0x10,0x10},
+    {0x0E,0x11,0x10,0x17,0x11,0x11,0x0F}, {0x11,0x11,0x11,0x1F,0x11,0x11,0x11},
+    {0x0E,0x04,0x04,0x04,0x04,0x04,0x0E}, {0x01,0x01,0x01,0x01,0x01,0x11,0x0E},
+    {0x11,0x12,0x14,0x18,0x14,0x12,0x11}, {0x10,0x10,0x10,0x10,0x10,0x10,0x1F},
+    {0x11,0x1B,0x15,0x15,0x11,0x11,0x11}, {0x11,0x19,0x15,0x13,0x11,0x11,0x11},
+    {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E}, {0x1E,0x11,0x11,0x1E,0x10,0x10,0x10},
+    {0x0E,0x11,0x11,0x11,0x15,0x12,0x0D}, {0x1E,0x11,0x11,0x1E,0x14,0x12,0x11},
+    {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E}, {0x1F,0x04,0x04,0x04,0x04,0x04,0x04},
+    {0x11,0x11,0x11,0x11,0x11,0x11,0x0E}, {0x11,0x11,0x11,0x11,0x11,0x0A,0x04},
+    {0x11,0x11,0x11,0x15,0x15,0x1B,0x11}, {0x11,0x11,0x0A,0x04,0x0A,0x11,0x11},
+    {0x11,0x11,0x0A,0x04,0x04,0x04,0x04}, {0x1F,0x01,0x02,0x04,0x08,0x10,0x1F},
+};
+
+/* Only the punctuation the messages use. */
+static const uint8_t nv_font_punct[7][7] = {
+    {0x00,0x00,0x00,0x0E,0x00,0x00,0x00}, /* - */
+    {0x00,0x00,0x00,0x00,0x00,0x0C,0x0C}, /* . */
+    {0x00,0x0C,0x0C,0x00,0x0C,0x0C,0x00}, /* : */
+    {0x0E,0x11,0x01,0x02,0x04,0x00,0x04}, /* ? */
+    {0x04,0x04,0x04,0x04,0x04,0x00,0x04}, /* ! */
+    {0x02,0x04,0x08,0x08,0x08,0x04,0x02}, /* ( */
+    {0x08,0x04,0x02,0x02,0x02,0x04,0x08}, /* ) */
+};
+
+/* NULL for space and anything unmapped: an unknown character renders as a
+ * blank cell rather than dropping out, so the text keeps its shape. */
+static const uint8_t* nv_glyph_rows(char c) {
+    if (c >= '0' && c <= '9') return nv_font5x7[c - '0'];
+    if (c >= 'A' && c <= 'Z') return nv_font_az[c - 'A'];
+    if (c >= 'a' && c <= 'z') return nv_font_az[c - 'a'];
+    switch (c) {
+        case '-': return nv_font_punct[0];
+        case '.': return nv_font_punct[1];
+        case ':': return nv_font_punct[2];
+        case '?': return nv_font_punct[3];
+        case '!': return nv_font_punct[4];
+        case '(': return nv_font_punct[5];
+        case ')': return nv_font_punct[6];
+        default:  return NULL;
+    }
+}
+
+/* Notices draw at 1x, not the fps read-out's 2x: 320/6 = 53 columns, which is
+ * enough to name a PAK. At 2x it would be 26 and every useful message would
+ * wrap to three lines. */
+#define NV_COLS       52
+#define NV_NOTICE_MAX 3
+
 static int      nv_fps_value    = 0;
 static uint32_t nv_fps_frames   = 0;
 static uint64_t nv_fps_last_ns  = 0;
@@ -202,6 +256,89 @@ static void nv_fps_tick(void) {
         if (nv_fps_value > 999) nv_fps_value = 999;
         nv_fps_frames  = 0;
         nv_fps_last_ns = now;
+    }
+}
+
+/* 1x, for notice text. */
+static void nv_blit_rows1x(volatile uint16_t* dst, int gx, int gy,
+                           const uint8_t* rows, uint16_t colour) {
+    if (!rows) return;
+    for (int ry = 0; ry < 7; ry++) {
+        uint8_t bits = rows[ry];
+        int py = gy + ry;
+        if (py < 0 || py >= NV_FRAME_HEIGHT) continue;
+        volatile uint16_t* row = dst + (size_t)py * NV_FRAME_WIDTH;
+        for (int rx = 0; rx < 5; rx++) {
+            if (!(bits & (0x10 >> rx))) continue;
+            int px = gx + rx;
+            if (px < 0 || px >= NV_FRAME_WIDTH) continue;
+            row[px] = colour;
+        }
+    }
+}
+
+/* ==========================================================================
+ * NOTICE OVERLAY
+ *
+ * Called from the recorder in openbor.c. Every message it emits went through
+ * printf, which the engine #defines to writeToLogFile() -> OpenBorLog.txt. So
+ * "wrong PAK", "not a valid recording", "recorded on an older build", "you took
+ * over" and "playback finished" all presented identically to the player: the
+ * PAK reset and then behaved oddly.
+ *
+ * Held for a few seconds, top-left, so it never collides with the bottom-right
+ * fps read-out. Drawn here in WriteFrame, i.e. AFTER the downscale, exactly
+ * like the fps overlay -- an engine-space notice would be squished with the
+ * game image on a PAK that renders at 960x480.
+ *
+ * Frame-counted rather than clock-based so it behaves identically under a
+ * deterministic replay.
+ * ========================================================================== */
+static char nv_notice_text[NV_COLS * NV_NOTICE_MAX + 1];
+static int  nv_notice_frames = 0;
+
+void NativeVideoWriter_Notice(const char* msg, int seconds) {
+    if (!msg) { nv_notice_frames = 0; return; }
+    size_t i = 0;
+    while (msg[i] && i < sizeof(nv_notice_text) - 1) {
+        char c = msg[i];
+        nv_notice_text[i] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
+        i++;
+    }
+    nv_notice_text[i] = 0;
+    if (seconds <= 0) seconds = 4;
+    nv_notice_frames = seconds * 60;   /* ~59.92 Hz; exactness does not matter */
+}
+
+/* Word-wrapped, not cropped. A word longer than a line is hard-broken rather
+ * than dropped, so a long PAK name still shows something useful. */
+static void nv_draw_notice(volatile uint16_t* dst) {
+    if (nv_notice_frames <= 0) return;
+    nv_notice_frames--;
+
+    const char* p = nv_notice_text;
+    int line = 0;
+    while (*p && line < NV_NOTICE_MAX) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+
+        int take = 0, brk = 0;
+        while (p[take] && take < NV_COLS) {
+            if (p[take] == ' ') brk = take;
+            take++;
+        }
+        if (p[take] && brk > 0) take = brk;
+
+        int y = NV_FPS_MARGIN + line * 9;
+        for (int pass = 0; pass < 2; pass++) {
+            uint16_t c   = (pass == 0) ? 0x0000 : 0xFFFF;
+            int      off = (pass == 0) ? 1 : 0;
+            for (int i = 0; i < take; i++)
+                nv_blit_rows1x(dst, NV_FPS_MARGIN + i * 6 + off, y + off,
+                               nv_glyph_rows(p[i]), c);
+        }
+        p += take;
+        line++;
     }
 }
 
@@ -846,6 +983,9 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
      * lands in the frame the FPGA is about to scan out. */
     nv_fps_tick();
     if (mister_fps_overlay) nv_draw_fps(dst);
+    /* After the fps read-out so a notice is never painted over by it. Ungated:
+     * a notice only appears when there is something the player must know. */
+    nv_draw_notice(dst);
 
     __sync_synchronize();
 
