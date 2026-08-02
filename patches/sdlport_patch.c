@@ -180,6 +180,151 @@ static void *mister_swap_thread(void *arg)
     }
     return NULL;
 }
+
+/* ---- .inp save-payload extractor (step 21) -------------------------------
+ *
+ * Reads the payload embedded in a take and writes it into destdir. Parses the
+ * container SEQUENTIALLY -- magic, header fields, identity section, frame block,
+ * then records -- so it never depends on an absolute byte offset. That is
+ * deliberate: hand-computed offsets are what silently broke this format when the
+ * magic shrank 5 -> 4, and the handler's dd went stale the same way.
+ *
+ * SECURITY. This function parses bytes written by a STRANGER into filenames on
+ * the recipient's root filesystem, so every name is subjected to:
+ *   1. bare filename only  -- no '/', no '\\', not "." or ".."
+ *   2. an EXTENSION WHITELIST -- .sav, .hi, .sNN and nothing else
+ * The whitelist is the load-bearing control, and it is by EXTENSION, never a
+ * bare-name check. PICO-8 learned that the hard way: its guard asked only "is
+ * this a bare filename", so an entry called <cart>.p8 was accepted and spliced
+ * over the cart's ROM before the first frame.
+ *
+ * .sNN stays IN because those are script-saves holding unlocks and progression,
+ * so determinism genuinely needs them (design note O1) -- and they are
+ * re-executable OpenBOR script, which loadScriptFile() executes. That is an
+ * accepted, documented risk: a shared take can run script inside the recipient's
+ * engine. The README says so plainly. Do not silently widen this list.
+ *
+ * Stem remapping: save names derive from getPakName, so a recipient whose file
+ * is named differently has an engine looking for names the payload does not
+ * contain. Each entry's stem is rewritten to local_stem, preserving only the
+ * extension -- which is also why the extension, not the name, is what we trust.
+ *
+ * Returns 0 on success, non-zero on refusal. Prints one line per outcome. */
+static int mrec_snap_ext_ok(const char *name)
+{
+    const char *dot = strrchr(name, '.');
+    if (!dot || dot == name) return 0;
+    if (strcasecmp(dot, ".sav") == 0) return 1;
+    if (strcasecmp(dot, ".hi")  == 0) return 1;
+    /* .sNN -- saveScriptFile overwrites the last two chars of .scr with the
+     * level-set number, so a multi-set PAK has .s00, .s01, ... one per set.
+     * Matching only .s00 would silently drop every set past the first. */
+    if ((dot[1] == 's' || dot[1] == 'S')
+        && dot[2] >= '0' && dot[2] <= '9'
+        && dot[3] >= '0' && dot[3] <= '9'
+        && dot[4] == 0) return 1;
+    return 0;
+}
+
+static int mrec_extract_snap(const char *inp, const char *destdir, const char *local_stem)
+{
+    FILE *f; unsigned int cont = 0, engver = 0, n32 = 0, crc = 0, cnt = 0, i, pc = 0;
+    unsigned short ic = 0, nl = 0, sl = 0;
+    unsigned char magic[4];
+    char pak[256], stem[128];
+    long frames;
+    int wrote = 0, refused = 0;
+
+    f = fopen(inp, "rb");
+    if (!f) { printf("[SNAP] cannot open %s\n", inp); return 1; }
+
+    if (fread(magic,1,4,f) != 4 || magic[0]!='M'||magic[1]!='R'||magic[2]!='E'||magic[3]!='C'
+        || fread(&cont,4,1,f)!=1 || cont != 2u
+        || fread(&engver,4,1,f)!=1
+        || fseek(f,12,SEEK_CUR)!=0                 /* build date */
+        || fread(pak,1,256,f)!=256
+        || fseek(f,8,SEEK_CUR)!=0                  /* seed */
+        || fread(&n32,4,1,f)!=1
+        || fread(&crc,4,1,f)!=1)
+    { printf("[SNAP] %s is not a v2 recording\n", inp); fclose(f); return 1; }
+
+    /* identity section: entry (optional) then the recorder's stem */
+    stem[0] = 0;
+    if (fread(&ic,2,1,f)!=1 || ic > 1) { printf("[SNAP] bad identity section\n"); fclose(f); return 1; }
+    if (ic == 1)
+    {
+        if (fread(&nl,2,1,f)!=1 || nl == 0 || fseek(f,nl,SEEK_CUR)!=0 || fseek(f,20,SEEK_CUR)!=0)
+        { printf("[SNAP] bad identity entry\n"); fclose(f); return 1; }
+    }
+    if (fread(&sl,2,1,f)!=1 || sl >= (unsigned short)sizeof(stem)
+        || (sl && fread(stem,1,sl,f)!=sl))
+    { printf("[SNAP] bad stem field\n"); fclose(f); return 1; }
+    stem[sl] = 0;
+
+    /* skip the frame block: 9 x u64 per frame, fixed width by design */
+    frames = (long)n32;
+    if (frames < 0 || frames > 2000000L || fseek(f, frames * (9*8), SEEK_CUR) != 0)
+    { printf("[SNAP] frame block is not readable\n"); fclose(f); return 1; }
+
+    if (fread(&cnt,4,1,f) != 1) { printf("[SNAP] no payload in this take\n"); fclose(f); return 0; }
+    if (cnt > 4096u) { printf("[SNAP] payload claims %u files -- refusing\n", cnt); fclose(f); return 1; }
+
+    mkdir(destdir, 0777);
+
+    for (i = 0; i < cnt; i++)
+    {
+        unsigned int enl = 0, edl = 0;
+        char name[512], out[1024];
+        const char *dot;
+        FILE *o;
+
+        if (fread(&enl,4,1,f)!=1 || enl == 0 || enl >= sizeof(name)) { refused = 1; break; }
+        if (fread(name,1,enl,f)!=enl) { refused = 1; break; }
+        name[enl] = 0;
+        if (fread(&edl,4,1,f)!=1 || edl > 8u*1024u*1024u) { refused = 1; break; }
+
+        /* bare filename only, then the extension whitelist */
+        if (strchr(name,'/') || strchr(name,'\\') || strcmp(name,".")==0 || strcmp(name,"..")==0
+            || !mrec_snap_ext_ok(name))
+        {
+            /* Skipping a rejected entry with `continue` would be a desync dressed
+             * as a warning: the take would restore partially and replay against
+             * state it was not recorded with. Refuse the whole payload. */
+            printf("[SNAP] refusing entry '%s' -- not an allowed save file\n", name);
+            refused = 1; break;
+        }
+
+        dot = strrchr(name, '.');
+        if (local_stem && *local_stem)
+            snprintf(out, sizeof(out), "%s/%s%s", destdir, local_stem, dot);
+        else
+            snprintf(out, sizeof(out), "%s/%s", destdir, name);
+
+        o = fopen(out, "wb");
+        if (!o) { printf("[SNAP] cannot write %s\n", out); refused = 1; break; }
+        while (edl)
+        {
+            char buf[8192];
+            size_t want = (edl < sizeof(buf)) ? (size_t)edl : sizeof(buf);
+            size_t got  = fread(buf,1,want,f);
+            if (got != want || fwrite(buf,1,got,o) != got) { refused = 1; break; }
+            edl -= (unsigned int)got;
+        }
+        if (fclose(o) != 0) refused = 1;
+        if (refused) { remove(out); break; }
+        wrote++;
+    }
+    fclose(f);
+
+    if (refused)
+    {
+        printf("[SNAP] payload rejected after %d file(s) -- not restoring\n", wrote);
+        return 1;
+    }
+    printf("[SNAP] restored %d save file(s) from %s\n", wrote, inp);
+    (void)pc; (void)engver;
+    return 0;
+}
 #endif
 
 int main(int argc, char *argv[])
@@ -244,6 +389,23 @@ int main(int argc, char *argv[])
      * up to 4KB of pending output (including the version banner). */
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
+
+    /* --extract-snap <take.inp> <destdir> <local-stem>
+     *
+     * Unpacks the save payload embedded in a recording and exits. Runs HERE:
+     * after unbuffered logging is on, but before SDL, DDR3 video/audio, the
+     * directory creation and -- critically -- before the blocking .s0 OSD wait,
+     * which would otherwise sit forever with no PAK to pick.
+     *
+     * It lives in C rather than the handler on purpose. The alternative was
+     * hunting byte offsets with dd and od in BusyBox, which is how the seed
+     * offset silently went stale when the header changed; and the extension
+     * check below is a security control, not a convenience -- shell quoting is
+     * the wrong place for it.
+     *
+     * The handler invokes this on PLAY and then restores from destdir. */
+    if (argc >= 4 && strcmp(argv[1], "--extract-snap") == 0)
+        return mrec_extract_snap(argv[2], argv[3], argc >= 5 ? argv[4] : NULL);
 #endif
 
     setSystemRam();

@@ -137,7 +137,29 @@ if [ -f /tmp/openbor_recmode ]; then
             # apply_patches.py moves and THIS NUMBER MUST MOVE WITH IT.
             _SEED=$(dd if="$_INP" bs=1 skip=280 count=8 2>/dev/null | od -An -tx1 | tr -d ' \n')
             _SNAP="$REPSTATE/$(basename "${_INP%.inp}").$_SEED"
-            if [ -n "$_INP" ] && [ -d "$_SNAP" ]; then
+            # A SHARED take carries its saves inside the .inp; a locally-recorded
+            # one also has a seed-keyed snapshot dir beside it. Try the embedded
+            # payload FIRST -- it is the only source that travels between
+            # machines, and for a local take it holds the same bytes.
+            #
+            # Parsing stays in the binary (--extract-snap), not here. Reaching
+            # into the container with dd is how the seed offset silently went
+            # stale, and the extension whitelist that decides which files are
+            # allowed to land is a security control, not something to express in
+            # shell quoting.
+            _EMB=0
+            if [ -n "$_INP" ] && [ -f "$_INP" ]; then
+                # $_PAK is the locally-loaded PAK's stem: entries are renamed to
+                # it, because the engine derives .sav/.hi/.sNN from getPakName and
+                # would not see a payload still named for the recorder's copy.
+                if ./"$BINARY" --extract-snap "$_INP" "$_SCR/saves" "$_PAK" >> "$_RECLOG" 2>&1; then
+                    _EMB=$(ls -A "$_SCR/saves" 2>/dev/null | grep -vc '^$')
+                fi
+                [ "${_EMB:-0}" -gt 0 ] && echo "[REC] restored $_EMB save file(s) from inside: $_INP" >> "$_RECLOG"
+            fi
+            if [ "${_EMB:-0}" -gt 0 ]; then
+                :   # embedded payload won; leave the local snapshot alone
+            elif [ -n "$_INP" ] && [ -d "$_SNAP" ]; then
                 cp -f "$_SNAP/saves/"* "$_SCR/saves/" 2>/dev/null
                 cp -f "$_SNAP/savestates/"* "$_SCR/savestates/" 2>/dev/null
                 # Count what LANDED. The old line printed "restored" whenever the
