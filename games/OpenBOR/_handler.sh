@@ -87,6 +87,22 @@ if [ -f /tmp/openbor_recmode ]; then
                 cp -f "/media/fat/savestates/OpenBOR_7533/$_PAK".scr        "$_SCR/savestates/" 2>/dev/null
                 echo "[REC] seeded scratch from your saves for: $_PAK"
             fi
+            # Keep a PRISTINE copy of exactly what the run is about to boot with.
+            #
+            # The take must be paired with the state the run STARTED from. The
+            # scratch is written INTO all session long -- a PAK that autosaves on
+            # stage clear rewrites .sav, a qualifying score rewrites .hi -- so
+            # snapshotting the scratch at Stop pairs the take with POST-run saves.
+            # The replay then boots against a LOAD GAME menu of a different shape
+            # and the recorded navigation selects a different slot: exactly the
+            # desync the snapshot exists to prevent.
+            #
+            # PICO-8 has always kept this distinction (P8REC_ARMSNAP vs the live
+            # scratch). This is OpenBOR catching up.
+            rm -rf "$REPSTATE/.armsnap" 2>/dev/null
+            mkdir -p "$REPSTATE/.armsnap/saves" "$REPSTATE/.armsnap/savestates" 2>/dev/null
+            cp -f "$_SCR/saves/"*       "$REPSTATE/.armsnap/saves/"       2>/dev/null
+            cp -f "$_SCR/savestates/"*  "$REPSTATE/.armsnap/savestates/"  2>/dev/null
             ;;
         PLAY*)
             _INP=$(cat /tmp/openbor_playfile 2>/dev/null | tr -d '\0')
