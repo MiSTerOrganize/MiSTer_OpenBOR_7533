@@ -251,18 +251,19 @@ void pausemenu()
                              * writing it here too means both routes look identical to
                              * the handler. */
                             char _pb[MAX_BUFFER_LEN], _pn[MAX_BUFFER_LEN];
-                            int _pi, _pmx = 0, _pmiss = 0;
+                            int _pmx = 0;
                             strcpy(_pb, "/media/fat/games/OpenBOR/Replays/");
                             mrec_content_id(_pn, MAX_BUFFER_LEN);
                             strcat(_pb, _pn);
-                            for(_pi = 1; _pi <= 9999 && _pmiss < 8; _pi++)
-                            {
-                                char _pp[MAX_BUFFER_LEN];
-                                FILE *_pt;
-                                sprintf(_pp, "%s_%d.inp", _pb, _pi);
-                                _pt = fopen(_pp, "rb");
-                                if(_pt){ fclose(_pt); _pmx = _pi; _pmiss = 0; } else _pmiss++;
-                            }
+                            /* ENUMERATE, never probe. This used to walk _1.._9999 and
+                             * give up after 8 consecutive misses, so a take received
+                             * from someone else and dropped into an empty Replays/ --
+                             * say FinalFight_37.inp -- was invisible here, and the next
+                             * Record wrote _1 and shadowed it. The engine side already
+                             * enumerates with readdir; this was the last consumer still
+                             * probing, which meant the two disagreed about which take
+                             * "the highest" is. */
+                            _pmx = mrec_highest(_pn);
                             if(_pmx > 0)
                             {
                                 char _pp[MAX_BUFFER_LEN]; char _pw[128];

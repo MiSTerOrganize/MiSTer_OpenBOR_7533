@@ -211,10 +211,16 @@ VERSIONEOF
 sed -i 's/stricmp/strcasecmp/g' openbor.h
 
 # ── Copy native_video_writer + native_audio_writer into source tree ─
+# NOTE: this is a FIXED LIST, not a glob. The local dry-run recipe in CLAUDE.md
+# copies src/native_* by wildcard, which is MORE permissive than CI -- so a new
+# native_*.h can dry-run clean here and then fail the build with
+# "fatal error: <name>.h: No such file or directory". Add new files to BOTH.
 cp /build/src/native_video_writer.c .
 cp /build/src/native_video_writer.h .
 cp /build/src/native_audio_writer.c .
 cp /build/src/native_audio_writer.h .
+cp /build/src/native_sha1.h .          # content identity for the recorder (step 19)
+require_file native_sha1.h "native_sha1.h did not copy into the engine tree — openbor.c includes it"
 
 # ── Apply Makefile + source patches ──────────────────────────────
 # CRITICAL: hard-fail if apply_patches.py errors. Previously `set +e`

@@ -2772,6 +2772,7 @@ extern int mrec_isolate;
         "int mrec_isolate = 0; /* 1 for a record/playback session: redirects Saves+SaveStates to a scratch dir so both runs boot from identical persistent state. Set at the TOP of openborMain, NOT at the recorder arm -- the engine reads <pak>.sav and the high-score table long before the first inputrefresh, so the flag must be up before any of that. Read by COPY_ROOT_PATH in source/utils.c. */\n"
         "static void mrec_content_id(char *out, int outsz);   /* defined beside inputrefresh; forward-declared because pausemenu() sits far earlier in this file and resolves the replay path at selection time */\n"
         "int mrec_probe_take(const char *path, char *why, int whysz);   /* same reason; also called from sdl/sdlport.c's .s1 pick, so NOT static */\n"
+        "static int mrec_highest(const char *stem);   /* same reason; pausemenu() must ENUMERATE Replays/, not probe _1.._N */\n"
         "int mister_fps_overlay = 0; /* pause menu -> Options -> FPS Display. Read by native_video_writer.c, which draws it POST-downscale. Defined in BOTH builds so the replaced pausemenu() links headless. Defaults OFF every launch so it can never silently contaminate a frame-hash run. */\n"
         "#define MREC_ENGINE_VER 1u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */\n"
         "/* Header geometry, derived from the field widths rather than hand-counted.\n"
