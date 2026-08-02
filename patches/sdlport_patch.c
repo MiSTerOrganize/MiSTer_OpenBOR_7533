@@ -260,7 +260,7 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
     unsigned short ic = 0, nl = 0, sl = 0;
     unsigned char magic[4];
     char pak[256], stem[128];
-    long frames;
+    long frames, frames_start = -1, payload_start = -1;
     int wrote = 0, refused = 0;
 
     f = fopen(inp, "rb");
@@ -288,14 +288,67 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
         || (sl && fread(stem,1,sl,f)!=sl))
     { printf("[SNAP] bad stem field\n"); fclose(f); return 1; }
     stem[sl] = 0;
+    frames_start = ftell(f);   /* the identity section is variable length, so this
+                                * is MEASURED, never a hand-computed constant */
+    if (frames_start < 0) { printf("[SNAP] cannot locate the frame block\n"); fclose(f); return 1; }
 
-    /* skip the frame block: 9 x u64 per frame, fixed width by design */
+    /* Skip the frame block: 9 x u64 per frame, fixed width by design.
+     *
+     * Check the size EXPLICITLY rather than trusting fseek. Seeking past EOF is
+     * legal and SUCCEEDS on POSIX, so a header claiming two million frames sailed
+     * through this check, the payload read then failed, and the whole thing
+     * returned "no payload in this take" -- i.e. SUCCESS -- for a file that was
+     * either truncated or lying about its length. */
     frames = (long)n32;
-    if (frames < 0 || frames > 2000000L || fseek(f, frames * (9*8), SEEK_CUR) != 0)
+    if (frames < 0 || frames > 2000000L
+        || fseek(f, 0, SEEK_END) != 0)
     { printf("[SNAP] frame block is not readable\n"); fclose(f); return 1; }
+    {
+        long fsize = ftell(f);
+        long need = frames_start + frames * (9*8);
+        if (fsize < 0 || need < frames_start || fsize < need)
+        { printf("[SNAP] %s is truncated (needs %ld bytes, has %ld)\n", inp, need, fsize);
+          fclose(f); return 1; }
+        if (fseek(f, need, SEEK_SET) != 0)
+        { printf("[SNAP] frame block is not readable\n"); fclose(f); return 1; }
+    }
 
-    if (fread(&cnt,4,1,f) != 1) { printf("[SNAP] no payload in this take\n"); fclose(f); return 0; }
+    /* Within a version, an ABSENT count is truncation, not "an older take": the
+     * container version above already rejected every older format, and the writer
+     * ALWAYS writes the count (0 when empty). */
+    if (fread(&cnt,4,1,f) != 1)
+    { printf("[SNAP] %s is truncated -- no payload count\n", inp); fclose(f); return 1; }
     if (cnt > 4096u) { printf("[SNAP] payload claims %u files -- refusing\n", cnt); fclose(f); return 1; }
+
+    /* TWO PASSES: validate every record, THEN write.
+     *
+     * The single-pass version wrote each file as it went and stopped at the first
+     * bad entry -- so a payload of [good.sav, ../evil.sav] returned "refused" and
+     * still left good.sav on disk. The handler counts what landed and treats a
+     * non-zero count as success, so a hostile take got a PARTIAL restore in. A
+     * partial restore is exactly the desync-dressed-as-a-warning this refuses to
+     * do. Validating first means nothing is created unless everything is legal. */
+    payload_start = ftell(f);
+    for (i = 0; i < cnt; i++)
+    {
+        unsigned int enl = 0, edl = 0;
+        char name[512];
+        if (fread(&enl,4,1,f)!=1 || enl == 0 || enl >= sizeof(name)) { refused = 1; break; }
+        if (fread(name,1,enl,f)!=enl) { refused = 1; break; }
+        name[enl] = 0;
+        if (fread(&edl,4,1,f)!=1 || edl > 8u*1024u*1024u) { refused = 1; break; }
+        if (strchr(name,'/') || strchr(name,'\\') || strcmp(name,".")==0 || strcmp(name,"..")==0
+            || !mrec_snap_ext_ok(name))
+        { printf("[SNAP] refusing entry '%s' -- not an allowed save file\n", name);
+          refused = 1; break; }
+        if (fseek(f, (long)edl, SEEK_CUR) != 0) { refused = 1; break; }
+    }
+    if (refused || payload_start < 0 || fseek(f, payload_start, SEEK_SET) != 0)
+    {
+        printf("[SNAP] payload rejected -- nothing restored\n");
+        fclose(f);
+        return 1;
+    }
 
     mkdir(destdir, 0777);
 
@@ -306,21 +359,9 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
         const char *dot;
         FILE *o;
 
-        if (fread(&enl,4,1,f)!=1 || enl == 0 || enl >= sizeof(name)) { refused = 1; break; }
-        if (fread(name,1,enl,f)!=enl) { refused = 1; break; }
+        if (fread(&enl,4,1,f)!=1 || fread(name,1,enl,f)!=enl
+            || fread(&edl,4,1,f)!=1) { refused = 1; break; }
         name[enl] = 0;
-        if (fread(&edl,4,1,f)!=1 || edl > 8u*1024u*1024u) { refused = 1; break; }
-
-        /* bare filename only, then the extension whitelist */
-        if (strchr(name,'/') || strchr(name,'\\') || strcmp(name,".")==0 || strcmp(name,"..")==0
-            || !mrec_snap_ext_ok(name))
-        {
-            /* Skipping a rejected entry with `continue` would be a desync dressed
-             * as a warning: the take would restore partially and replay against
-             * state it was not recorded with. Refuse the whole payload. */
-            printf("[SNAP] refusing entry '%s' -- not an allowed save file\n", name);
-            refused = 1; break;
-        }
 
         dot = strrchr(name, '.');
         if (local_stem && *local_stem)
@@ -346,7 +387,9 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
 
     if (refused)
     {
-        printf("[SNAP] payload rejected after %d file(s) -- not restoring\n", wrote);
+        /* Pass 1 accepted every record, so reaching here means an I/O failure
+         * mid-write. Leave nothing half-restored. */
+        printf("[SNAP] write failed after %d file(s) -- not restoring\n", wrote);
         return 1;
     }
     printf("[SNAP] restored %d save file(s) from %s\n", wrote, inp);
