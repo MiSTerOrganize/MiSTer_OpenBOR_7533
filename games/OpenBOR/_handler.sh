@@ -108,7 +108,18 @@ if [ -f /tmp/openbor_recmode ]; then
             _INP=$(cat /tmp/openbor_playfile 2>/dev/null | tr -d '\0')
             # Snapshot is keyed by the take's BASENAME under $REPSTATE (it is no
             # longer a sidecar next to the .inp -- see the note above).
-            _SNAP="$REPSTATE/$(basename "${_INP%.inp}")"
+            # Keyed on the take's SEED, read from the .inp header, NOT on its
+            # name. Take names are <content-id>_<N>.inp, identical on every
+            # machine for the same PAK, so a received take whose name collided
+            # with one of yours used to restore YOUR snapshot and report it as
+            # that take's data -- wrong save state, asserted as correct.
+            #
+            # Header: magic 5 + ver 4 + build_date 12 + pak 256 = seed at byte
+            # 277, 8 bytes. The engine names the snapshot with the same bytes in
+            # the same order, so this matches by construction. A received take
+            # finds no local snapshot and says so, which is the honest answer.
+            _SEED=$(dd if="$_INP" bs=1 skip=277 count=8 2>/dev/null | od -An -tx1 | tr -d ' \n')
+            _SNAP="$REPSTATE/$(basename "${_INP%.inp}").$_SEED"
             if [ -n "$_INP" ] && [ -d "$_SNAP" ]; then
                 cp -f "$_SNAP/saves/"* "$_SCR/saves/" 2>/dev/null
                 cp -f "$_SNAP/savestates/"* "$_SCR/savestates/" 2>/dev/null
@@ -121,13 +132,6 @@ if [ -f /tmp/openbor_recmode ]; then
                 else
                     echo "[REC] snapshot for this take is empty or unreadable -- starting empty"
                 fi
-                # KNOWN LIMITATION, not fixed here. The snapshot is keyed on the
-                # take's BASENAME, and take names are <content-id>_<N>.inp -- which
-                # is identical on every machine for the same PAK. So a take copied
-                # in from someone else whose name collides with one of yours will
-                # restore YOUR snapshot and report it as that take's data. Only an
-                # in-band payload fixes it (step 21 of #INP_SHARING_DESIGN.md);
-                # until then a received take is not trustworthy on this path.
             else
                 echo "[REC] no save snapshot for this take -- starting empty"
             fi
