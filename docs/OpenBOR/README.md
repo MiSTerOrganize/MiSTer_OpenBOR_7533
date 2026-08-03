@@ -216,9 +216,12 @@ run, so you can keep it or share it.
 > kept separate and are never modified, but a recording from a stranger does run
 > their data on your machine.
 
-**Recordings are saved as `.inp` files** in `/media/fat/games/OpenBOR/Replays/`.
-Each **Stop Recording** saves a **new numbered file** — `<pak>_1.inp`, `<pak>_2.inp`,
-… — so a new recording never overwrites an older one; you build a library per PAK.
+**Recordings are saved as `.inp` files** in `/media/fat/replays/OpenBOR_7533/`
+— a top-level folder alongside `saves/` and `savestates/`, one per core.
+You get **8 slots per PAK**, the same idea as savestates: pick a slot in the
+Recording menu with left/right, and **Record** saves into it. The menu tells you
+whether a slot is already **used** before you commit, and names the slot it
+replaced afterwards.
 Each `.inp` is stamped with the PAK it was recorded on **and** the engine version.
 A recording only plays on its own PAK — if you load a replay while a different PAK is
 loaded, it won't start (load the matching PAK first). And if a later core update
@@ -230,11 +233,12 @@ button to take over.
 - **Record** — restarts the PAK and records everything from the title screen
   through your play. (It records from the start so playback can reproduce the
   run exactly.)
-- **Stop Recording** — saves the recording to a new numbered `<pak>_N.inp` and
-  drops you back into the game.
-- **Play Recording** — restarts the PAK and plays your **latest** recording back
-  hands-free, driving through the menus into the game on its own. (To play an
-  older one, use the MiSTer OSD "Load Replay" and pick it.)
+- **Slot _N_ of 8** — left/right to choose which slot Record writes and Play
+  reads. It shows **used** or **empty** so you know before you overwrite.
+- **Stop Recording** — saves the recording into the chosen slot and drops you
+  back into the game.
+- **Play Recording** — restarts the PAK and plays the chosen slot back
+  hands-free, driving through the menus into the game on its own.
 - **Stop Playback** — end playback and take control.
 - **Take over any time** — during playback, just press any button and the
   automated inputs stop instantly so you can play.
@@ -242,8 +246,9 @@ button to take over.
 **From the MiSTer OSD** (a second way to launch a replay):
 
 1. **Load PAK** — pick the PAK you want.
-2. **Load Replay** — open the **`Replays`** folder and pick the matching `.inp`
-   file. The PAK restarts and the recording plays back hands-free (press any
+2. **Load Replay** — pick a `.inp` file. This is mainly for a recording someone
+   sent you, since your own eight are already one button-press away in the pause
+   menu. The PAK restarts and the recording plays back hands-free (press any
    button to take over). You can re-load the same recording as many times as you
    like.
 

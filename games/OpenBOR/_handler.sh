@@ -20,6 +20,41 @@ cd "$GAMEDIR" || exit 1
 # recordings + logs). Paks/ = PAK game modules (SC0 "Load PAK").
 mkdir -p "$GAMEDIR/Paks" 2>/dev/null
 
+# Read MiSTer Main's argv to find the loaded RBF filename.
+# `pidof MiSTer` may return multiple PIDs (older lingering shells); take
+# the one whose argv contains an .rbf path.
+MISTER_RBF=""
+for pid in $(pidof MiSTer 2>/dev/null); do
+    cand=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -E '\.rbf$' | head -1)
+    if [ -n "$cand" ]; then
+        MISTER_RBF="$cand"
+        break
+    fi
+done
+
+case "$MISTER_RBF" in
+    *4086*)
+        BUILD=4086
+        BINARY="OpenBOR_4086"
+        ;;
+    *7533*)
+        BUILD=7533
+        BINARY="OpenBOR_7533"
+        ;;
+    *)
+        echo "OpenBOR handler: unrecognized RBF '$MISTER_RBF' — defaulting to 7533" >&2
+        BUILD=7533
+        BINARY="OpenBOR_7533"
+        ;;
+esac
+
+# $BINARY is resolved ABOVE the recorder block on purpose, so $REPLAYS is
+# genuinely per-build. It used to be a hardcoded OpenBOR_7533 literal set
+# before the dispatch ran, which meant launching 4086 created and scrubbed a
+# 7533 tree -- harmless in practice (4086 has no recorder and the scratch is
+# per-session) but it contradicted the per-build rule the rest of the layout
+# follows.
+
 # EVERYTHING the recorder owns lives here: takes plus the hidden working dirs.
 # Top-level and per-build, matching saves/, savestates/, config/ and logs/ --
 # there was never a principled reason for replays alone to sit under games/.
@@ -38,9 +73,16 @@ mkdir -p "$GAMEDIR/Paks" 2>/dev/null
 # starts at the core's games/ home, and Selected_S[] only remembers a different
 # directory while that directory still EXISTS. If this vanished, "Load Replay"
 # would silently snap back to games/OpenBOR/ and the user's takes would look gone.
-REPLAYS="/media/fat/replays/OpenBOR_7533"
+REPLAYS="/media/fat/replays/$BINARY"
 REPSTATE="$REPLAYS/.snapshots"
 mkdir -p "$REPLAYS" "$REPSTATE" 2>/dev/null
+
+# Retire the pre-2026-08-02 location. rmdir (not rm -rf) is the whole point: it
+# refuses on a non-empty directory, so anyone holding takes in there keeps them
+# exactly where they are -- still playable via the OSD "Load Replay", which
+# browses anywhere. Only the empty folder our old handler created goes away,
+# rather than lingering in the PAK browser as a decoy.
+rmdir "$GAMEDIR/Replays" 2>/dev/null
 
 # Recorder save-isolation scratch. While a recording or replay is armed the
 # engine resolves Saves and SaveStates here instead of the real dirs (see
@@ -188,35 +230,9 @@ if [ -f /tmp/openbor_recmode ]; then
     esac
 fi
 
-# Read MiSTer Main's argv to find the loaded RBF filename.
-# `pidof MiSTer` may return multiple PIDs (older lingering shells); take
-# the one whose argv contains an .rbf path.
-MISTER_RBF=""
-for pid in $(pidof MiSTer 2>/dev/null); do
-    cand=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -E '\.rbf$' | head -1)
-    if [ -n "$cand" ]; then
-        MISTER_RBF="$cand"
-        break
-    fi
-done
 
-case "$MISTER_RBF" in
-    *4086*)
-        BUILD=4086
-        BINARY="OpenBOR_4086"
-        ;;
-    *7533*)
-        BUILD=7533
-        BINARY="OpenBOR_7533"
-        ;;
-    *)
-        echo "OpenBOR handler: unrecognized RBF '$MISTER_RBF' — defaulting to 7533" >&2
-        BUILD=7533
-        BINARY="OpenBOR_7533"
-        ;;
-esac
-
-# Per-build log directory (matches per-build saves/savestates pattern).
+# Per-build log directory (matches per-build saves/savestates/replays).
+# $BINARY was resolved near the top of this script, above the recorder block.
 LOGDIR="/media/fat/logs/$BINARY"
 mkdir -p "$LOGDIR"
 
