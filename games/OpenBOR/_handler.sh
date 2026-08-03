@@ -123,12 +123,14 @@ mkdir -p "$REPLAYS/.scratch/saves" "$REPLAYS/.scratch/savestates" 2>/dev/null
 # This runs in the handler, not the engine, because loadGameFile() happens
 # during startup -- far too early for the recorder itself to do it.
 # Real saves are only ever READ.
-# These echoes used to go to the handler's inherited stdout, which nothing
-# captures -- and they run long before $LOGDIR exists, so even redirecting would
-# have been erased by the truncating redirect further down. The recorder is
-# 7533-only, so the path is known here.
-_RECLOG="/media/fat/logs/OpenBOR_7533/OpenBOR.log"
-mkdir -p /media/fat/logs/OpenBOR_7533 2>/dev/null
+# These echoes describe THIS session, so they belong in this session's log --
+# but they run before $LOGDIR exists and before the truncating redirect that
+# creates it, so they cannot be written there directly. They used to be aimed
+# straight at OpenBOR.log, where the rotation further down swept them into
+# .prev.log: preserved, but filed under the PREVIOUS run. Buffer them in tmp
+# instead and splice them into the real log right after it is created.
+_RECLOG="/tmp/openbor_recboot.log"
+: > "$_RECLOG" 2>/dev/null
 if [ -f /tmp/openbor_recmode ]; then
     _MODE=$(cat /tmp/openbor_recmode 2>/dev/null)
     _SCR="$REPLAYS/.scratch"
@@ -240,26 +242,6 @@ fi
 LOGDIR="/media/fat/logs/$BINARY"
 mkdir -p "$LOGDIR"
 
-# Rotate ARM-binary log
-mv -f "$LOGDIR/OpenBOR.log" "$LOGDIR/OpenBOR.prev.log" 2>/dev/null
-
-# Preserve OpenBOR's engine logs across restart loops. The engine writes
-# to /media/fat/logs/$BINARY/{OpenBorLog,ScriptLog}.txt in "wt" mode
-# (truncate on open) thanks to the apply_patches.py absolute-path patch
-# — per-build path matches the saves/savestates pattern.
-# Keep one .prev + timestamped copy of any non-empty current log.
-if [ -s "$LOGDIR/OpenBorLog.txt" ]; then
-    cp -f "$LOGDIR/OpenBorLog.txt" "$LOGDIR/OpenBorLog.$(date +%H%M%S).txt" 2>/dev/null
-fi
-mv -f "$LOGDIR/OpenBorLog.txt"   "$LOGDIR/OpenBorLog.prev.txt"   2>/dev/null
-mv -f "$LOGDIR/ScriptLog.txt"    "$LOGDIR/ScriptLog.prev.txt"    2>/dev/null
-
-# Auto-prune: keep only the 10 newest timestamped OpenBorLog archives.
-# Per CLAUDE.md "hybrid-core handlers must auto-prune log history" —
-# without this, /media/fat/logs/$BINARY/ accumulates one timestamped
-# copy per launch and grows unbounded over months of use.
-ls -t "$LOGDIR"/OpenBorLog.[0-9]*.txt 2>/dev/null | tail -n +11 | xargs -r rm -f
-ls -t "$LOGDIR"/ScriptLog.[0-9]*.txt  2>/dev/null | tail -n +11 | xargs -r rm -f
 
 # Belt-and-suspenders .s0 cleanup — Master_Daemon already clears .s0 on
 # core transitions, but sister-core swaps (4086 ↔ 7533 share setname
@@ -309,7 +291,46 @@ fi
 # FPGA settle on first launch
 sleep 1
 
+# All log rotation happens HERE, immediately before the redirect that recreates
+# the files -- not 70 lines up where it used to sit.
+#
+# During a sister-core RBF swap MiSTer's CORENAME lags the loaded RBF by a
+# second or two, so Master_Daemon briefly spawns the OUTGOING core's handler
+# against the INCOMING RBF and kills it moments later: a documented, harmless
+# transient. With rotation up top, that short-lived spawn reached the mv but
+# died in the `sleep 1` above before ever creating a new log -- so it rotated
+# the logs away and recreated nothing, leaving OpenBorLog.txt simply absent.
+# Observed 2026-08-03. Nothing was lost (mv -f on a missing source is a no-op,
+# so .prev always holds the last real session), but a handler that never
+# launches a binary should not disturb the logs at all.
+#
+# The engine-log rotation must still precede the engine, which starts at the
+# exec below -- so late is correct for it too, not merely acceptable.
+
+# Rotate ARM-binary log
+mv -f "$LOGDIR/OpenBOR.log" "$LOGDIR/OpenBOR.prev.log" 2>/dev/null
+
+# Preserve OpenBOR's engine logs across restart loops. The engine writes
+# to /media/fat/logs/$BINARY/{OpenBorLog,ScriptLog}.txt in "wt" mode
+# (truncate on open) thanks to the apply_patches.py absolute-path patch
+# — per-build path matches the saves/savestates pattern.
+# Keep one .prev + timestamped copy of any non-empty current log.
+if [ -s "$LOGDIR/OpenBorLog.txt" ]; then
+    cp -f "$LOGDIR/OpenBorLog.txt" "$LOGDIR/OpenBorLog.$(date +%H%M%S).txt" 2>/dev/null
+fi
+mv -f "$LOGDIR/OpenBorLog.txt"   "$LOGDIR/OpenBorLog.prev.txt"   2>/dev/null
+mv -f "$LOGDIR/ScriptLog.txt"    "$LOGDIR/ScriptLog.prev.txt"    2>/dev/null
+
+# Auto-prune: keep only the 10 newest timestamped OpenBorLog archives.
+# Per CLAUDE.md "hybrid-core handlers must auto-prune log history" —
+# without this, /media/fat/logs/$BINARY/ accumulates one timestamped
+# copy per launch and grows unbounded over months of use.
+ls -t "$LOGDIR"/OpenBorLog.[0-9]*.txt 2>/dev/null | tail -n +11 | xargs -r rm -f
+ls -t "$LOGDIR"/ScriptLog.[0-9]*.txt  2>/dev/null | tail -n +11 | xargs -r rm -f
+
 echo "OpenBOR handler: dispatching to $BINARY (RBF=$MISTER_RBF)" > "$LOGDIR/OpenBOR.log"
+[ -s "$_RECLOG" ] && cat "$_RECLOG" >> "$LOGDIR/OpenBOR.log"
+rm -f "$_RECLOG" 2>/dev/null
 
 # Affinity: allow BOTH cores (mask 0x03 = cores 0+1). The process mask must
 # cover both cores or the binary's own thread pins fail with EINVAL (a child
