@@ -42,7 +42,11 @@ case "$MISTER_RBF" in
         BINARY="OpenBOR_7533"
         ;;
     *)
-        echo "OpenBOR handler: unrecognized RBF '$MISTER_RBF' — defaulting to 7533" >&2
+        # ASCII only: this is the handler's one user-visible RUNTIME string (it
+        # lands in the daemon log / console). The em-dash that used to be here
+        # rendered as "â€”" once it crossed into a non-UTF-8 console. Comments
+        # elsewhere in this file can keep theirs -- they are never emitted.
+        echo "OpenBOR handler: unrecognized RBF '$MISTER_RBF' -- defaulting to 7533" >&2
         BUILD=7533
         BINARY="OpenBOR_7533"
         ;;
