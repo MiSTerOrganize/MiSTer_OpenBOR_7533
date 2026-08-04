@@ -2660,7 +2660,35 @@ endif
                     "    int mister_stall_ticks;   /* MiSTer Step 70: consecutive no-move ticks; despawn roller pinned at a wall */\n"
                     "} entity;")
     obh = strict_replace(obh, s_entity_old, s_entity_new, 'Step 70: add stall-tracker fields to s_entity END')
+
+    # Reproducible builds: the version-banner macro is the SECOND of three
+    # compile-date literals. The first (openbor.c's printf) was patched on
+    # 2026-08-04 and that was reported as closing the churn -- wrongly: only
+    # openbor.c had been grepped, and the shipped ELF still carried
+    # 'Aug  4 2026' from HERE and from sdl/menu.c. Verify against the emitted
+    # BINARY, not one source file.
+    obh = strict_replace(obh,
+        '\t\t\t"OpenBOR " VERSION ", Compile Date: " __DATE__ "\\n" \\',
+        '\t\t\t"OpenBOR " VERSION ", Build: " ' + _MREC_BUILD_EXPR + ' "\\n" \\',
+        'reproducible build: version-banner macro reports the source build id')
+
     write(obh_path, obh)
+
+    # Reproducible builds: the THIRD and last compile-date literal. OpenBOR's
+    # built-in menu is bypassed on MiSTer, but the file still compiles, so its
+    # two printText(__DATE__) calls put the date string in the shipped binary
+    # regardless -- confirmed at offset 1829596 of the 2026-08-04 build. Both
+    # call sites are byte-identical, hence count=2: strict_replace would
+    # otherwise reject the second as an ambiguous match.
+    print("Patching sdl/menu.c (build id instead of compile date)...")
+    menu_path = os.path.join(obor, 'sdl/menu.c')
+    menu = read(menu_path)
+    menu = strict_replace(menu,
+        '\tprintText((isWide ? 392 : 261),(isWide ? 11 : 4), WHITE, 0, 0, __DATE__);',
+        '\tprintText((isWide ? 392 : 261),(isWide ? 11 : 4), WHITE, 0, 0, ' + _MREC_BUILD_EXPR + ');',
+        'reproducible build: built-in menu shows the source build id', count=2)
+    write(menu_path, menu)
+    print("  sdl/menu.c date literals replaced (2 sites)")
     print("  s_model.has_palette_directive added at struct end (v3.10)")
 
     # ── Step 0b (v3.9): add `int has_remap_directive;` to END of s_drawmethod
