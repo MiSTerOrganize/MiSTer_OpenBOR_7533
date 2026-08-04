@@ -298,6 +298,8 @@ void pausemenu()
                          * back hands-free. Press any button to take control. */
                         {
                             FILE *_rm;
+                            int _arm = 1;   /* cleared by any refusal below; see the
+                                             * "MUST NOT break" note further down */
                             /* Resolve WHICH take now, at selection time, and hand the
                              * path to the handler. The handler has to restore that
                              * take's save snapshot before the binary starts -- the
@@ -333,15 +335,34 @@ void pausemenu()
                              * some path that never drew the row. */
                             _pmx = (mrec_slot >= 1 && mrec_slot <= MREC_SLOTS)
                                        ? mrec_slot : mrec_highest(_pn);
+                            /* 🛑 REFUSING TO ARM MUST NOT `break`.
+                             *
+                             * These two refusal paths used to break, with a
+                             * comment claiming they left you in the menu. They
+                             * did not: the nearest enclosing loop is the menu's
+                             * own `while(!quit)`, so break EXITED the pause menu
+                             * -- and the post-loop cleanup (_pause/spriteq/
+                             * freescreen) does NOT resume audio. The
+                             * sound_pause_music(0)/sound_pause_sample(0) pair
+                             * lives only inside the deliberate menu actions, so
+                             * leaving by any other route left music paused for
+                             * the rest of the session while sound effects kept
+                             * playing -- exactly as reported 2026-08-04 after
+                             * picking an empty slot.
+                             *
+                             * A flag instead. The menu loop continues normally,
+                             * the notice is on screen to say why, and the audio
+                             * pairing is never broken because we never leave by
+                             * a side door. */
                             if(_pmx > 0)
                             {
                                 char _pp[MAX_BUFFER_LEN]; char _pw[128];
                                 sprintf(_pp, "%s_%d.inp", _pb, _pmx);
                                 /* An empty PICKED slot must say so and stay put.
-                                 * Falling through would reset the PAK and then
+                                 * Arming anyway would reset the PAK and then
                                  * report "no recording for this PAK" from the next
-                                 * process -- which is both a wasted reset and a lie
-                                 * whenever some OTHER slot does hold a take. */
+                                 * process -- both a wasted reset and, whenever some
+                                 * OTHER slot does hold a take, untrue. */
                                 {
                                     FILE *_pf = fopen(_pp, "rb");
                                     if(!_pf)
@@ -350,9 +371,9 @@ void pausemenu()
                                         snprintf(_pe, sizeof(_pe), "Slot %d is empty", _pmx);
                                         printf("[REPLAY] slot %d is empty -- not arming\n", _pmx);
                                         NativeVideoWriter_Notice(_pe, 4);
-                                        break;   /* stay in the menu, PAK untouched */
+                                        _arm = 0;
                                     }
-                                    fclose(_pf);
+                                    else fclose(_pf);
                                 }
                                 /* Validate BEFORE the reset. This used to arm and
                                  * exit(0) unconditionally, so a damaged take -- or
@@ -360,21 +381,35 @@ void pausemenu()
                                  * cost the user their session and explained itself
                                  * only in the next process. Refusing here leaves
                                  * the pause menu on screen to carry the reason. */
-                                if(!mrec_probe_take(_pp, _pw, (int)sizeof(_pw)))
+                                if(_arm && !mrec_probe_take(_pp, _pw, (int)sizeof(_pw)))
                                 {
                                     printf("[REPLAY] not arming: %s\n", _pw);
                                     NativeVideoWriter_Notice(_pw, 6);
-                                    break;   /* stay in the menu, run untouched */
+                                    _arm = 0;
                                 }
-                                _rm = fopen("/tmp/openbor_playfile", "w");
-                                if(_rm) { fputs(_pp, _rm); fclose(_rm); }
+                                if(_arm)
+                                {
+                                    _rm = fopen("/tmp/openbor_playfile", "w");
+                                    if(_rm) { fputs(_pp, _rm); fclose(_rm); }
+                                }
                             }
-                            _rm = fopen("/tmp/openbor_recmode", "w");
-                            if(_rm) { fputs("PLAY", _rm); fclose(_rm); }
-                            _rm = fopen("/tmp/openbor_reset_marker", "w");
-                            if(_rm) fclose(_rm);
+                            else
+                            {
+                                /* Nothing anywhere in this PAK's library. Say so
+                                 * here rather than resetting to find out. */
+                                printf("[REPLAY] no recording for this PAK -- not arming\n");
+                                NativeVideoWriter_Notice("No recording for this PAK", 4);
+                                _arm = 0;
+                            }
+                            if(_arm)
+                            {
+                                _rm = fopen("/tmp/openbor_recmode", "w");
+                                if(_rm) { fputs("PLAY", _rm); fclose(_rm); }
+                                _rm = fopen("/tmp/openbor_reset_marker", "w");
+                                if(_rm) fclose(_rm);
+                                exit(0);
+                            }
                         }
-                        exit(0);
                     }
                     else if(rec_selector == 2)
                     {
