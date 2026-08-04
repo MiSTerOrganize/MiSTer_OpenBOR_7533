@@ -307,7 +307,45 @@ void NativeVideoWriter_Notice(const char* msg, int seconds) {
     }
     nv_notice_text[i] = 0;
     if (seconds <= 0) seconds = 4;
-    nv_notice_frames = seconds * 60;   /* ~59.92 Hz; exactness does not matter */
+    /* Hold for `seconds` of WALL CLOCK, which means counting RENDER frames --
+     * this counter is decremented once per WriteFrame, and the engine is
+     * uncapped, not locked to the 59.92 Hz the FPGA scans at. The old
+     * `seconds * 60` assumed 60 fps and so cut every notice short by however
+     * much the core was outrunning the display: measured 2026-08-04 on ATOV at
+     * ~100 fps, a "6 second" notice was gone in ~3.6 s, which is a large part
+     * of why they read as flickery rather than merely brief.
+     *
+     * nv_fps_value is the same measurement the fps read-out uses and is
+     * maintained every frame regardless of whether that overlay is switched on.
+     * Before it has settled (first ~second after launch) fall back to 60 --
+     * erring toward the old behaviour rather than showing a notice for an
+     * unbounded time. Clamped so a wild reading cannot pin a notice on screen. */
+    int rate = nv_fps_value;
+    if (rate < 20 || rate > 300) rate = 60;
+    nv_notice_frames = seconds * rate;
+}
+
+/* Solid backing panel for the notice text.
+ *
+ * The text used to be drawn straight onto the game with only a 1 px drop
+ * shadow. Over busy art that is hard to read at 1x, and because the game keeps
+ * ANIMATING underneath and between the glyphs -- on ATOV's attract screen the
+ * engine's own "PRESS START"/"CREDIT 19" blinks in the very same band -- the
+ * whole region shimmers, which is what reads as the notice flickering. A solid
+ * panel removes the moving background entirely, so the text is stationary
+ * against a constant colour. Verified against a real capture 2026-08-04: the
+ * notice itself was stable frame to frame; it was the content around and behind
+ * it that was moving. */
+static void nv_fill_rect(volatile uint16_t* dst, int x0, int y0, int w, int h,
+                         uint16_t colour) {
+    for (int y = y0; y < y0 + h; y++) {
+        if (y < 0 || y >= NV_FRAME_HEIGHT) continue;
+        volatile uint16_t* row = dst + (size_t)y * NV_FRAME_WIDTH;
+        for (int x = x0; x < x0 + w; x++) {
+            if (x < 0 || x >= NV_FRAME_WIDTH) continue;
+            row[x] = colour;
+        }
+    }
 }
 
 /* Word-wrapped, not cropped. A word longer than a line is hard-broken rather
@@ -315,6 +353,31 @@ void NativeVideoWriter_Notice(const char* msg, int seconds) {
 static void nv_draw_notice(volatile uint16_t* dst) {
     if (nv_notice_frames <= 0) return;
     nv_notice_frames--;
+
+    /* Two passes: measure every line first so one panel can span them all.
+     * Drawn as a single block rather than per-line so ragged right edges do not
+     * make their own flickery staircase as the wrap changes. */
+    int widest = 0, lines = 0;
+    {
+        const char* q = nv_notice_text;
+        while (*q && lines < NV_NOTICE_MAX) {
+            while (*q == ' ') q++;
+            if (!*q) break;
+            int take = 0, brk = 0;
+            while (q[take] && take < NV_COLS) {
+                if (q[take] == ' ') brk = take;
+                take++;
+            }
+            if (q[take] && brk > 0) take = brk;
+            if (take > widest) widest = take;
+            q += take;
+            lines++;
+        }
+    }
+    if (lines == 0) return;
+
+    nv_fill_rect(dst, NV_FPS_MARGIN - 3, NV_FPS_MARGIN - 3,
+                 widest * 6 + 6, lines * 9 + 5, 0x0000);
 
     const char* p = nv_notice_text;
     int line = 0;
@@ -330,6 +393,9 @@ static void nv_draw_notice(volatile uint16_t* dst) {
         if (p[take] && brk > 0) take = brk;
 
         int y = NV_FPS_MARGIN + line * 9;
+        /* Shadow pass kept: the panel is black, so the white glyphs already
+         * have contrast, but the offset copy keeps them readable if a future
+         * caller ever draws a notice without the panel. */
         for (int pass = 0; pass < 2; pass++) {
             uint16_t c   = (pass == 0) ? 0x0000 : 0xFFFF;
             int      off = (pass == 0) ? 1 : 0;
