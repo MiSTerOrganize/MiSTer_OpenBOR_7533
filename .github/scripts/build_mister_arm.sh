@@ -207,6 +207,35 @@ make BUILD_MISTER=1 SDL_PREFIX=$SDL_PREFIX -j$(nproc)
 
 echo "=== Binary info ==="
 require_file OpenBOR "make produced no OpenBOR binary — see the compile/link errors above (a missing dependency header or a real build error)"
+
+# Strip the GNU build-id note so identical source yields an identical binary.
+#
+# Without this, every rebuild changes the shipped hash and re-ships ~2.2 MB to
+# every update_all user for no functional change. Measured 2026-08-03: two
+# harness-only pushes each moved it. A byte-diff showed 32 of 2,257,232 bytes
+# differing, and the ELF note header (descsz=0x14, type=3, "GNU") identifies 20
+# of them as NT_GNU_BUILD_ID -- the CODE is byte-identical.
+#
+# Done POST-LINK, deliberately. OpenBOR's Makefile has NO LDFLAGS: link flags
+# accumulate in LIBS via += across ~15 platform blocks (-lSDL2, -lpthread, the
+# rpath list). A command-line `make LIBS=...` OVERRIDES all of that -- the
+# Makefile does not use `override` -- so the obvious approach would silently
+# drop every library instead of adding a flag.
+#
+# Best-effort: never fail the build over metadata. If objcopy is unavailable the
+# binary is still correct, just not bit-reproducible.
+if objcopy --remove-section=.note.gnu.build-id OpenBOR 2>/dev/null; then
+    echo "  build-id note stripped (reproducible build)"
+else
+    echo "  WARNING: could not strip .note.gnu.build-id — hash will churn per rebuild"
+fi
+# Verify in the EMITTED ELF, not from the exit status above: readelf is the
+# check that matters, because a silent no-op looks identical to success.
+if readelf -n OpenBOR 2>/dev/null | grep -qi "build id"; then
+    echo "  WARNING: build-id STILL PRESENT after strip"
+else
+    echo "  verified: no build-id note in the emitted ELF"
+fi
 ls -lh OpenBOR
 
 # ── Copy result back to mounted volume ───────────────────────────
