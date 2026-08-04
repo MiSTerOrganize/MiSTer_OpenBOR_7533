@@ -40,6 +40,7 @@ jobs:
         run: |
           chmod +x .github/scripts/build_mister_arm.sh
           docker run --rm --platform linux/arm/v7 \
+            -e MREC_BUILD_ID=${{ github.sha }} \
             -v ${{ github.workspace }}:/build \
             -w /tmp \
             arm32v7/debian:bullseye-slim \
