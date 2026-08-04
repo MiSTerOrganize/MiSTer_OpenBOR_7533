@@ -459,6 +459,33 @@ static void nv_draw_fps(volatile uint16_t* dst) {
     }
 }
 
+/* THE single overlay entry point, for EVERY publisher of a DDR3 frame.
+ *
+ * There are two: this file's WriteFrame (the direct-write path) and
+ * mister_present in the SDL dummy driver (the fallback used for boot/menu/wait
+ * surfaces). Both write the SAME two buffers at 0x3A000000, each with its own
+ * active_buf. Only WriteFrame ever drew the overlays, so whenever both were
+ * live the published frames alternated between "has the notice" and "does not"
+ * -- which is exactly the notice flicker reported 2026-08-04, and why adding a
+ * solid backing panel did not help: the panel was on the frames that had the
+ * notice, and absent from the ones that did not.
+ *
+ * Anything that publishes a frame MUST call this, or it will punch a hole in
+ * every overlay. The fps read-out has the same exposure; it just blinks less
+ * noticeably because the digits move anyway.
+ *
+ * Called exactly once per published frame, so the notice countdown (which lives
+ * in nv_draw_notice) still advances at the true frame rate no matter which
+ * publisher produced the frame. */
+void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst) {
+    if (!dst) return;
+    nv_fps_tick();
+    if (mister_fps_overlay) nv_draw_fps(dst);
+    /* After the fps read-out so a notice is never painted over by it. Ungated:
+     * a notice only appears when there is something the player must know. */
+    nv_draw_notice(dst);
+}
+
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                   int pitch, int bpp, const void* palette) {
     if (!ddr_base || !pixels) return;
@@ -1045,13 +1072,9 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
      * first lines of the new frame could read partially-written pixels.
      * __sync_synchronize() generates ARMv7 DMB SY (full memory barrier);
      * costs ~2 cycles, negligible. */
-    /* FPS overlay: after every pixel path, before the publish barrier, so it
-     * lands in the frame the FPGA is about to scan out. */
-    nv_fps_tick();
-    if (mister_fps_overlay) nv_draw_fps(dst);
-    /* After the fps read-out so a notice is never painted over by it. Ungated:
-     * a notice only appears when there is something the player must know. */
-    nv_draw_notice(dst);
+    /* Overlays: after every pixel path, before the publish barrier, so they
+     * land in the frame the FPGA is about to scan out. */
+    NativeVideoWriter_DrawOverlays(dst);
 
     __sync_synchronize();
 

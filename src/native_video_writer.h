@@ -39,6 +39,15 @@ void NativeVideoWriter_Shutdown(void);
 /// headline, the log is the detail.
 void NativeVideoWriter_Notice(const char* msg, int seconds);
 
+/* Draw the fps read-out + any pending notice into a frame about to be
+ * published. EVERY publisher of a DDR3 frame must call this immediately before
+ * its publish barrier, not just WriteFrame -- the SDL dummy driver's
+ * mister_present writes the same two buffers, and when it skipped the overlays
+ * the published frames alternated between having a notice and not, which is the
+ * flicker reported 2026-08-04. Call exactly once per published frame: the
+ * notice countdown advances here. */
+void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst);
+
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                   int pitch, int bpp, const void* palette);
 

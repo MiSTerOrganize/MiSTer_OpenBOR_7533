@@ -70,6 +70,9 @@ static volatile int        mister_keepalive_run = 0;
  * Fix: keepalive calls NativeVideoWriter_KeepaliveTick() which uses the
  * SAME state as WriteFrame. Single source of truth. */
 extern void NativeVideoWriter_KeepaliveTick(void);
+/* Overlays (fps read-out + notice). This file is a SECOND publisher of the same
+ * DDR3 buffers, so it must draw them too -- see the call site below. */
+extern void NativeVideoWriter_DrawOverlays(volatile uint16_t *dst);
 static void *mister_keepalive_fn(void *arg) {
     (void)arg;
     while (mister_keepalive_run) {
@@ -239,6 +242,15 @@ static void mister_present(SDL_Surface *screen) {
     else {
         return;
     }
+
+    /* Overlays, before the publish -- this path writes the SAME two DDR3
+     * buffers as NativeVideoWriter_WriteFrame, so a frame published from here
+     * without them punches a hole in whatever is on screen. That is the notice
+     * flicker reported 2026-08-04: only WriteFrame drew them, so while both
+     * publishers were live the frames alternated between having the notice and
+     * not. Adding a backing panel did not help, because the panel was only ever
+     * on the frames that already had the text. */
+    NativeVideoWriter_DrawOverlays(dst);
 
     mister_frame_cnt++;
     *mister_ctrl = (mister_frame_cnt << 2) | (mister_active_buf & 1);

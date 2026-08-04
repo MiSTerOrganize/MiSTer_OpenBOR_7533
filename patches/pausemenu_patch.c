@@ -319,11 +319,41 @@ void pausemenu()
                              * enumerates with readdir; this was the last consumer still
                              * probing, which meant the two disagreed about which take
                              * "the highest" is. */
-                            _pmx = mrec_highest(_pn);
+                            /* Honour the PICKED slot. mrec_highest() is the
+                             * fallback for when nothing has been chosen -- it was
+                             * being used UNCONDITIONALLY, which made the picker
+                             * decorative: with only slot 1 occupied, choosing
+                             * slot 2 and pressing Play opened slot 1 (user-reported
+                             * 2026-08-04). Record already carried mrec_slot across
+                             * the reset; Play never read it at all.
+                             *
+                             * The row-draw above normalises mrec_slot into
+                             * 1..MREC_SLOTS before this item can be reached, so in
+                             * practice the fallback only covers a Play arriving by
+                             * some path that never drew the row. */
+                            _pmx = (mrec_slot >= 1 && mrec_slot <= MREC_SLOTS)
+                                       ? mrec_slot : mrec_highest(_pn);
                             if(_pmx > 0)
                             {
                                 char _pp[MAX_BUFFER_LEN]; char _pw[128];
                                 sprintf(_pp, "%s_%d.inp", _pb, _pmx);
+                                /* An empty PICKED slot must say so and stay put.
+                                 * Falling through would reset the PAK and then
+                                 * report "no recording for this PAK" from the next
+                                 * process -- which is both a wasted reset and a lie
+                                 * whenever some OTHER slot does hold a take. */
+                                {
+                                    FILE *_pf = fopen(_pp, "rb");
+                                    if(!_pf)
+                                    {
+                                        char _pe[64];
+                                        snprintf(_pe, sizeof(_pe), "Slot %d is empty", _pmx);
+                                        printf("[REPLAY] slot %d is empty -- not arming\n", _pmx);
+                                        NativeVideoWriter_Notice(_pe, 4);
+                                        break;   /* stay in the menu, PAK untouched */
+                                    }
+                                    fclose(_pf);
+                                }
                                 /* Validate BEFORE the reset. This used to arm and
                                  * exit(0) unconditionally, so a damaged take -- or
                                  * one for a PAK that has since been modified --
