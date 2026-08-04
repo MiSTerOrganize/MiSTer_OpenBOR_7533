@@ -376,7 +376,27 @@ void pausemenu()
                         }
                         exit(0);
                     }
-                    else   /* Back */
+                    else if(rec_selector == 2)
+                    {
+                        /* Slot row: chosen with LEFT/RIGHT. Confirm deliberately
+                         * does nothing.
+                         *
+                         * It used to fall through to the Back branch below --
+                         * the branch was a bare `else`, so it swallowed the slot
+                         * row as well as Back. Pressing the confirm button on
+                         * the slot you had just picked therefore closed the
+                         * submenu, which reads as the button REJECTING the
+                         * choice (user-reported 2026-08-04). Doing nothing is
+                         * the honest response: the row is already showing the
+                         * chosen slot, and Record/Play are what act on it.
+                         *
+                         * Kept as an explicit index rather than restoring the
+                         * bare `else`, so any item added between the slot row
+                         * and Back cannot silently inherit Back's behaviour the
+                         * same way. */
+                        (void)0;
+                    }
+                    else if(rec_selector == 3)   /* Back */
                     {
                         in_recording = 0;
                         pauselector = 2;   /* highlight the Recording entry */
