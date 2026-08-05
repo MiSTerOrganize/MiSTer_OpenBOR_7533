@@ -1,0 +1,183 @@
+# Pad-side level-entry timeline -- dense START pulses, for uinput_inject.py.
+#
+# The headless bot's ai_menu_start.txt CANNOT be used on hardware: its rows are
+# engine flag words (400 = FLAG_START) written straight into
+# playercontrolpointers[0] inside inputrefresh(). This file is the device-side
+# equivalent -- evdev button names injected upstream of MiSTer Main.
+#
+# STRATEGY (borrowed from the headless bot): most OpenBOR PAKs advance every
+# intro / title / menu / character-select screen on START, so mashing START
+# walks the whole chain into gameplay without knowing the PAK's menu depth.
+#
+# 🛑 SIZE THIS FOR THE DEEPEST MENU CHAIN YOU EXPECT, NOT FOR ONE PAK.
+# Menu depth varies per PAK and there is NO way to detect arrival from outside
+# the process, so an under-provisioned timeline silently stops partway and looks
+# exactly like a broken mechanism. Measured on ATOV: 24 pulses reached the intro
+# splash, 64 reached CHARACTER SELECT, and both were misread as "START does not
+# work" before someone looked at the screen. The headless bot uses 150 for this
+# reason. 150 is the floor, not a tuned value.
+#
+# 🛑 THE ONE DIFFERENCE FROM THE HEADLESS BOT: it auto-stops the instant
+# `level != NULL`. We cannot see that variable, so these pulses keep firing
+# after the level loads -- and in-level START opens the PAUSE MENU.
+#
+# Survivable BY CONSTRUCTION, not by luck: with the pause menu open,
+# `pauselector` starts at 0 = Continue and START confirms, so pulse N opens the
+# menu and pulse N+1 selects Continue and closes it. An EVEN number of surplus
+# pulses nets to closed. KEEP THE COUNT EVEN. 150 is even.
+#
+# 🛑 VERIFY THE OUTCOME, DO NOT INFER IT. fps is ~85 on a menu AND in a level,
+# so it proves nothing about which screen you are on. Confirm a player entity
+# exists (the pause menu only opens with one) before starting a recording step.
+#
+# 150 pulses, 30 frames apart, 3 frames wide: ~75s at 60fps.
+30    33    START
+60    63    START
+90    93    START
+120   123   START
+150   153   START
+180   183   START
+210   213   START
+240   243   START
+270   273   START
+300   303   START
+330   333   START
+360   363   START
+390   393   START
+420   423   START
+450   453   START
+480   483   START
+510   513   START
+540   543   START
+570   573   START
+600   603   START
+630   633   START
+660   663   START
+690   693   START
+720   723   START
+750   753   START
+780   783   START
+810   813   START
+840   843   START
+870   873   START
+900   903   START
+930   933   START
+960   963   START
+990   993   START
+1020  1023  START
+1050  1053  START
+1080  1083  START
+1110  1113  START
+1140  1143  START
+1170  1173  START
+1200  1203  START
+1230  1233  START
+1260  1263  START
+1290  1293  START
+1320  1323  START
+1350  1353  START
+1380  1383  START
+1410  1413  START
+1440  1443  START
+1470  1473  START
+1500  1503  START
+1530  1533  START
+1560  1563  START
+1590  1593  START
+1620  1623  START
+1650  1653  START
+1680  1683  START
+1710  1713  START
+1740  1743  START
+1770  1773  START
+1800  1803  START
+1830  1833  START
+1860  1863  START
+1890  1893  START
+1920  1923  START
+1950  1953  START
+1980  1983  START
+2010  2013  START
+2040  2043  START
+2070  2073  START
+2100  2103  START
+2130  2133  START
+2160  2163  START
+2190  2193  START
+2220  2223  START
+2250  2253  START
+2280  2283  START
+2310  2313  START
+2340  2343  START
+2370  2373  START
+2400  2403  START
+2430  2433  START
+2460  2463  START
+2490  2493  START
+2520  2523  START
+2550  2553  START
+2580  2583  START
+2610  2613  START
+2640  2643  START
+2670  2673  START
+2700  2703  START
+2730  2733  START
+2760  2763  START
+2790  2793  START
+2820  2823  START
+2850  2853  START
+2880  2883  START
+2910  2913  START
+2940  2943  START
+2970  2973  START
+3000  3003  START
+3030  3033  START
+3060  3063  START
+3090  3093  START
+3120  3123  START
+3150  3153  START
+3180  3183  START
+3210  3213  START
+3240  3243  START
+3270  3273  START
+3300  3303  START
+3330  3333  START
+3360  3363  START
+3390  3393  START
+3420  3423  START
+3450  3453  START
+3480  3483  START
+3510  3513  START
+3540  3543  START
+3570  3573  START
+3600  3603  START
+3630  3633  START
+3660  3663  START
+3690  3693  START
+3720  3723  START
+3750  3753  START
+3780  3783  START
+3810  3813  START
+3840  3843  START
+3870  3873  START
+3900  3903  START
+3930  3933  START
+3960  3963  START
+3990  3993  START
+4020  4023  START
+4050  4053  START
+4080  4083  START
+4110  4113  START
+4140  4143  START
+4170  4173  START
+4200  4203  START
+4230  4233  START
+4260  4263  START
+4290  4293  START
+4320  4323  START
+4350  4353  START
+4380  4383  START
+4410  4413  START
+4440  4443  START
+4470  4473  START
+4500  4503  START

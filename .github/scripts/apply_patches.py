@@ -100,6 +100,30 @@ def replace_function(source, func_sig, replacement_file, patches_dir):
         return source
     return source[:start] + replacement + source[end:]
 
+# The .inp header carries a build id (char[12], write-only -- MREC_OFF_BUILD is
+# referenced only to compute the NEXT offset, never read back or compared), so
+# its CONTENT is free to change without touching the format.
+#
+# It used to be __DATE__, i.e. the wall-clock day CI happened to run. That is
+# the wrong thing to record: two builds of the same commit are the same binary
+# and should be indistinguishable, yet __DATE__ made the shipped hash churn
+# across midnight and told you nothing about WHICH SOURCE built it.
+#
+# Source-derived instead. Baked in here as a literal rather than passed as a
+# -D: OpenBOR's Makefile does `CFLAGS +=`, so a command-line CFLAGS= would
+# OVERRIDE the accumulated flags instead of adding one -- the same trap that
+# makes `make LIBS=...` drop every library.
+_MREC_BUILD_ID = os.environ.get("MREC_BUILD_ID", "")[:7]
+if _MREC_BUILD_ID:
+    _MREC_BUILD_EXPR = '"%s"' % _MREC_BUILD_ID
+    print("  build id: %s (source-derived -- reproducible)" % _MREC_BUILD_ID)
+else:
+    # LOUD on purpose: silence here would ship a clock-derived header and read
+    # as success. build.yml passes -e MREC_BUILD_ID into the container.
+    _MREC_BUILD_EXPR = "__DATE__"
+    print("  WARNING: MREC_BUILD_ID unset -- falling back to __DATE__; "
+          "this build will NOT be byte-reproducible across days")
+
 def main():
     if len(sys.argv) != 3:
         print(f"Usage: {sys.argv[0]} <openbor_dir> <patches_dir>")
@@ -2676,7 +2700,35 @@ extern int mrec_isolate;
                     "    int mister_stall_ticks;   /* MiSTer Step 70: consecutive no-move ticks; despawn roller pinned at a wall */\n"
                     "} entity;")
     obh = strict_replace(obh, s_entity_old, s_entity_new, 'Step 70: add stall-tracker fields to s_entity END')
+
+    # Reproducible builds: the version-banner macro is the SECOND of three
+    # compile-date literals. The first (openbor.c's printf) was patched on
+    # 2026-08-04 and that was reported as closing the churn -- wrongly: only
+    # openbor.c had been grepped, and the shipped ELF still carried
+    # 'Aug  4 2026' from HERE and from sdl/menu.c. Verify against the emitted
+    # BINARY, not one source file.
+    obh = strict_replace(obh,
+        '\t\t\t"OpenBOR " VERSION ", Compile Date: " __DATE__ "\\n" \\',
+        '\t\t\t"OpenBOR " VERSION ", Build: " ' + _MREC_BUILD_EXPR + ' "\\n" \\',
+        'reproducible build: version-banner macro reports the source build id')
+
     write(obh_path, obh)
+
+    # Reproducible builds: the THIRD and last compile-date literal. OpenBOR's
+    # built-in menu is bypassed on MiSTer, but the file still compiles, so its
+    # two printText(__DATE__) calls put the date string in the shipped binary
+    # regardless -- confirmed at offset 1829596 of the 2026-08-04 build. Both
+    # call sites are byte-identical, hence count=2: strict_replace would
+    # otherwise reject the second as an ambiguous match.
+    print("Patching sdl/menu.c (build id instead of compile date)...")
+    menu_path = os.path.join(obor, 'sdl/menu.c')
+    menu = read(menu_path)
+    menu = strict_replace(menu,
+        '\tprintText((isWide ? 392 : 261),(isWide ? 11 : 4), WHITE, 0, 0, __DATE__);',
+        '\tprintText((isWide ? 392 : 261),(isWide ? 11 : 4), WHITE, 0, 0, ' + _MREC_BUILD_EXPR + ');',
+        'reproducible build: built-in menu shows the source build id', count=2)
+    write(menu_path, menu)
+    print("  sdl/menu.c date literals replaced (2 sites)")
     print("  s_model.has_palette_directive added at struct end (v3.10)")
 
     # ── Step 0b (v3.9): add `int has_remap_directive;` to END of s_drawmethod
@@ -5108,6 +5160,26 @@ extern int mrec_isolate;
         "    return pos;\n"
         "}",
         'command-script dedup: lcmHandleCommandScripts cache-owned alias (gate compile && !first)')
+
+    # ── Reproducible builds, part 2 of 2: upstream's own compile-date banner ──────
+    #
+    # Stripping the GNU build-id note (20 bytes @ 384) left 12 of the 32 churning
+    # bytes unaccounted for. They are HERE, at ~1.80 MB: upstream bakes __DATE__
+    # into the version banner as a string literal, so the shipped binary changes
+    # across midnight even when the source has not. Measured 2026-08-04 on the
+    # shipped binary: banner @ offset 1806960, literal 'Aug  4 2026' = 11 chars
+    # + NUL = exactly the missing 12.
+    #
+    # Same reasoning as the .inp build id: a wall-clock date is both
+    # non-deterministic AND tells you nothing about which source produced the
+    # binary. The commit SHA is deterministic and actually diagnostic, so the
+    # banner now reports the build rather than the day it was compiled. When
+    # MREC_BUILD_ID is unset, _MREC_BUILD_EXPR falls back to __DATE__, which
+    # reproduces upstream's behaviour exactly -- a local build is unchanged.
+    ob = strict_replace(ob,
+        '    printf("OpenBoR %s, Compile Date: " __DATE__ "\\n\\n", VERSION);',
+        '    printf("OpenBoR %s, Build: " ' + _MREC_BUILD_EXPR + ' "\\n\\n", VERSION);',
+        'reproducible build: version banner reports the source build id, not the compile date')
 
     # The profiler-removal commit 5c89107 accidentally deleted `write(ob_path, ob)`
     # along with the profiler block, silently dropping the ENTIRE ob section

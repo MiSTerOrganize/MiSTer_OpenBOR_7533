@@ -10,6 +10,10 @@
 # Binary artifacts — never normalize.
 *.rbf binary
 *.pak binary
+# Virtual-pad controller maps (tools/harness/uinput_maps/*.map) -- 128 raw
+# bytes of uint16 LE slot values. MUST be binary: EOL conversion would
+# silently corrupt slot values and the map would map the wrong buttons.
+*.map binary
 *.bin binary
 *.pin binary
 *.jdi binary

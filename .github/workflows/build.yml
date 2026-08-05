@@ -11,6 +11,15 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    # Harness tooling is not compiled into the ARM binary, so a tools/**
+    # push has nothing to rebuild. Without this filter it still triggers a
+    # full QEMU build AND a commit-back, which re-ships the binary to every
+    # update_all user for no functional change: measured 2026-08-03, two
+    # harness-only pushes each moved the shipped hash. (The bytes that
+    # differ are the 20-byte GNU build-id note, not code -- the real fix is
+    # -Wl,--build-id=none at link time; this filter avoids the trigger.)
+    paths-ignore:
+      - 'tools/**'
   pull_request:
     branches: [main]
 
@@ -31,6 +40,7 @@ jobs:
         run: |
           chmod +x .github/scripts/build_mister_arm.sh
           docker run --rm --platform linux/arm/v7 \
+            -e MREC_BUILD_ID=${{ github.sha }} \
             -v ${{ github.workspace }}:/build \
             -w /tmp \
             arm32v7/debian:bullseye-slim \
@@ -38,6 +48,11 @@ jobs:
 
       - name: Commit fresh ARM binary back to repo
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          # For the staleness guard's `gh api` ancestry query. Read-only use of
+          # the repo's own token; the DB/release dispatches below still use the
+          # cross-repo PAT, which GITHUB_TOKEN cannot replace.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p games/OpenBOR /tmp/ci-binary
           # Stage the freshly built binary OUTSIDE the work tree so the
@@ -68,9 +83,45 @@ jobs:
           # already carries a different binary is an unresolvable merge conflict.
           PUSH_OK=0
           NOTHING_TO_DO=0
+          STALE=0
           for i in 1 2 3 4 5; do
             git fetch origin main
             git reset --hard origin/main
+            # --- Staleness guard --------------------------------------------
+            # The re-apply above is right that a build must never be LOST, but
+            # it never asks whether the tip already carries a NEWER binary. Two
+            # builds overlap whenever pushes land close together, and they do
+            # NOT finish in start order. Measured 2026-08-04 on this repo: the
+            # 0ea791c build ran 00:46->01:15 while the d4815ef build ran
+            # 00:52->01:07, so the OLDER source finished LAST, re-applied its
+            # binary over the newer one, and main shipped a stale (unstripped)
+            # binary until an unrelated build happened to heal it.
+            #
+            # Ancestry is asked of the API rather than the local clone:
+            # actions/checkout is depth-1, so `git merge-base` has no history to
+            # reason over. compare/{base}...{head} reports "ahead" when head is
+            # ahead of base.
+            #
+            # FAILS OPEN on every uncertainty -- no marker commit, unparseable
+            # message, API error, unrelated histories. The guard may only skip a
+            # push it is certain is stale; when unsure it must defer to the old
+            # behaviour, because wrongly skipping loses a build silently.
+            TIP_SRC=$(gh api "repos/${{ github.repository }}/commits?path=games/OpenBOR/OpenBOR_7533&per_page=1" \
+                        --jq '.[0].commit.message' 2>/dev/null \
+                      | sed -n '1s/^CI: rebuild ARM binary for \([0-9a-f]\{40\}\)$/\1/p')
+            if [ -n "$TIP_SRC" ] && [ "$TIP_SRC" != "${{ github.sha }}" ]; then
+              REL=$(gh api "repos/${{ github.repository }}/compare/${{ github.sha }}...$TIP_SRC" \
+                      --jq '.status' 2>/dev/null || echo unknown)
+              if [ "$REL" = "ahead" ]; then
+                echo "[staleness guard] main already carries a binary built from $TIP_SRC,"
+                echo "  which is AHEAD of this run's source ${{ github.sha }}."
+                echo "  This build is stale -- refusing to overwrite a newer binary."
+                echo "  It is still uploaded as a workflow artifact if you need it."
+                STALE=1
+                break
+              fi
+              echo "[staleness guard] tip binary source $TIP_SRC is '$REL' vs this run -- proceeding."
+            fi
             cp /tmp/ci-binary/OpenBOR_7533 games/OpenBOR/OpenBOR_7533
             chmod +x games/OpenBOR/OpenBOR_7533
             if git diff --quiet games/OpenBOR/OpenBOR_7533; then
@@ -88,7 +139,7 @@ jobs:
             echo "Push rejected (attempt $i) - re-applying the fresh binary onto the new tip..."
             sleep 2
           done
-          if [ "$PUSH_OK" != "1" ] && [ "$NOTHING_TO_DO" != "1" ]; then
+          if [ "$PUSH_OK" != "1" ] && [ "$NOTHING_TO_DO" != "1" ] && [ "$STALE" != "1" ]; then
             echo "::error::Binary commit-back failed after 5 attempts. The binary is still available as a workflow artifact; deploy manually or re-run."
             exit 1
           fi
