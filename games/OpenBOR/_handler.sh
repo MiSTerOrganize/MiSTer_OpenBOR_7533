@@ -172,6 +172,20 @@ if [ -f /tmp/openbor_recmode ]; then
             mkdir -p "$REPLAYS/.armsnap/saves" "$REPLAYS/.armsnap/savestates" 2>/dev/null
             cp -f "$_SCR/saves/"*       "$REPLAYS/.armsnap/saves/"       2>/dev/null
             cp -f "$_SCR/savestates/"*  "$REPLAYS/.armsnap/savestates/"  2>/dev/null
+            # Every cp above is 2>/dev/null, so a full SD or a read-only FS is
+            # silent. If the arm snapshot is not a faithful copy of what the run
+            # is about to boot from, the take cannot replay: playback restores a
+            # set of files the run never had, the load menu differs, and the
+            # recorded navigation selects a different slot. REFUSE to arm rather
+            # than hand over a take that is guaranteed to desync -- which is what
+            # PICO-8 does, and why its notice can honestly say "not recording".
+            _NS=$(ls -A "$_SCR/saves" "$_SCR/savestates" 2>/dev/null | grep -vc '^$')
+            _NA=$(ls -A "$REPLAYS/.armsnap/saves" "$REPLAYS/.armsnap/savestates" 2>/dev/null | grep -vc '^$')
+            if [ "${_NA:-0}" -ne "${_NS:-0}" ]; then
+                echo "[REC] arm snapshot is $_NA of $_NS file(s) -- not arming" >> "$_RECLOG"
+                printf %s "Could not prepare saves - not recording" > /tmp/openbor_recwarn
+                rm -f /tmp/openbor_recmode 2>/dev/null
+            fi
             ;;
         PLAY*)
             _INP=$(cat /tmp/openbor_playfile 2>/dev/null | tr -d '\0')
@@ -228,9 +242,14 @@ if [ -f /tmp/openbor_recmode ]; then
                     echo "[REC] restored $_N save file(s) for: $_INP" >> "$_RECLOG"
                 else
                     echo "[REC] snapshot for this take is empty or unreadable -- starting empty" >> "$_RECLOG"
+                    # A snapshot EXISTS but nothing landed: the take carries state
+                    # the run will not have. Distinct from "carries none", and the
+                    # log was the only place either was ever said.
+                    printf %s "Could not restore this take's save data" > /tmp/openbor_recwarn
                 fi
             else
                 echo "[REC] no save snapshot for this take -- starting empty" >> "$_RECLOG"
+                printf %s "This take carries no save data" > /tmp/openbor_recwarn
             fi
             ;;
     esac

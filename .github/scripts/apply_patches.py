@@ -2896,6 +2896,15 @@ extern int mrec_isolate;
             "    {   /* MiSTer recorder: isolate persistent state for this session. */\n"
             "        FILE *_iso = fopen(\"/tmp/openbor_recmode\", \"r\");\n"
             "        if(_iso) { fclose(_iso); mrec_isolate = 1; }\n"
+            "        /* The handler prepares and restores the save scratch BEFORE this\n"
+            "         * process exists, so the engine cannot observe those failures\n"
+            "         * directly -- unlike PICO-8, where the engine does the copying.\n"
+            "         * It leaves the message here instead. Consume it once. */\n"
+            "        { FILE *_w = fopen(\"/tmp/openbor_recwarn\", \"rb\");\n"
+            "          if(_w) { char _wb[96]; size_t _wn = fread(_wb, 1, sizeof(_wb)-1, _w);\n"
+            "                   fclose(_w); remove(\"/tmp/openbor_recwarn\");\n"
+            "                   if(_wn > 0) { _wb[_wn] = 0; NativeVideoWriter_Notice(_wb, 6);\n"
+            "                                 printf(\"[REC] %s\\n\", _wb); } } }\n"
             "    }\n"
             "    sprite_map = NULL;",
             'recorder: raise mrec_isolate at openborMain entry')
