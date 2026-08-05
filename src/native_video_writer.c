@@ -1076,6 +1076,22 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
      * land in the frame the FPGA is about to scan out. */
     NativeVideoWriter_DrawOverlays(dst);
 
+    /* TEMPORARY DIAG -- REVERT AFTER MEASURED. Publisher tag.
+     *
+     * Measured 2026-08-05: with a notice up, buf0 carried it on 15/15 sampled
+     * frames and buf1 on only 12/15. Something publishes buf1 WITHOUT the
+     * overlays about one time in five, which is the strobe -- and it is not one
+     * of the two publishers I know about, because both now call DrawOverlays.
+     *
+     * The tag rides IN the frame, so it cannot race the way a side-channel word
+     * would: whoever wrote these pixels wrote this tag. A frame carrying
+     * NEITHER tag identifies a third writer by exclusion, which is the case I
+     * cannot find by reading code.
+     *
+     * Pixel (0,0) only -- the notice panel starts at x=1,y=1, so this cannot
+     * disturb what is being measured. */
+    dst[0] = 0xF81F; dst[1] = 0x07E0;   /* magenta,green = WriteFrame */
+
     __sync_synchronize();
 
     /* Flip control word */

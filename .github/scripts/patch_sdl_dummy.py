@@ -252,6 +252,12 @@ static void mister_present(SDL_Surface *screen) {
      * on the frames that already had the text. */
     NativeVideoWriter_DrawOverlays(dst);
 
+    /* TEMPORARY DIAG -- REVERT AFTER MEASURED. Publisher tag; see the matching
+     * note in native_video_writer.c. BLUE = this path (mister_present). A frame
+     * with NEITHER tag came from a third writer neither of us has accounted
+     * for, which is what the buf1 dropout points at. */
+    dst[0] = 0x07E0; dst[1] = 0xF81F;   /* green,magenta = mister_present */
+
     mister_frame_cnt++;
     *mister_ctrl = (mister_frame_cnt << 2) | (mister_active_buf & 1);
     mister_active_buf ^= 1;
