@@ -52,12 +52,16 @@
  *   DETERMINISM: OpenBOR seeds its RNG only inside the record/replay funcs (no
  *   srand during PAK/level load), so the recorder captures getseed() at Record and
  *   srand32()-restores it at Play — in-level RNG reproduces; menu nav is pure
- *   input so it is deterministic regardless. Recording/injection are gated on
- *   !_pause, so the pause menu itself is never recorded. .inp files are build/arch
- *   specific.
+ *   input so it is deterministic regardless. .inp files are build/arch specific.
+ *
+ *   🛑 Capture and injection are NOT gated on !_pause -- that gate existed and was
+ *   removed (2026-08-01). The pause menu's own frames ARE recorded, and must be,
+ *   or a replay reaches a menu the recorded stream has no way to close and hangs
+ *   there. Do not reinstate it.
  *
  *   `mrec_mode` (int, openbor.c global; 0=idle 1=rec 2=play) is the single source
- *   of truth this menu reads. Stop Playback sets it to 0 directly.
+ *   of truth this menu reads. Take-over and end-of-stream set it to 0; there is
+ *   no menu item that does (see the recmode == 2 branch).
  *
  * RESET PAK / QUIT: unchanged from the prior menu (see the case bodies).
  *
@@ -160,11 +164,17 @@ void pausemenu()
     while(!quit)
     {
         int recmode = mrec_mode;   /* 0=idle, 1=recording, 2=playing */
-        /* The slot picker is on the IDLE list only. During a recording or a
-         * replay the submenu is the 2-item form, so the shape a recorded run
-         * ever sees is unchanged -- which is the invariant that keeps injected
-         * navigation landing on the same items on playback. */
-        int rec_items = (recmode == 0) ? 4 : 2;
+        /* The slot picker is on the IDLE list only, so the shape a recorded run
+         * ever sees stays small and stable -- the invariant that keeps injected
+         * navigation landing on the same items on playback.
+         *
+         * Playback is 1 item (Back), recording is 2 (Stop Recording, Back).
+         * 🛑 There is deliberately NO "Stop Playback" -- see the recmode == 2
+         * branch below. The counts differing across those two modes is safe:
+         * the only recorded input that ever selects index 0 in this submenu is
+         * the terminal Stop Recording that ended the take, and by the frame
+         * after it _mr_pos >= _mr_len, so the replay ends either way. */
+        int rec_items = (recmode == 0) ? 4 : (recmode == 2) ? 1 : 2;
 
         if(in_recording)
         {
@@ -179,8 +189,19 @@ void pausemenu()
             }
             else if(recmode == 2)
             {
-                _menutextmshift((rec_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Stop Playback"));
-                _menutextmshift((rec_selector == 1)?pauseoffset[1]:pauseoffset[0],  1, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
+                /* 🛑 NO "Stop Playback" ITEM. Do not add one back.
+                 *
+                 * A live player can never reach this branch: pressing pause
+                 * during a replay trips take-over, mrec_mode drops to 0, and the
+                 * menu draws its IDLE list instead. Taking over IS how a live
+                 * pause reaches the engine at all -- see the injector note in
+                 * apply_patches.py. So an item here is visible during a replay
+                 * and can never be chosen by the person watching it, which is
+                 * the definition of dead UI.
+                 *
+                 * It also is not needed to end a replay: take-over ends it on
+                 * any button, and it ends itself at _mr_pos >= _mr_len. */
+                _menutextmshift(pauseoffset[1], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
                 _menutextmshift(pauseoffset[0], 3, 0, pauseoffset[2], pauseoffset[3], Tr("Replaying a recording..."));
             }
             else
@@ -437,19 +458,12 @@ void pausemenu()
                         pauselector = 2;   /* highlight the Recording entry */
                     }
                 }
-                else   /* recording or playing: Stop / Back */
+                else if(recmode == 1)   /* recording: Stop Recording / Back */
                 {
-                    if(rec_selector == 0)   /* Stop Recording / Stop Playback */
-                    {
-                        if(recmode == 1)
-                        {   /* signal the recorder to flush the .inp, then resume play */
-                            FILE *_rs = fopen("/tmp/openbor_recstop", "w");
-                            if(_rs) fclose(_rs);
-                        }
-                        else
-                        {   /* stop playback immediately (recorder frees next frame) */
-                            mrec_mode = 0;
-                        }
+                    if(rec_selector == 0)   /* Stop Recording */
+                    {   /* signal the recorder to flush the .inp, then resume play */
+                        FILE *_rs = fopen("/tmp/openbor_recstop", "w");
+                        if(_rs) fclose(_rs);
                         quit = 1;   /* close the pause menu, back to gameplay */
                         sound_pause_music(0);
                         sound_pause_sample(0);
@@ -459,6 +473,11 @@ void pausemenu()
                         in_recording = 0;
                         pauselector = 2;
                     }
+                }
+                else   /* playing: Back is the only item -- no Stop Playback, see above */
+                {
+                    in_recording = 0;
+                    pauselector = 2;
                 }
             }
 
