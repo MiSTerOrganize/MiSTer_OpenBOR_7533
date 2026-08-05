@@ -294,11 +294,11 @@ static void nv_blit_rows1x(volatile uint16_t* dst, int gx, int gy,
  * Frame-counted rather than clock-based so it behaves identically under a
  * deterministic replay.
  * ========================================================================== */
-static char nv_notice_text[NV_COLS * NV_NOTICE_MAX + 1];
-static int  nv_notice_frames = 0;
+static char     nv_notice_text[NV_COLS * NV_NOTICE_MAX + 1];
+static uint64_t nv_notice_until_ns = 0;
 
 void NativeVideoWriter_Notice(const char* msg, int seconds) {
-    if (!msg) { nv_notice_frames = 0; return; }
+    if (!msg) { nv_notice_until_ns = 0; return; }
     size_t i = 0;
     while (msg[i] && i < sizeof(nv_notice_text) - 1) {
         char c = msg[i];
@@ -307,22 +307,22 @@ void NativeVideoWriter_Notice(const char* msg, int seconds) {
     }
     nv_notice_text[i] = 0;
     if (seconds <= 0) seconds = 4;
-    /* Hold for `seconds` of WALL CLOCK, which means counting RENDER frames --
-     * this counter is decremented once per WriteFrame, and the engine is
-     * uncapped, not locked to the 59.92 Hz the FPGA scans at. The old
-     * `seconds * 60` assumed 60 fps and so cut every notice short by however
-     * much the core was outrunning the display: measured 2026-08-04 on ATOV at
-     * ~100 fps, a "6 second" notice was gone in ~3.6 s, which is a large part
-     * of why they read as flickery rather than merely brief.
+    /* Wall clock, not a frame count -- and this is a deliberate trade, not an
+     * oversight. On an uncapped engine the two goals CONFLICT: `seconds * 60`
+     * is deterministic but wrong (a 6 s notice lasted ~3.6 s at ~100 fps), and
+     * `seconds * measured_fps` is right but load-dependent. Getting both would
+     * need a DISPLAY-frame count at 59.92 Hz, and the ARM has no vsync signal --
+     * MiSTer Main's vsync callback is process-internal.
      *
-     * nv_fps_value is the same measurement the fps read-out uses and is
-     * maintained every frame regardless of whether that overlay is switched on.
-     * Before it has settled (first ~second after launch) fall back to 60 --
-     * erring toward the old behaviour rather than showing a notice for an
-     * unbounded time. Clamped so a wild reading cannot pin a notice on screen. */
-    int rate = nv_fps_value;
-    if (rate < 20 || rate > 300) rate = 60;
-    nv_notice_frames = seconds * rate;
+     * So keep the goal that matters: a notice is a message to a HUMAN, and six
+     * seconds should be six seconds. This matches PICO-8, which has always done
+     * it this way -- one mechanism on both cores.
+     *
+     * What is given up: notice duration is no longer identical frame-for-frame
+     * between two replays of the same take. That is recoverable the right way --
+     * golden captures are taken at STABLE scenes (Phase 0), which are not notice
+     * moments. Do NOT capture a golden inside a notice window. */
+    nv_notice_until_ns = nv_now_ns() + (uint64_t)seconds * 1000000000ull;
 }
 
 /* Solid backing panel for the notice text.
@@ -351,8 +351,7 @@ static void nv_fill_rect(volatile uint16_t* dst, int x0, int y0, int w, int h,
 /* Word-wrapped, not cropped. A word longer than a line is hard-broken rather
  * than dropped, so a long PAK name still shows something useful. */
 static void nv_draw_notice(volatile uint16_t* dst) {
-    if (nv_notice_frames <= 0) return;
-    nv_notice_frames--;
+    if (!nv_notice_until_ns || nv_now_ns() >= nv_notice_until_ns) return;
 
     /* Two passes: measure every line first so one panel can span them all.
      * Drawn as a single block rather than per-line so ragged right edges do not
