@@ -500,6 +500,28 @@ void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst) {
     /* After the fps read-out so a notice is never painted over by it. Ungated:
      * a notice only appears when there is something the player must know. */
     nv_draw_notice(dst);
+
+    /* 🛑 Paint the notice into the OTHER buffer too.
+     *
+     * A notice is STATIONARY -- it does not animate, so there is no reason for
+     * it to be re-established frame by frame. Requiring every publisher to draw
+     * it makes correctness depend on every code path remembering, and any path
+     * that forgets produces a one-frame hole: a flicker. Three separate "who
+     * draws it" bugs were fixed that way and the flicker survived all three.
+     *
+     * Painting BOTH buffers removes the question. Whichever buffer is published,
+     * by whichever publisher, and whether it was freshly drawn or merely
+     * republished by the keepalive, it carries the notice. The only cost is one
+     * extra text blit per frame, and only while a notice is actually up --
+     * nv_draw_notice returns immediately once the deadline passes.
+     *
+     * Do NOT "optimise" this back to a single buffer. */
+    if (ddr_base) {
+        volatile uint16_t* buf0 = (volatile uint16_t*)(ddr_base + NV_BUF0_OFFSET);
+        volatile uint16_t* buf1 = (volatile uint16_t*)(ddr_base + NV_BUF1_OFFSET);
+        volatile uint16_t* other = (dst == buf0) ? buf1 : (dst == buf1) ? buf0 : NULL;
+        if (other) nv_draw_notice(other);
+    }
 }
 
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
