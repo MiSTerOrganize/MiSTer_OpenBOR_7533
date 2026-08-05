@@ -239,7 +239,6 @@ button to take over.
   back into the game.
 - **Play Recording** — restarts the PAK and plays the chosen slot back
   hands-free, driving through the menus into the game on its own.
-- **Stop Playback** — end playback and take control.
 - **Take over any time** — during playback, just press any button and the
   automated inputs stop instantly so you can play.
 
