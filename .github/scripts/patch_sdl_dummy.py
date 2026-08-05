@@ -70,6 +70,7 @@ static volatile int        mister_keepalive_run = 0;
  * Fix: keepalive calls NativeVideoWriter_KeepaliveTick() which uses the
  * SAME state as WriteFrame. Single source of truth. */
 extern void NativeVideoWriter_KeepaliveTick(void);
+extern void NativeVideoWriter_NotePublished(int buf);
 /* Overlays (fps read-out + notice). This file is a SECOND publisher of the same
  * DDR3 buffers, so it must draw them too -- see the call site below. */
 extern void NativeVideoWriter_DrawOverlays(volatile uint16_t *dst);
@@ -258,6 +259,10 @@ static void mister_present(SDL_Surface *screen) {
      * for, which is what the buf1 dropout points at. */
     dst[0] = 0x07E0; dst[1] = 0xF81F;   /* green,magenta = mister_present */
 
+    /* Hand this finished buffer to the keepalive before publishing, so a tick
+     * cannot republish the other publisher stale buffer. */
+    NativeVideoWriter_NotePublished(mister_active_buf & 1);
+    __sync_synchronize();
     mister_frame_cnt++;
     *mister_ctrl = (mister_frame_cnt << 2) | (mister_active_buf & 1);
     mister_active_buf ^= 1;

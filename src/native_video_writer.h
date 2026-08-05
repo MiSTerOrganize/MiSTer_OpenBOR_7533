@@ -62,6 +62,10 @@ bool NativeVideoWriter_IsActive(void);
 /// keepalive counter caused jitter (loading bar bug 2026-05-22).
 void NativeVideoWriter_KeepaliveTick(void);
 
+/* Hand a finished buffer to the keepalive (see the .c). Call after the buffer
+ * is fully drawn and before publishing it. */
+void NativeVideoWriter_NotePublished(int buf);
+
 /// Read joystick state for player 0-3 from DDR3 (written by FPGA).
 uint32_t NativeVideoWriter_ReadJoystick(int player);
 

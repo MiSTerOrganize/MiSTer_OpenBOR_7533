@@ -61,6 +61,22 @@ static volatile uint8_t* ddr_base = NULL;
 static uint32_t frame_counter = 0;
 static int active_buf = 0;
 
+/* The buffer the keepalive thread may republish. Written by WriteFrame ONLY
+ * once that buffer is completely drawn, so a keepalive tick can never point the
+ * FPGA at a buffer WriteFrame is still filling.
+ *
+ * 🛑 Do NOT go back to deriving this in the keepalive as `(!active_buf)`. That
+ * was the notice-flicker root cause (measured 2026-08-05): the keepalive runs on
+ * its own pthread, so between its read of active_buf and its ctrl write,
+ * WriteFrame could toggle active_buf -- and the keepalive then published the
+ * buffer WriteFrame was ABOUT TO WRITE INTO. The FPGA showed an undrawn buffer:
+ * no notice, and no publisher tag either, which is how it was identified.
+ *
+ * Sharing frame_counter/active_buf between the threads (the 2026-05-22
+ * loading-bar-jitter fix) narrowed this race but did not remove it -- shared
+ * state is not synchronised state. */
+static volatile int nv_last_published = 0;
+
 bool NativeVideoWriter_Init(void) {
     /* 2026-06-13 affinity INVERSION: pin this (engine/render/main) thread to core 0.
      * mem_bench shows core 0 has ~1.85x core 1's DDR3 read bandwidth; the sprite
@@ -111,6 +127,7 @@ bool NativeVideoWriter_Init(void) {
     }
     frame_counter = 0;
     active_buf = 0;
+    nv_last_published = 0;
 
     fprintf(stderr, "NativeVideoWriter: mapped 0x%08X, %dx%d @ %d bytes/frame\n",
             NV_DDR_PHYS_BASE, NV_FRAME_WIDTH, NV_FRAME_HEIGHT, NV_FRAME_BYTES);
@@ -1093,10 +1110,18 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
 
     __sync_synchronize();
 
-    /* Flip control word */
-    frame_counter++;
+    /* Flip control word.
+     *
+     * Hand the finished buffer to the keepalive BEFORE publishing it, so a tick
+     * landing anywhere around here republishes a fully-drawn buffer -- either
+     * this one or the previous one. Both are complete; neither is the one we are
+     * about to fill next. */
+    nv_last_published = active_buf & 1;
+    __sync_synchronize();
+
+    uint32_t fc = __sync_add_and_fetch(&frame_counter, 1);
     volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
-    *ctrl = (frame_counter << 2) | (active_buf & 1);
+    *ctrl = (fc << 2) | (active_buf & 1);
     active_buf ^= 1;
 }
 
@@ -1104,19 +1129,31 @@ bool NativeVideoWriter_IsActive(void) {
     return ddr_base != NULL;
 }
 
+/* The SDL-dummy publisher (mister_present) keeps its own frame counter and
+ * active-buffer state and writes the same ctrl word. It must hand its finished
+ * buffer over too, or a keepalive tick right after one of its frames would
+ * republish a buffer from the OTHER publisher and flip the image. */
+void NativeVideoWriter_NotePublished(int buf) { nv_last_published = buf & 1; }
+
 void NativeVideoWriter_KeepaliveTick(void) {
-    /* Tick frame_counter pointing at the LAST-WRITTEN buffer (not next-
-     * to-write). After WriteFrame's active_buf toggle, the last-written
-     * buffer is (!active_buf). Pointing the FPGA at next-to-write would
-     * flip it to a stale/empty buffer, causing jitter between frames
-     * (verified 2026-05-22 — loading bar jitter root cause was a
-     * separate keepalive thread maintaining its own frame_counter +
-     * active_buf state, racing with WriteFrame's state). */
+    /* Republish the last COMPLETED buffer so the FPGA's ~500 ms staleness
+     * timeout never blanks the screen during a long write-pause (cart load,
+     * PAK swap, wait-for-.s0).
+     *
+     * 🛑 Take the buffer from nv_last_published -- do NOT derive it here as
+     * `(!active_buf)`. This runs on a separate pthread, so active_buf can toggle
+     * between the read and the ctrl write, and the derived value then names the
+     * buffer WriteFrame is about to fill. That published an UNDRAWN buffer and
+     * was the notice flicker: measured 2026-08-05, every frame inside a flicker
+     * gap came from this path (3/3), carrying neither publisher's tag.
+     *
+     * frame_counter is shared with WriteFrame across threads, so bump it
+     * atomically; a plain ++ can drop an increment, and the FPGA only needs the
+     * value to CHANGE, but there is no reason to leave the race in. */
     if (!ddr_base) return;
-    frame_counter++;
-    int last_written = (!active_buf) & 1;
+    uint32_t fc = __sync_add_and_fetch(&frame_counter, 1);
     volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
-    *ctrl = (frame_counter << 2) | last_written;
+    *ctrl = (fc << 2) | (nv_last_published & 1);
 }
 
 uint32_t NativeVideoWriter_CheckCart(void) {
