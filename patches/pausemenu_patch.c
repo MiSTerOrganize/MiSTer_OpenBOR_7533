@@ -419,7 +419,7 @@ void pausemenu()
                                 /* Nothing anywhere in this PAK's library. Say so
                                  * here rather than resetting to find out. */
                                 printf("[REPLAY] no recording for this PAK -- not arming\n");
-                                NativeVideoWriter_Notice("No recording for this PAK", 4);
+                                NativeVideoWriter_Notice("No recording for this game", 4);
                                 _arm = 0;
                             }
                             if(_arm)
