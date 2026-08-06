@@ -2929,6 +2929,12 @@ extern int mrec_isolate;
             " * Declared here rather than via the header so the injected recorder needs no\n"
             " * new include -- same shape as the mister_fps_overlay global. */\n"
             "void NativeVideoWriter_Notice(const char *msg, int seconds);\n"
+            # NOTE: this prelude lands AFTER pausemenu() in openbor.c, so a
+            # declaration added here does NOT cover pausemenu's own call sites --
+            # they fall back to implicit declaration. A9's three functions are
+            # therefore declared at FUNCTION SCOPE inside pausemenu_patch.c
+            # instead, which is guaranteed to precede their use. Anything new
+            # that pausemenu calls should do the same.
             "\n"
             "/* CRC32 over the frame block, stored in the header. Without it, bit rot or\n"
             " * a partial SD write inside an already-written region produced a file that\n"

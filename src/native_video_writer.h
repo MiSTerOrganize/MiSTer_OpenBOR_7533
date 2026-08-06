@@ -80,6 +80,11 @@ void NativeVideoWriter_SetOverlay(const void* pixels);
  * caller seed an overlay with the live image without a second scaler. */
 void NativeVideoWriter_CaptureDisplay(void* dst);
 
+/* The size an overlay must be. Ask rather than hardcode -- these dimensions
+ * already exist here and in the RTL, and a hand-copied fourth constant is how
+ * this codebase has drifted before. */
+void NativeVideoWriter_GetDisplaySize(int* w, int* h);
+
 /* Draw the fps read-out + any pending notice into a frame about to be
  * published. EVERY publisher of a DDR3 frame must call this immediately before
  * its publish barrier, not just WriteFrame -- the SDL dummy driver's

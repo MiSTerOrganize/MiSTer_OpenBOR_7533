@@ -692,6 +692,15 @@ static const void* volatile nv_overlay = NULL;
 
 void NativeVideoWriter_SetOverlay(const void* pixels) { nv_overlay = pixels; }
 
+/* The display size an overlay must be. A getter rather than two more #defines
+ * on the engine side: the frame dimensions already exist here, in the header
+ * and in the RTL, and this project has been bitten more than once by a fourth
+ * hand-copied constant drifting out of step with the other three. */
+void NativeVideoWriter_GetDisplaySize(int* w, int* h) {
+    if (w) *w = NV_FRAME_WIDTH;
+    if (h) *h = NV_FRAME_HEIGHT;
+}
+
 void NativeVideoWriter_CaptureDisplay(void* dst) {
     if (!ddr_base || !dst) return;
     /* The LAST PUBLISHED buffer -- the frame currently on screen. Not

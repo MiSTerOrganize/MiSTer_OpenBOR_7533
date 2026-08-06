@@ -73,6 +73,22 @@ extern int mrec_slot;  /* 1..MREC_SLOTS bounded take slot, chosen on the idle
                         * submenu. Defined in openbor.c beside mrec_mode, along
                         * with MREC_SLOTS, both of which precede this function in
                         * the spliced file. */
+/* A9: the pause menu is composited in DISPLAY space, not at the PAK's native
+ * resolution. Drawn engine-side it went through WriteFrame's downscale with the
+ * game image -- on He-Man (960x480 -> 320x224) the menu came out about a third
+ * of its intended size. Same mistake as drawing the fps read-out on the vscreen.
+ * The menu renders into its own display-sized surface and is handed to the
+ * writer, which publishes it instead of downscaling. See native_video_writer.h.
+ *
+ * 🛑 Its three functions are declared in apply_patches.py's openbor.c prelude,
+ * NOT here, and neither are the externs above this comment doing any work:
+ * replace_function splices this file from `void pausemenu()` ONWARD, so
+ * everything above that signature -- including every extern in this block -- is
+ * silently discarded. Declared here, the A9 call sites emitted correctly and
+ * their declarations vanished; the dry-run still exited 0 and the integrity gate
+ * still read 22/22, because neither inspects the emitted C. Add declarations to
+ * the prelude, and grep the EMITTED openbor.c to prove they arrived. */
+
 extern int mister_fps_overlay;  /* Options -> FPS Display. Drawn by
                                  * native_video_writer.c POST-downscale, into the
                                  * final 320x224 buffer, so it stays crisp on PAKs
@@ -90,6 +106,27 @@ void pausemenu()
     int newkeys;
     char volbuf[64];
     s_set_entry *set = levelsets + current_set;
+    /* A9 display-space overlay, defined in native_video_writer.c.
+     *
+     * 🛑 Declared at FUNCTION SCOPE on purpose. Two file-scope options both
+     * fail: above this function they are discarded (replace_function splices
+     * this file from `void pausemenu()` onward), and apply_patches.py's
+     * openbor.c prelude lands AFTER pausemenu, so a declaration there does not
+     * cover these call sites either -- which is why the pre-existing
+     * NativeVideoWriter_Notice() calls below rely on implicit declaration. That
+     * happens to work on ARM32 (pointer + int promote to the same ABI) but is
+     * illegal C99 and one strict compiler away from breaking. Declaring here is
+     * guaranteed to precede use. Anything new pausemenu calls should do this. */
+    extern void NativeVideoWriter_SetOverlay(const void *pixels);
+    extern void NativeVideoWriter_CaptureDisplay(void *dst);
+    extern void NativeVideoWriter_GetDisplaySize(int *w, int *h);
+
+    /* NULL menuscreen = fall back to the pre-A9 engine-space path. */
+    s_screen *menuscreen = NULL;
+    void     *menubg     = NULL;
+    int       disp_w = 0, disp_h = 0;
+    size_t    disp_bytes = 0;
+    int       saved_hres = 0, saved_vres = 0;
     /* MiSTer Path B: match the 16-bit vscreen so copyscreen(pausebuffer,
      * vscreen) is not a no-op (copyscreen early-returns on format mismatch). */
     s_screen *pausebuffer = allocscreen(videomodes.hRes, videomodes.vRes, PIXEL_16);
@@ -106,6 +143,37 @@ void pausemenu()
     {
         printf("[PAUSE] out of memory for the pause buffer -- not opening the menu\n");
         return;
+    }
+
+    /* A9: display-space surface for the menu, plus a pristine copy of the
+     * background to rebuild it from each frame.
+     *
+     * The background is captured ONCE, here. Not per frame: the moment an
+     * overlay is set, CaptureDisplay returns the overlay itself, so a per-frame
+     * capture would draw the menu on top of the menu and smear it.
+     *
+     * Both allocations are optional. If either fails the menu falls back to the
+     * pre-A9 engine-space path verbatim -- squished on a hi-res PAK, but
+     * present. A pause menu that fails to open is far worse than one that is
+     * small, because it is the only route to Stop Recording. */
+    NativeVideoWriter_GetDisplaySize(&disp_w, &disp_h);
+    disp_bytes = (size_t)disp_w * (size_t)disp_h * 2;
+    menuscreen = allocscreen(disp_w, disp_h, PIXEL_16);
+    menubg     = menuscreen ? malloc(disp_bytes) : NULL;
+    if(menuscreen && !menubg)
+    {
+        freescreen(&menuscreen);
+        menuscreen = NULL;
+    }
+    if(menuscreen)
+    {
+        NativeVideoWriter_CaptureDisplay(menubg);
+        saved_hres = videomodes.hRes;
+        saved_vres = videomodes.vRes;
+    }
+    else
+    {
+        printf("[PAUSE] no display-space surface -- menu falls back to engine space\n");
     }
 
     /* NOTE: this menu runs NORMALLY during playback -- there is deliberately no
@@ -131,7 +199,15 @@ void pausemenu()
     copyscreen(pausebuffer, vscreen);
     spriteq_draw(pausebuffer, 0, MIN_INT, MAX_INT, 0, 0);
     spriteq_clear();
-    spriteq_add_screen(0, 0, MIN_INT, pausebuffer, NULL, 0);
+    /* 🛑 On the overlay path the frozen background comes from menubg, which is
+     * ALREADY display-space. pausebuffer is PAK-native, so leaving it queued
+     * would have spriteq_draw blit a 960x480 image into the 320x224 surface.
+     * The queue then carries menu text only, which is exactly what we want to
+     * render into the overlay each frame. */
+    if(!menuscreen)
+    {
+        spriteq_add_screen(0, 0, MIN_INT, pausebuffer, NULL, 0);
+    }
     spriteq_lock();
 
     for(i = 0; i < set->maxplayers; i++)
@@ -175,6 +251,23 @@ void pausemenu()
          * the terminal Stop Recording that ended the take, and by the frame
          * after it _mr_pos >= _mr_len, so the replay ends either way. */
         int rec_items = (recmode == 0) ? 4 : (recmode == 2) ? 1 : 2;
+
+        /* 🛑 A9: the centring macros read videomodes, not the target surface --
+         *     _strmidx  centres on videomodes.hRes
+         *     _liney    centres on videomodes.vRes
+         * so text aimed at a 320x224 surface while videomodes still says
+         * 960x480 lands at x~480: entirely off it. Point them at display space
+         * for the queuing region below, and restore before update(1,0), which
+         * renders for real and must see the true mode.
+         *
+         * The region is contiguous -- every _menutextmshift call sits between
+         * here and that update() -- and contains only text queuing and
+         * snprintf, nothing else that reads videomodes. */
+        if(menuscreen)
+        {
+            videomodes.hRes = disp_w;
+            videomodes.vRes = disp_h;
+        }
 
         if(in_recording)
         {
@@ -249,6 +342,29 @@ void pausemenu()
             _menutextmshift((option_selector == 2)?pauseoffset[1]:pauseoffset[0],  1, 0, pauseoffset[2], pauseoffset[3], volbuf);
 
             _menutextmshift((option_selector == 3)?pauseoffset[1]:pauseoffset[0],  3, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
+        }
+
+        /* Render the queued menu text into the display-space surface, on top of
+         * the pristine background, and publish that as the overlay.
+         *
+         * Rebuilt from menubg every frame rather than drawn once: the selector
+         * moves, volumes change, the slot row updates. That is fine and is NOT
+         * the notice's repaint race -- this surface is private memory, not the
+         * buffer the FPGA is scanning. WriteFrame copies it into the back buffer
+         * as a whole frame, so what the FPGA sees is still only ever a complete
+         * publish. (And that copy starts at nv_top, so it cannot rewrite a live
+         * notice band.)
+         *
+         * videomodes is restored BEFORE update(1,0): that call renders for real
+         * and every path inside it must see the true PAK resolution. */
+        if(menuscreen)
+        {
+            memcpy(menuscreen->data, menubg, disp_bytes);
+            spriteq_draw(menuscreen, 0, MIN_INT, MAX_INT, 0, 0);
+            spriteq_clear();
+            videomodes.hRes = saved_hres;
+            videomodes.vRes = saved_vres;
+            NativeVideoWriter_SetOverlay(menuscreen->data);
         }
 
         update(1, 0);
@@ -653,6 +769,30 @@ void pausemenu()
 
     _pause = 0;
     bothnewkeys = 0;
+
+    /* 🛑 Clear the overlay BEFORE freeing the surface it points at. The writer
+     * borrows the pointer -- it does not copy it -- and WriteFrame runs from the
+     * engine thread on the very next frame, so freeing first leaves it reading
+     * freed memory for exactly one frame. That is the kind of use-after-free
+     * that shows as an intermittent garbled frame and gets blamed on the FPGA.
+     *
+     * Restore videomodes unconditionally too. Every loop exit already restores
+     * it before update(1,0), so this is belt and braces -- but leaving the
+     * engine running at 320x224 would mis-size every subsequent draw, and it is
+     * one assignment to be certain. */
+    NativeVideoWriter_SetOverlay(NULL);
+    if(menuscreen)
+    {
+        videomodes.hRes = saved_hres;
+        videomodes.vRes = saved_vres;
+        freescreen(&menuscreen);
+    }
+    if(menubg)
+    {
+        free(menubg);
+        menubg = NULL;
+    }
+
     spriteq_unlock();
     spriteq_clear();
     freescreen(&pausebuffer);
