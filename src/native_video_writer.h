@@ -58,6 +58,28 @@ int NativeVideoWriter_NoticeRows(void);
  * expires. */
 void NativeVideoWriter_NoticeRepaint(void);
 
+/* ---- display-space overlay (the pause menu) --------------------------------
+ *
+ * An overlay is a FULL 320x224 RGB565 frame. While one is set, WriteFrame
+ * publishes it instead of downscaling the engine's frame, so the menu lands at
+ * display resolution instead of being squished with the game -- on a 960x480
+ * PAK the engine-space menu came out about a third of its intended size.
+ *
+ * Usage, per menu frame:
+ *     NativeVideoWriter_CaptureDisplay(buf);   // frozen game, already scaled
+ *     ... draw the menu into buf at 320x224 ...
+ *     NativeVideoWriter_SetOverlay(buf);
+ * and NativeVideoWriter_SetOverlay(NULL) on the way out.
+ *
+ * 🛑 The pointer is BORROWED, not copied. It must stay valid and unchanged
+ * until the overlay is cleared, and it must not be freed before then. */
+void NativeVideoWriter_SetOverlay(const void* pixels);
+
+/* Copy the last PUBLISHED display frame (the game, already downscaled to
+ * 320x224) into `dst`, which must hold NV_WIDTH*NV_HEIGHT*2 bytes. Lets the
+ * caller seed an overlay with the live image without a second scaler. */
+void NativeVideoWriter_CaptureDisplay(void* dst);
+
 /* Draw the fps read-out + any pending notice into a frame about to be
  * published. EVERY publisher of a DDR3 frame must call this immediately before
  * its publish barrier, not just WriteFrame -- the SDL dummy driver's

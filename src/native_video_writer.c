@@ -668,6 +668,40 @@ void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst) {
      * loses it a moment early. Neither shows stale or half-written pixels. */
 }
 
+/* ==========================================================================
+ * DISPLAY-SPACE OVERLAY  (the pause menu)
+ *
+ * The pause menu used to be drawn by the engine at the PAK's NATIVE resolution
+ * and then squished with the game image -- on He-Man (960x480 -> 320x224) it
+ * came out about a third of its intended size. Same class of mistake as drawing
+ * the fps read-out on the engine's vscreen: an overlay belongs in DISPLAY space,
+ * after every transform, not in the space the content happens to render at.
+ *
+ * So the menu now renders into its own 320x224 surface and hands it here. While
+ * one is set, WriteFrame publishes IT instead of downscaling the engine frame.
+ *
+ * It is a FULL frame, not a keyed overlay, deliberately: the alternative needs a
+ * transparent colour, and any colour we reserve is one the engine's palette can
+ * also produce -- a guess that would show up as holes punched in the menu text
+ * on whichever PAK happened to hit it. The caller seeds the overlay with
+ * NativeVideoWriter_CaptureDisplay() (the last published frame, already
+ * correctly downscaled) and draws on top, so the background stays pixel-
+ * identical to the live image with no second scaler in the codebase.
+ * ========================================================================== */
+static const void* volatile nv_overlay = NULL;
+
+void NativeVideoWriter_SetOverlay(const void* pixels) { nv_overlay = pixels; }
+
+void NativeVideoWriter_CaptureDisplay(void* dst) {
+    if (!ddr_base || !dst) return;
+    /* The LAST PUBLISHED buffer -- the frame currently on screen. Not
+     * active_buf, which is the one WriteFrame fills next and may be half
+     * written or two frames stale. */
+    const volatile uint8_t* src = ddr_base
+        + ((nv_last_published & 1) ? NV_BUF1_OFFSET : NV_BUF0_OFFSET);
+    memcpy(dst, (const void*)src, NV_FRAME_BYTES);
+}
+
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                   int pitch, int bpp, const void* palette) {
     if (!ddr_base || !pixels) return;
@@ -711,6 +745,34 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
      * expiry independently could disagree inside a single frame and leave a band
      * of last frame's averaged pixels on screen. */
     const int nv_top = nv_notice_rows_now();
+
+    /* A display-space overlay replaces the whole frame: it is already at
+     * 320x224, so every scale path below is skipped.
+     *
+     * It still starts at nv_top. The notice band is written once and then
+     * protected by that skip, and an overlay copying over rows 0..nv_top-1
+     * every frame would put the notice straight back to being repainted --
+     * which is the flicker. Missing this is exactly the partial-coverage trap:
+     * it would look fine until a notice happened to fire during a pause. */
+    {
+        const void* ov = nv_overlay;
+        if (ov) {
+            const uint16_t* orow = (const uint16_t*)ov + (size_t)nv_top * NV_FRAME_WIDTH;
+            volatile uint16_t* drow = dst + (size_t)nv_top * NV_FRAME_WIDTH;
+            size_t n = (size_t)(NV_FRAME_HEIGHT - nv_top) * NV_FRAME_WIDTH;
+            memcpy((void*)drow, orow, n * 2);
+
+            NativeVideoWriter_DrawOverlays(dst);
+            __sync_synchronize();
+            nv_last_published = active_buf & 1;
+            __sync_synchronize();
+            uint32_t ofc = __sync_add_and_fetch(&frame_counter, 1);
+            volatile uint32_t* octrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
+            *octrl = (ofc << 2) | (active_buf & 1);
+            active_buf ^= 1;
+            return;
+        }
+    }
 
     if (bpp == 16) {
         /* OpenBOR's 16bpp surfaces are BGR565 (B in high bits). The FPGA
