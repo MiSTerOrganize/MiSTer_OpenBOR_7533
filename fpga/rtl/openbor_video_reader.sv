@@ -23,8 +23,7 @@
 //    0x3A000000 + 0x030     : Audio ring write pointer (ARM writes)
 //    0x3A000000 + 0x038     : Audio ring read pointer  (FPGA writes)
 //    0x3A000000 + 0x040     : Buffer 0 (320x224 RGB565 = 143,360 bytes)
-//    0x3A028040             : Buffer 1 (320x224 RGB565)
-//    0x3A050040             : Buffer 2 (320x224 RGB565)
+//    0x3A040040             : Buffer 1 (320x224 RGB565)
 //    0x3A080000             : Cart data buffer (past video buffers)
 //    0x3A0D0000             : Audio ring buffer (64 KiB, 16,384 stereo S16 frames)
 //
@@ -107,15 +106,29 @@ assign ddr_be  = 8'hFF;
 //   0x3A000018        29'h07400003       Joystick P2 data
 //   0x3A000020        29'h07400004       Joystick P3 data
 //   0x3A000028        29'h07400005       Joystick P4 data
+//   0x3A000030        29'h07400006       Audio ring write pointer
+//   0x3A000038        29'h07400007       Audio ring read pointer
 //   0x3A000040        29'h07400008       Buffer 0 base
-//   0x3A028040        29'h07405008       Buffer 1 base
-//   0x3A050040        29'h0740A008       Buffer 2 base
+//   0x3A040040        29'h07408008       Buffer 1 base
 //   0x3A080000        29'h07410000       Cart data buffer (past video buffers)
+//   0x3A0D0000        29'h0741A000       Audio ring (64 KiB)
 //
-// Each buffer holds 240 lines × 320 pixels × 2 bytes = 143,360 bytes
-// = 19,200 qwords. The next buffer starts 256KB later (0x40000 bytes
+// TWO buffers. A third was implemented and reverted on 2026-08-06 (it only
+// raises the safe write ceiling to (N-1) x 59.9 fps, which the fast PAKs
+// still exceed) -- the overlay flicker is fixed ARM-side instead, by making
+// the notice static. If a BUF2 ever comes back it must move here, in
+// native_video_writer.c and in patch_sdl_dummy.py together, or the FPGA
+// reads a region nobody is writing and shows garbage.
+//
+// Each buffer holds 224 lines × 320 pixels × 2 bytes = 143,360 bytes
+// = 17,920 qwords. The next buffer starts 256KB later (0x40000 bytes
 // = 0x8000 qwords) leaving plenty of headroom. Cart data lives well
 // past the end of BUF1 to allow hot-swap during gameplay without overlap.
+//
+// (224 not 240: the active area is Sega CD V28 NTSC. The old "240 lines"
+// here contradicted its own byte count -- 240*320*2 is 153,600, and the
+// 143,360 it printed is the 224-line figure. Likewise 19,200 qwords was
+// derived from the wrong line count; 143,360/8 is 17,920.)
 localparam [28:0] CTRL_ADDR      = 29'h07400000;  // 0x3A000000 >> 3
 localparam [28:0] JOY0_ADDR      = 29'h07400001;  // 0x3A000008 >> 3
 localparam [28:0] CART_CTRL_ADDR = 29'h07400002;  // 0x3A000010 >> 3
