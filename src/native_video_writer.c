@@ -1110,29 +1110,6 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
 
     __sync_synchronize();
 
-    /* TEMPORARY DIAG -- REVERT AFTER MEASURED. Publish-rate cap experiment.
-     *
-     * HYPOTHESIS under test: the notice flicker is not about WHO draws it (four
-     * fixes on that premise all failed) but that this core publishes ~166 fps
-     * into TWO buffers scanned at 59.92 Hz. The control word then flips ~2.8x
-     * per displayed frame, so with only two buffers the writer laps the reader
-     * and the FPGA scans a buffer WriteFrame is concurrently rewriting --
-     * catching the notice region after the game pixels overwrite it and before
-     * it is redrawn. PICO-8 is rate-limited and does not flicker, which is the
-     * discriminator this tests.
-     *
-     * If capping the PUBLISH rate to the scan rate stops the flicker, the
-     * hypothesis holds and the cap becomes the real fix. If it does not, the
-     * hypothesis is dead and this is removed. Rendering is untouched -- only
-     * the publish is dropped, and publishing faster than the display scans was
-     * wasted work either way. */
-    {
-        static uint64_t nv_last_pub_ns = 0;
-        uint64_t now_ns = nv_now_ns();
-        if (nv_last_pub_ns && (now_ns - nv_last_pub_ns) < 16600000ull) return;
-        nv_last_pub_ns = now_ns;
-    }
-
     /* Flip control word.
      *
      * Hand the finished buffer to the keepalive BEFORE publishing it, so a tick
