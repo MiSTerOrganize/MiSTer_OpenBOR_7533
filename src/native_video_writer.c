@@ -2,36 +2,34 @@
 //  Native Video DDR3 Writer — OpenBOR MiSTer
 //
 //  Writes 320x224 RGB565 frames to DDR3 at 0x3A000000 for FPGA native
-//  video output. Triple-buffered with control word handshake.
+//  video output. Double-buffered with control word handshake.
 //
 //  DDR3 Memory Map (must match openbor_video_reader.sv):
-//    0x3A000000 + 0x000     : Control word (frame_counter[31:2] | active_buf[1:0])
-//    0x3A000000 + 0x008     : Joystick P1 (32 bits)
-//    0x3A000000 + 0x010     : Cart control (file_size from FPGA)
-//    0x3A000000 + 0x018     : Joystick P2 (32 bits)
-//    0x3A000000 + 0x020     : Joystick P3 (32 bits)
-//    0x3A000000 + 0x028     : Joystick P4 (32 bits)
-//    0x3A000000 + 0x040     : Buffer 0 (320*224*2 = 143,360 bytes)
-//    0x3A000000 + 0x00040   : Buffer 0
-//    0x3A000000 + 0x28040   : Buffer 1
-//    0x3A000000 + 0x50040   : Buffer 2
-//
-//    THREE buffers, not two. With two, a core rendering faster than the panel
-//    scans (ATOV ~166 fps, JL Legacy ~200, against 59.92 Hz) laps the reader and
-//    must write into the buffer the FPGA has latched -- so the FPGA can scan the
-//    window between the game-pixel write and DrawOverlays, and the overlay is
-//    simply absent for that frame. That is the notice/fps "flicker": confirmed
-//    2026-08-05 when the FPS read-out was seen vanishing at the same rate.
-//    A third buffer means the writer always has one nobody is scanning, at ANY
-//    frame rate. See #TRIPLE_BUFFER_SCOPE.md.
-//
-//    The stride is 0x28000, NOT the old 0x40000: three buffers at the old
-//    spacing would run into the cart-data buffer at 0x3A080000. A frame is
-//    0x23000 bytes, so 0x28000 keeps ~20 KB of slack per buffer and BUF0 does
-//    not move. 🛑 These offsets are mirrored in patch_sdl_dummy.py and in the
-//    RTL's BUF*_ADDR localparams -- change all three together or the FPGA reads
-//    the wrong region and shows garbage.
+//    0x3A000000 + 0x00000   : Control word (frame_counter[31:2] | active_buf[1:0])
+//    0x3A000000 + 0x00008   : Joystick P1 (32 bits)
+//    0x3A000000 + 0x00010   : Cart control (file_size from FPGA)
+//    0x3A000000 + 0x00018   : Joystick P2 (32 bits)
+//    0x3A000000 + 0x00020   : Joystick P3 (32 bits)
+//    0x3A000000 + 0x00028   : Joystick P4 (32 bits)
+//    0x3A000000 + 0x00040   : Buffer 0 (320*224*2 = 143,360 bytes)
+//    0x3A000000 + 0x40040   : Buffer 1
 //    0x3A000000 + 0x80000   : Cart data (PAK file from OSD)
+//
+//    TWO buffers, stride 0x40000. 🛑 These offsets are mirrored in
+//    patch_sdl_dummy.py and in the RTL's BUF*_ADDR localparams -- change all
+//    three together or the FPGA reads the wrong region and shows garbage.
+//
+//    A THIRD buffer was implemented and reverted on 2026-08-06. It was aimed at
+//    the overlay flicker -- a core rendering faster than the panel scans (ATOV
+//    ~166 fps, JL Legacy ~200, against 59.92 Hz) laps the reader and must write
+//    into the buffer the FPGA has latched, so the FPGA can scan the window
+//    between the game-pixel write and DrawOverlays and the overlay is simply
+//    absent for that frame. It does not fix that: buf_base_addr is latched once
+//    per vblank in the RTL and held for the whole scan, so N buffers are safe
+//    only below (N-1) x 59.9 fps -- 119.8 at N=3, which BOTH of those PAKs
+//    exceed. The flicker is fixed instead by making the notice STATIC (below):
+//    written once per buffer and then never rewritten, so nothing can catch it
+//    half-written at any frame rate or buffer count. See #TRIPLE_BUFFER_SCOPE.md.
 //
 //  Copyright (C) 2026 MiSTer Organize — GPL-3.0
 //
@@ -146,6 +144,13 @@ bool NativeVideoWriter_Init(void) {
     frame_counter = 0;
     active_buf = 0;
     nv_last_published = 0;
+
+    /* Both buffers were just zeroed, so any painted notice band went with them.
+     * Cancel the notice rather than leave the painted mask claiming it is still
+     * there -- otherwise a notice set before a re-Init would be skipped by the
+     * game copy and never repainted, leaving a black band with no text in it.
+     * (NULL is the cancel path; the state itself is declared further down.) */
+    NativeVideoWriter_Notice(NULL, 0);
 
     fprintf(stderr, "NativeVideoWriter: mapped 0x%08X, %dx%d @ %d bytes/frame\n",
             NV_DDR_PHYS_BASE, NV_FRAME_WIDTH, NV_FRAME_HEIGHT, NV_FRAME_BYTES);
@@ -332,8 +337,80 @@ static void nv_blit_rows1x(volatile uint16_t* dst, int gx, int gy,
 static char     nv_notice_text[NV_COLS * NV_NOTICE_MAX + 1];
 static uint64_t nv_notice_until_ns = 0;
 
+/* THE NOTICE IS STATIC: written into each buffer ONCE and then left alone.
+ *
+ * nv_notice_rows is the full-width band at the top of the frame that the notice
+ * occupies. While a notice is live EVERY publisher starts its per-frame game
+ * copy at that row instead of 0 (NativeVideoWriter_NoticeRows), so nothing
+ * rewrites those pixels, and nv_notice_painted records which buffers have
+ * already received them.
+ *
+ * This is the letterbox rule applied to the notice, and it is the actual fix
+ * for the flicker. The border on a sub-native PAK never flickers because
+ * mister_present clears the buffers once and the per-frame copy never touches
+ * those pixels again. The notice had the opposite property: the game copy
+ * overwrote its region every frame and we repainted it afterwards, so any scan
+ * landing between those two writes showed game pixels and no notice. THAT
+ * repaint was the race -- it was never about how many buffers there are. A
+ * third buffer was implemented and reverted the same day precisely because it
+ * only narrows the window (safe below (N-1) x 59.9 fps; ATOV runs ~166).
+ *
+ * Painting once per buffer still has a two-frame exposure at the moment a
+ * notice appears -- those two writes can be scanned like any other. That is
+ * ~10-33 ms once, against a repaint on every frame for the notice's whole
+ * lifetime, and it is the same exposure the game image already has.
+ *
+ * The band is full width, not just the text panel: the skipped rows keep
+ * whatever was in them when the notice went up, so anything not painted would
+ * be a frozen strip of stale game image beside the text. */
+static int          nv_notice_rows    = 0;
+static volatile unsigned nv_notice_painted = 0;   /* bit per buffer index */
+
+/* Advance *p past leading spaces and return how many characters fit on one
+ * line, breaking at the last space rather than mid-word. 0 at end of text.
+ *
+ * ONE implementation, used by both the measure pass in Notice() and the draw
+ * pass in nv_paint_notice_band(). They were separate copies of the same loop;
+ * if they ever drifted the band would be sized for different text than it
+ * holds, and the skipped rows are exactly the band height. */
+static int nv_wrap_take(const char** p) {
+    const char* q = *p;
+    int take = 0, brk = 0;
+    while (*q == ' ') q++;
+    *p = q;
+    if (!*q) return 0;
+    while (q[take] && take < NV_COLS) {
+        if (q[take] == ' ') brk = take;
+        take++;
+    }
+    if (q[take] && brk > 0) take = brk;
+    return take;
+}
+
+/* 0 when no notice is live. Publishers start their destination row loop here. */
+static int nv_notice_rows_now(void) {
+    if (!nv_notice_until_ns) return 0;
+    if (nv_now_ns() >= nv_notice_until_ns) return 0;
+    return nv_notice_rows;
+}
+
+int NativeVideoWriter_NoticeRows(void) { return nv_notice_rows_now(); }
+
+/* Forget which buffers hold the band, so the live notice is painted into them
+ * again. Call after ANYTHING wipes a frame buffer.
+ *
+ * The band is written once and then protected by the row skip, so a wipe that
+ * does not tell us leaves the mask claiming a buffer still has text that has
+ * just been zeroed -- and the skip then keeps the game from ever covering it.
+ * The result is a black bar with nothing in it until the notice expires.
+ *
+ * Both wipe sites honour the invariant, by different means: mister_present's
+ * one-shot letterbox clear calls this, while Init() cancels the notice outright
+ * (a re-init is a fresh start, so there is no message worth preserving). */
+void NativeVideoWriter_NoticeRepaint(void) { nv_notice_painted = 0; }
+
 void NativeVideoWriter_Notice(const char* msg, int seconds) {
-    if (!msg) { nv_notice_until_ns = 0; return; }
+    if (!msg) { nv_notice_until_ns = 0; nv_notice_painted = 0; return; }
     size_t i = 0;
     while (msg[i] && i < sizeof(nv_notice_text) - 1) {
         char c = msg[i];
@@ -357,7 +434,34 @@ void NativeVideoWriter_Notice(const char* msg, int seconds) {
      * between two replays of the same take. That is recoverable the right way --
      * golden captures are taken at STABLE scenes (Phase 0), which are not notice
      * moments. Do NOT capture a golden inside a notice window. */
+
+    /* Measure the wrap ONCE, here, rather than on every frame in the draw: the
+     * band height is what the publishers skip, so it has to be a stored fact
+     * about this message, not something recomputed per frame per publisher.
+     * lines*9 + 6 spans row 0 down to the bottom edge of the old text panel. */
+    {
+        const char* q = nv_notice_text;
+        int lines = 0, take;
+        while (lines < NV_NOTICE_MAX && (take = nv_wrap_take(&q)) > 0) {
+            q += take;
+            lines++;
+        }
+        if (lines == 0) { nv_notice_until_ns = 0; nv_notice_painted = 0; return; }
+        nv_notice_rows = lines * 9 + 6;
+        if (nv_notice_rows > NV_FRAME_HEIGHT) nv_notice_rows = NV_FRAME_HEIGHT;
+    }
+
     nv_notice_until_ns = nv_now_ns() + (uint64_t)seconds * 1000000000ull;
+
+    /* Clear the painted mask LAST, behind a barrier. Notice() is also called
+     * from the .s1 swap-detect thread (sdlport_patch.c) while the engine thread
+     * is inside DrawOverlays, and a cleared mask is what triggers the repaint --
+     * so it must go to 0 only after the text and height it describes are in
+     * place, or the repaint would draw the PREVIOUS message at the new height.
+     * The reverse interleave is harmless: a reader that still sees the mask set
+     * simply repaints one frame later. */
+    __sync_synchronize();
+    nv_notice_painted = 0;
 }
 
 /* Solid backing panel for the notice text.
@@ -383,53 +487,22 @@ static void nv_fill_rect(volatile uint16_t* dst, int x0, int y0, int w, int h,
     }
 }
 
-/* Word-wrapped, not cropped. A word longer than a line is hard-broken rather
- * than dropped, so a long PAK name still shows something useful. */
-static void nv_draw_notice(volatile uint16_t* dst) {
-    if (!nv_notice_until_ns || nv_now_ns() >= nv_notice_until_ns) return;
-
-    /* Two passes: measure every line first so one panel can span them all.
-     * Drawn as a single block rather than per-line so ragged right edges do not
-     * make their own flickery staircase as the wrap changes. */
-    int widest = 0, lines = 0;
-    {
-        const char* q = nv_notice_text;
-        while (*q && lines < NV_NOTICE_MAX) {
-            while (*q == ' ') q++;
-            if (!*q) break;
-            int take = 0, brk = 0;
-            while (q[take] && take < NV_COLS) {
-                if (q[take] == ' ') brk = take;
-                take++;
-            }
-            if (q[take] && brk > 0) take = brk;
-            if (take > widest) widest = take;
-            q += take;
-            lines++;
-        }
-    }
-    if (lines == 0) return;
-
-    nv_fill_rect(dst, NV_FPS_MARGIN - 3, NV_FPS_MARGIN - 3,
-                 widest * 6 + 6, lines * 9 + 5, 0x0000);
-
+/* Paint the band into ONE buffer. Word-wrapped, not cropped: a word longer than
+ * a line is hard-broken rather than dropped, so a long PAK name still shows
+ * something useful.
+ *
+ * Called once per buffer per notice, never per frame -- see nv_notice_rows. */
+static void nv_paint_notice_band(volatile uint16_t* dst, int rows) {
     const char* p = nv_notice_text;
-    int line = 0;
-    while (*p && line < NV_NOTICE_MAX) {
-        while (*p == ' ') p++;
-        if (!*p) break;
+    int line = 0, take;
 
-        int take = 0, brk = 0;
-        while (p[take] && take < NV_COLS) {
-            if (p[take] == ' ') brk = take;
-            take++;
-        }
-        if (p[take] && brk > 0) take = brk;
+    nv_fill_rect(dst, 0, 0, NV_FRAME_WIDTH, rows, 0x0000);
 
+    while (line < NV_NOTICE_MAX && (take = nv_wrap_take(&p)) > 0) {
         int y = NV_FPS_MARGIN + line * 9;
-        /* Shadow pass kept: the panel is black, so the white glyphs already
-         * have contrast, but the offset copy keeps them readable if a future
-         * caller ever draws a notice without the panel. */
+        /* Shadow pass kept: the band is black, so the white glyphs already have
+         * contrast, but the offset copy keeps them readable if a future caller
+         * ever draws a notice without the band behind it. */
         for (int pass = 0; pass < 2; pass++) {
             uint16_t c   = (pass == 0) ? 0x0000 : 0xFFFF;
             int      off = (pass == 0) ? 1 : 0;
@@ -440,6 +513,20 @@ static void nv_draw_notice(volatile uint16_t* dst) {
         p += take;
         line++;
     }
+}
+
+/* Which of the two frame buffers `dst` is, or -1 if it is neither.
+ *
+ * Derived from the POINTER rather than taken from the caller on purpose. The
+ * two publishers keep separate active_buf state, and every bug this file has
+ * had around buffer identity came from those two views disagreeing. The pointer
+ * is the buffer. */
+static int nv_buf_index(volatile uint16_t* dst) {
+    const volatile uint8_t* p = (const volatile uint8_t*)dst;
+    if (!ddr_base) return -1;
+    if (p == ddr_base + NV_BUF0_OFFSET) return 0;
+    if (p == ddr_base + NV_BUF1_OFFSET) return 1;
+    return -1;
 }
 
 static void nv_blit_glyph(volatile uint16_t* dst, int gx, int gy,
@@ -497,27 +584,54 @@ static void nv_draw_fps(volatile uint16_t* dst) {
  *
  * There are two: this file's WriteFrame (the direct-write path) and
  * mister_present in the SDL dummy driver (the fallback used for boot/menu/wait
- * surfaces). Both write the SAME three buffers at 0x3A000000, each with its own
+ * surfaces). Both write the SAME two buffers at 0x3A000000, each with its own
  * active_buf. Only WriteFrame ever drew the overlays, so whenever both were
  * live the published frames alternated between "has the notice" and "does not"
- * -- which is exactly the notice flicker reported 2026-08-04, and why adding a
- * solid backing panel did not help: the panel was on the frames that had the
- * notice, and absent from the ones that did not.
+ * -- one of the several things reported as the notice flicker on 2026-08-04,
+ * and why adding a solid backing panel did not help: the panel was on the
+ * frames that had the notice, and absent from the ones that did not.
  *
  * Anything that publishes a frame MUST call this, or it will punch a hole in
- * every overlay. The fps read-out has the same exposure; it just blinks less
- * noticeably because the digits move anyway.
+ * every overlay -- and it must ALSO honour NativeVideoWriter_NoticeRows(), or
+ * it copies game pixels over a notice this function will then not repaint.
  *
- * Called exactly once per published frame, so the notice countdown (which lives
- * in nv_draw_notice) still advances at the true frame rate no matter which
- * publisher produced the frame. */
+ * Call exactly once per published frame. */
 void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst) {
     if (!dst) return;
     nv_fps_tick();
+
+    /* The fps read-out is redrawn every frame and therefore STILL drops on the
+     * odd frame at high render rates, exactly as the notice used to. That is
+     * accepted, not overlooked: it is a number that changes twice a second, so
+     * a missing frame is invisible, and making it static is impossible by
+     * definition -- its whole job is to change. */
     if (mister_fps_overlay) nv_draw_fps(dst);
-    /* After the fps read-out so a notice is never painted over by it. Ungated:
-     * a notice only appears when there is something the player must know. */
-    nv_draw_notice(dst);
+
+    /* The notice, once per buffer. Bottom-right fps first so a notice is never
+     * painted over by it; they cannot overlap at the current sizes (the band is
+     * at most 33 rows, the fps digits start at row 206) but the order costs
+     * nothing and survives either one growing. */
+    {
+        int rows = nv_notice_rows_now();
+        if (rows > 0) {
+            int idx = nv_buf_index(dst);
+            if (idx < 0) {
+                /* Not one of our buffers. Should not happen -- both publishers
+                 * pass ddr_base + BUF0/BUF1 -- so repaint every frame rather
+                 * than skip: that is exactly the old behaviour, never worse. */
+                nv_paint_notice_band(dst, rows);
+            } else if (!(nv_notice_painted & (1u << idx))) {
+                nv_paint_notice_band(dst, rows);
+                nv_notice_painted |= (1u << idx);
+            }
+        }
+    }
+
+    /* Expiry needs nothing here. The band pixels simply stop being protected --
+     * NoticeRows() returns 0, the copy covers the whole frame again and the game
+     * paints over them. Whichever way the copy and this function straddle the
+     * expiry instant is benign: one frame keeps the band a moment longer, or
+     * loses it a moment early. Neither shows stale or half-written pixels. */
 }
 
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
@@ -554,11 +668,24 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
     uint32_t buf_offset = (active_buf == 0) ? NV_BUF0_OFFSET : NV_BUF1_OFFSET;
     volatile uint16_t* dst = (volatile uint16_t*)(ddr_base + buf_offset);
 
+    /* First destination row this frame. Non-zero while a notice is up: those
+     * rows already hold the notice, drawn once, and copying game pixels over
+     * them is precisely what made the notice flicker. See nv_notice_rows.
+     *
+     * Read ONCE per frame, not per path. The 32bpp case writes an intermediate
+     * in one loop and reads it back in another, so two paths evaluating the
+     * expiry independently could disagree inside a single frame and leave a band
+     * of last frame's averaged pixels on screen. */
+    const int nv_top = nv_notice_rows_now();
+
     if (bpp == 16) {
         /* OpenBOR's 16bpp surfaces are BGR565 (B in high bits). The FPGA
          * decoder expects RGB565. Swap R and B 5-bit fields per pixel. */
         const uint8_t* src = (const uint8_t*)pixels;
-        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+        /* nv_top: skip the notice band. This ONE loop covers every 16bpp scale
+         * path -- the NEON 1:1, the 3x, 2x and 3:2 boxes and the scalar box are
+         * all branches INSIDE it, each deriving its row pointer from this y. */
+        for (int y = nv_top; y < NV_FRAME_HEIGHT; y++) {
             int src_y = (y * sy256) / 256;
             if (src_y >= height) src_y = height - 1;
             const uint16_t* src_row = (const uint16_t*)(src + src_y * pitch);
@@ -858,7 +985,8 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * OpenBOR s_screen palette: 3 bytes per entry (R, G, B), 256 entries. */
         const uint8_t* src = (const uint8_t*)pixels;
         const uint8_t* pal = (const uint8_t*)palette;
-        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+        /* nv_top: skip the notice band (8bpp paletted path). */
+        for (int y = nv_top; y < NV_FRAME_HEIGHT; y++) {
             int src_y = (y * sy256) / 256;
             if (src_y >= height) src_y = height - 1;
             const uint8_t* row = src + src_y * pitch;
@@ -939,8 +1067,13 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
          * DDR3. static (render-thread only). ~215 KB. */
         static uint8_t s_avg[NV_FRAME_HEIGHT * NV_FRAME_WIDTH * 3];
 
-        /* PASS 1: box area-average -> 8-bit s_avg (no DDR3 write yet). */
-        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+        /* PASS 1: box area-average -> 8-bit s_avg (no DDR3 write yet).
+         *
+         * nv_top: skipped for the same rows as PASS 2. This pass writes the
+         * static s_avg intermediate rather than DDR3, so skipping is a pure
+         * saving here -- but the two passes MUST use the same start row, or
+         * PASS 2 would publish a band of the previous frame's averages. */
+        for (int y = nv_top; y < NV_FRAME_HEIGHT; y++) {
             int y0 = (int)(((long)y * height) / NV_FRAME_HEIGHT);
             int y1 = (int)(((long)(y + 1) * height) / NV_FRAME_HEIGHT);
             if (y1 <= y0) y1 = y0 + 1;
@@ -1079,8 +1212,11 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
 
         /* PASS 2: pack the box-averaged image straight to RGB565 — NO sharpen.
          * (2026-06-08: the cross-Laplacian unsharp was removed; it read jaggier
-         * than 4086 on ATOV. The box area-average in PASS 1 is the only filter.) */
-        for (int y = 0; y < NV_FRAME_HEIGHT; y++) {
+         * than 4086 on ATOV. The box area-average in PASS 1 is the only filter.)
+         *
+         * nv_top: skip the notice band. This is the 32bpp path's only DDR3
+         * write, and it must start on the same row as PASS 1. */
+        for (int y = nv_top; y < NV_FRAME_HEIGHT; y++) {
             const uint8_t* arow = s_avg + (size_t)y * NV_FRAME_WIDTH * 3;
             volatile uint16_t* dst_row = dst + y * NV_FRAME_WIDTH;
             for (int x = 0; x < NV_FRAME_WIDTH; x++) {

@@ -45,13 +45,13 @@ static int                 mister_logged    = 0;
 static pthread_t           mister_keepalive_tid;
 static volatile int        mister_keepalive_run = 0;
 
-/* Keepalive thread — pings the FPGA frame counter every ~150ms even
+/* Keepalive thread -- pings the FPGA frame counter every ~150ms even
  * when ARM isn't producing frames. The FPGA video reader has a
  * staleness timeout: if frame_cnt doesn't change for ~30 vblanks
  * (~500ms) it sets frame_ready_reg=0 and BLANKS the screen. During
  * heavy model loading on big PAKs (He-Man, Avengers, late-build
  * sets) individual model parses take >500ms while the engine
- * throttles update_loading calls — so the FPGA blanks then unblanks,
+ * throttles update_loading calls -- so the FPGA blanks then unblanks,
  * producing the visible black/content flicker on the loading screen.
  *
  * Bumping the counter without rewriting the buffer keeps the same
@@ -60,7 +60,7 @@ static volatile int        mister_keepalive_run = 0;
  *
  * IMPORTANT (2026-05-22 fix): keepalive must SHARE STATE with
  * NativeVideoWriter_WriteFrame. Previously this thread maintained its
- * own `mister_frame_cnt` and used `mister_active_buf` — but after the
+ * own `mister_frame_cnt` and used `mister_active_buf` -- but after the
  * SDL renderer bypass landed (commit f1773f7), gameplay frames go
  * through NativeVideoWriter_WriteFrame which has its OWN frame_counter
  * and active_buf state. Two separate counters fighting over the same
@@ -74,6 +74,14 @@ extern void NativeVideoWriter_NotePublished(int buf);
 /* Overlays (fps read-out + notice). This file is a SECOND publisher of the same
  * DDR3 buffers, so it must draw them too -- see the call site below. */
 extern void NativeVideoWriter_DrawOverlays(volatile uint16_t *dst);
+/* Rows the notice occupies at the top of the frame, 0 when none is up. The
+ * notice is drawn ONCE per buffer and then left alone, so this publisher must
+ * start its copy below it -- writing game pixels over those rows puts the
+ * notice back to being repainted every frame, which is the flicker. */
+extern int NativeVideoWriter_NoticeRows(void);
+/* Wiping a buffer destroys any band painted into it, and the row skip above
+ * means the game will never cover the hole. Tell the writer to repaint. */
+extern void NativeVideoWriter_NoticeRepaint(void);
 static void *mister_keepalive_fn(void *arg) {
     (void)arg;
     while (mister_keepalive_run) {
@@ -121,6 +129,7 @@ static void mister_present(SDL_Surface *screen) {
     const uint8_t *rows;
     static int cleared = 0;
     int x, y, src_x, src_y;
+    int notice_rows;
 
     if (!mister_ddr || !screen || !screen->pixels) return;
 
@@ -140,7 +149,7 @@ static void mister_present(SDL_Surface *screen) {
      * independently. PAK content authored at non-224 native heights
      * (320x240 ~7% Y compress, 480x272 X+Y compress, 960x480 huge
      * downscale) maps to fill the Sega CD V28 NTSC active area
-     * exactly. Aspect distortion is intentional — matches Sega CD
+     * exactly. Aspect distortion is intentional -- matches Sega CD
      * displayed area edge-to-edge, no letterbox. */
     sx256 = (w * 256) / MISTER_FRAME_W;
     sy256 = (h * 256) / MISTER_FRAME_H;
@@ -159,24 +168,34 @@ static void mister_present(SDL_Surface *screen) {
     dst  = (volatile uint16_t *)(mister_ddr + buf_off);
     rows = (const uint8_t *)screen->pixels;
 
+    /* First destination row: below the notice band while one is up. Read once
+     * per frame and used by all three bpp paths below.
+     *
+     * This is the same rule that makes the letterbox borders below stable: they
+     * are written ONCE and the per-frame copy never touches them again, which is
+     * why they never flicker at any frame rate. The notice now works the same
+     * way -- so the copy has to leave its rows alone. */
+    notice_rows = NativeVideoWriter_NoticeRows();
+
     /* Clear BOTH buffers once on first frame for letterboxing. */
     if (!cleared) {
         volatile uint16_t *buf0 = (volatile uint16_t *)(mister_ddr + MISTER_BUF0_OFFSET);
         volatile uint16_t *buf1 = (volatile uint16_t *)(mister_ddr + MISTER_BUF1_OFFSET);
         memset((void*)buf0, 0, MISTER_FRAME_W * MISTER_FRAME_H * 2);
         memset((void*)buf1, 0, MISTER_FRAME_W * MISTER_FRAME_H * 2);
+        NativeVideoWriter_NoticeRepaint();
         cleared = 1;
     }
 
     if (bpp == 32) {
-        /* Nearest-neighbor anisotropic — matches 4086's 32-bit path.
+        /* Nearest-neighbor anisotropic -- matches 4086's 32-bit path.
          * Bilinear was tried earlier but the per-pixel cost (4 reads +
          * 18 multiplies + channel blend) dropped 7533 to ~29 fps native
          * (vs 4086's ~120 fps native, same hardware). Reverted to NN
          * 2026-05-22 to recover the perf budget. Mild Y-axis aliasing
          * on 320x240 PAKs squished to 320x224 (~7% Y compress) is
-         * acceptable — matches 4086's visual handling exactly. */
-        for (y = 0; y < out_h; y++) {
+         * acceptable -- matches 4086's visual handling exactly. */
+        for (y = notice_rows; y < out_h; y++) {   /* skip the notice band */
             const uint32_t *row;
             volatile uint16_t *out_row;
             src_y = (y * sy256) / 256;
@@ -197,8 +216,8 @@ static void mister_present(SDL_Surface *screen) {
         }
     }
     else if (bpp == 16) {
-        /* Nearest-neighbor anisotropic — sx256/sy256 independently */
-        for (y = 0; y < out_h; y++) {
+        /* Nearest-neighbor anisotropic -- sx256/sy256 independently */
+        for (y = notice_rows; y < out_h; y++) {   /* skip the notice band */
             const uint16_t *row;
             volatile uint16_t *out_row;
             src_y = (y * sy256) / 256;
@@ -219,12 +238,12 @@ static void mister_present(SDL_Surface *screen) {
         }
     }
     else if (bpp == 8 && pal) {
-        /* 8bpp palette path — nearest-neighbor anisotropic. Bilinear
+        /* 8bpp palette path -- nearest-neighbor anisotropic. Bilinear
          * in palette space would mix adjacent palette indices that map
          * to wildly different RGBs; not worth the artifacts for a small
          * (320x240 -> 320x224, ~7%) Y scrunch on the most common PAK
          * native dimensions. */
-        for (y = 0; y < out_h; y++) {
+        for (y = notice_rows; y < out_h; y++) {   /* skip the notice band */
             const uint8_t *row;
             volatile uint16_t *out_row;
             src_y = (y * sy256) / 256;
@@ -267,7 +286,7 @@ static void mister_present(SDL_Surface *screen) {
 # In SDL2's dummy framebuffer driver, the window surface is owned by
 # SDL itself (SDL_GetWindowSurface returns it). The driver's
 # UpdateWindowFramebuffer hook is called after the user calls
-# SDL_UpdateWindowSurface — that's our cue to read the surface and
+# SDL_UpdateWindowSurface -- that's our cue to read the surface and
 # write to DDR3.
 UPDATE_NEW_BODY = (
     "int SDL_DUMMY_UpdateWindowFramebuffer(_THIS, SDL_Window * window, const SDL_Rect * rects, int numrects)\n"
@@ -288,7 +307,12 @@ def main():
         print("usage: patch_sdl_dummy.py <SDL_nullframebuffer.c>", file=sys.stderr)
         sys.exit(1)
     path = sys.argv[1]
-    with open(path) as f:
+    # Explicit utf-8 + LF. Without them this defaults to the platform locale,
+    # so a local dry-run on Windows writes cp1252 and CRLF while CI writes
+    # utf-8 and LF -- the emitted file then differs from the one that actually
+    # ships, which is the opposite of what a dry-run is for. (Belt and braces
+    # with the ASCII-only rule for patch content below.)
+    with open(path, encoding="utf-8") as f:
         src = f.read()
 
     # 1) Inject our helper code right after the existing #include block.
@@ -305,7 +329,7 @@ def main():
     src = src.replace(inject_anchor, inject_anchor + INJECT_INCLUDES, 1)
 
     # 2) DDR3 init now happens lazily in UpdateWindowFramebuffer body
-    #    (see UPDATE_NEW_BODY). Don't touch CreateWindowFramebuffer —
+    #    (see UPDATE_NEW_BODY). Don't touch CreateWindowFramebuffer --
     #    SDL 2.0.8 strict C90 mode rejects mid-function decl injection.
 
     # 3) Replace UpdateWindowFramebuffer body to push the surface to DDR3.
@@ -339,7 +363,7 @@ def main():
             break
     src = src[:start] + UPDATE_NEW_BODY + src[end:]
 
-    with open(path, 'w') as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(src)
     print(f"Patched {path}: DDR3 bridge installed in dummy framebuffer driver.")
 

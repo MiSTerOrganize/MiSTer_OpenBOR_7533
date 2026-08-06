@@ -39,6 +39,25 @@ void NativeVideoWriter_Shutdown(void);
 /// headline, the log is the detail.
 void NativeVideoWriter_Notice(const char* msg, int seconds);
 
+/* Height in rows of the notice band at the top of the frame, 0 when no notice
+ * is live.
+ *
+ * 🛑 EVERY publisher of a DDR3 frame must start its destination row loop at
+ * this value instead of 0. The notice is drawn ONCE into each buffer and then
+ * left alone; if a copy path writes over those rows the notice is back to being
+ * repainted every frame, and the frames scanned between the copy and the
+ * repaint show no notice. That is the flicker. It is a partial-coverage trap:
+ * miss one path and it looks fixed on the PAK you test and flickers on another,
+ * because which copy path runs depends on the PAK's native resolution. */
+int NativeVideoWriter_NoticeRows(void);
+
+/* Forget which buffers already hold the notice band, so a live notice is
+ * painted into them again. Call after anything wipes a frame buffer -- the band
+ * is written once and then protected by the row skip above, so a wipe we are
+ * not told about leaves a black bar with no text in it until the notice
+ * expires. */
+void NativeVideoWriter_NoticeRepaint(void);
+
 /* Draw the fps read-out + any pending notice into a frame about to be
  * published. EVERY publisher of a DDR3 frame must call this immediately before
  * its publish barrier, not just WriteFrame -- the SDL dummy driver's
