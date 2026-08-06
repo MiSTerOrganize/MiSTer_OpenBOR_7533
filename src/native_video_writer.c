@@ -63,8 +63,7 @@
 #define NV_JOY2_OFFSET      0x00000020u
 #define NV_JOY3_OFFSET      0x00000028u
 #define NV_BUF0_OFFSET      0x00000040u
-#define NV_BUF1_OFFSET      0x00028040u
-#define NV_BUF2_OFFSET      0x00050040u
+#define NV_BUF1_OFFSET      0x00040040u
 #define NV_CART_DATA_OFFSET  0x00080000u
 #define NV_CART_MAX_SIZE     0x00040000u  /* 256KB max PAK size via OSD */
 #define NV_FRAME_WIDTH      320
@@ -137,7 +136,6 @@ bool NativeVideoWriter_Init(void) {
      * doesn't surface, but matches the universal hybrid-core rule. */
     memset((void*)(ddr_base + NV_BUF0_OFFSET), 0, NV_FRAME_BYTES);
     memset((void*)(ddr_base + NV_BUF1_OFFSET), 0, NV_FRAME_BYTES);
-    memset((void*)(ddr_base + NV_BUF2_OFFSET), 0, NV_FRAME_BYTES);
     volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
     *ctrl = 0;
     volatile uint32_t* cart_ctrl = (volatile uint32_t*)(ddr_base + NV_CART_CTRL_OFFSET);
@@ -553,8 +551,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
         }
     }
 
-    uint32_t buf_offset = (active_buf == 0) ? NV_BUF0_OFFSET :
-                          (active_buf == 1) ? NV_BUF1_OFFSET : NV_BUF2_OFFSET;
+    uint32_t buf_offset = (active_buf == 0) ? NV_BUF0_OFFSET : NV_BUF1_OFFSET;
     volatile uint16_t* dst = (volatile uint16_t*)(ddr_base + buf_offset);
 
     if (bpp == 16) {
@@ -1129,19 +1126,17 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
      * landing anywhere around here republishes a fully-drawn buffer -- either
      * this one or the previous one. Both are complete; neither is the one we are
      * about to fill next. */
-    /* & 3, not & 1. With THREE buffers a 1-bit mask records BUF2 as 0, so the
-     * keepalive republishes BUF0 -- two frames stale, and the buffer WriteFrame
-     * fills next-but-one. That reintroduces the exact dropped-overlay defect the
-     * third buffer exists to remove, on one frame in three. */
-    nv_last_published = active_buf & 3;
+    /* & 1 is correct at TWO buffers. If a third is ever added this MUST widen to
+     * & 3 -- at N=3 a 1-bit mask records BUF2 as 0 and the keepalive then
+     * republishes BUF0, two frames stale. That bug was found and fixed during the
+     * 2026-08-06 three-buffer attempt, which was then reverted. */
+    nv_last_published = active_buf & 1;
     __sync_synchronize();
 
     uint32_t fc = __sync_add_and_fetch(&frame_counter, 1);
     volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
-    *ctrl = (fc << 2) | (active_buf & 3);
-    /* ROTATE 0->1->2->0, not a toggle. The control word already carried a
-     * 2-bit buffer index; only the RTL under-used it, so no protocol change. */
-    active_buf = (active_buf + 1) % 3;
+    *ctrl = (fc << 2) | (active_buf & 1);
+    active_buf ^= 1;
 }
 
 bool NativeVideoWriter_IsActive(void) {
@@ -1152,7 +1147,7 @@ bool NativeVideoWriter_IsActive(void) {
  * active-buffer state and writes the same ctrl word. It must hand its finished
  * buffer over too, or a keepalive tick right after one of its frames would
  * republish a buffer from the OTHER publisher and flip the image. */
-void NativeVideoWriter_NotePublished(int buf) { nv_last_published = buf & 3; }
+void NativeVideoWriter_NotePublished(int buf) { nv_last_published = buf & 1; }
 
 void NativeVideoWriter_KeepaliveTick(void) {
     /* Republish the last COMPLETED buffer so the FPGA's ~500 ms staleness
@@ -1172,7 +1167,7 @@ void NativeVideoWriter_KeepaliveTick(void) {
     if (!ddr_base) return;
     uint32_t fc = __sync_add_and_fetch(&frame_counter, 1);
     volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
-    *ctrl = (fc << 2) | (nv_last_published & 3);
+    *ctrl = (fc << 2) | (nv_last_published & 1);
 }
 
 uint32_t NativeVideoWriter_CheckCart(void) {
