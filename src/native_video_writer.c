@@ -621,10 +621,18 @@ void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst) {
     nv_fps_tick();
 
     /* The fps read-out is redrawn every frame and therefore STILL drops on the
-     * odd frame at high render rates, exactly as the notice used to. That is
-     * accepted, not overlooked: it is a number that changes twice a second, so
-     * a missing frame is invisible, and making it static is impossible by
-     * definition -- its whole job is to change. */
+     * odd frame at high render rates, exactly as the notice used to. Accepted,
+     * and a COSTED CHOICE rather than an impossibility.
+     *
+     * 🛑 It is NOT exempt because "it changes every frame". nv_fps_value is
+     * recomputed only twice a second, so the same digits are drawn for ~83
+     * consecutive frames at 166 fps -- it could be made static like the notice.
+     * It is not, because it is a bottom-RIGHT rectangle rather than a
+     * full-width band: skipping a rectangle needs per-row X guards in every
+     * copy path (the partial-coverage trap the band design avoids), and the
+     * cheap band form would put a permanent black bar over rows 206-223, 8% of
+     * the frame, the whole time the overlay is on. A dropped frame on a number
+     * identical for ~83 frames is a thinning, not lost information. */
     if (mister_fps_overlay) nv_draw_fps(dst);
 
     /* The notice, once per buffer. Bottom-right fps first so a notice is never
