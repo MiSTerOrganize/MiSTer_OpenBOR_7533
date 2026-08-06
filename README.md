@@ -264,7 +264,7 @@ Both builds share the same FPGA core, identical timing.
 - Pixel clock: 53.693 MHz CLK_VIDEO / 8 = 6.712 MHz (exact Sega CD NTSC, colorburst-derived)
 - Pixel format: RGB565 (16 bits per pixel)
 - Audio: 48 kHz stereo S16 PCM via DDR3 ring buffer → I2S/SPDIF/DAC
-- Double-buffered video via DDR3
+- Triple-buffered video via DDR3
 
 ## Build Notes
 

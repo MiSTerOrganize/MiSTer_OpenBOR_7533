@@ -22,7 +22,7 @@ bool NativeVideoWriter_Init(void);
 /// Release DDR3 mapping.
 void NativeVideoWriter_Shutdown(void);
 
-/// Write one frame to DDR3 double-buffer, converting to RGB565.
+/// Write one frame to DDR3 triple-buffer, converting to RGB565.
 /// @param pixels   Source pixel data from SDL_Surface->pixels
 /// @param width    Surface width (must be <= 320)
 /// @param height   Surface height (must be <= 224)
@@ -42,7 +42,7 @@ void NativeVideoWriter_Notice(const char* msg, int seconds);
 /* Draw the fps read-out + any pending notice into a frame about to be
  * published. EVERY publisher of a DDR3 frame must call this immediately before
  * its publish barrier, not just WriteFrame -- the SDL dummy driver's
- * mister_present writes the same two buffers, and when it skipped the overlays
+ * mister_present writes the same three buffers, and when it skipped the overlays
  * the published frames alternated between having a notice and not, which is the
  * flicker reported 2026-08-04. Call exactly once per published frame: the
  * notice countdown advances here. */

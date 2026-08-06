@@ -22,13 +22,13 @@
 //    0x3A000000 + 0x028     : Joystick P4
 //    0x3A000000 + 0x030     : Audio ring write pointer (ARM writes)
 //    0x3A000000 + 0x038     : Audio ring read pointer  (FPGA writes)
-//    0x3A000000 + 0x040     : Buffer 0 (320x240 RGB565 = 153,600 bytes; 256KB region)
+//    0x3A000000 + 0x040     : Buffer 0 (320x224 RGB565 = 143,360 bytes)
 //    0x3A028040             : Buffer 1 (320x224 RGB565)
 //    0x3A050040             : Buffer 2 (320x224 RGB565)
 //    0x3A080000             : Cart data buffer (past video buffers)
 //    0x3A0D0000             : Audio ring buffer (64 KiB, 16,384 stereo S16 frames)
 //
-//  Bandwidth: 153,600 bytes x 60fps = 9.2 MB/s (DDR3 can do >1000)
+//  Bandwidth: 143,360 bytes x 60fps = 9.2 MB/s (DDR3 can do >1000)
 //
 //  Adapted from MiSTer_PICO-8 by MiSTer Organize
 //  Copyright (C) 2026 MiSTer Organize -- GPL-3.0
@@ -96,7 +96,7 @@ assign ddr_be  = 8'hFF;
 // -- DDR3 Address Constants --------------------------------------------
 // 29-bit qword addresses = physical >> 3
 //
-// Buffer layout: 320*240*2 = 153,600 bytes per buffer.
+// Buffer layout: 320*224*2 = 143,360 bytes per buffer.
 // Round up to 256KB per buffer for clean addressing and headroom.
 // 256KB = 0x40000 bytes = 0x8000 qwords.
 //
@@ -112,7 +112,7 @@ assign ddr_be  = 8'hFF;
 //   0x3A050040        29'h0740A008       Buffer 2 base
 //   0x3A080000        29'h07410000       Cart data buffer (past video buffers)
 //
-// Each buffer holds 240 lines × 320 pixels × 2 bytes = 153,600 bytes
+// Each buffer holds 240 lines × 320 pixels × 2 bytes = 143,360 bytes
 // = 19,200 qwords. The next buffer starts 256KB later (0x40000 bytes
 // = 0x8000 qwords) leaving plenty of headroom. Cart data lives well
 // past the end of BUF1 to allow hot-swap during gameplay without overlap.
@@ -234,6 +234,10 @@ localparam [4:0] ST_WRITE_AUDIO_RD  = 5'd19;
 reg  [4:0]  state;
 reg  [31:0] ctrl_word;
 reg  [29:0] prev_frame_counter;
+// NOTE: write-only -- assigned below, never read, because buf_base_addr is
+// derived straight from ctrl_word[1:0]. Pre-dates the third buffer (it was a
+// 1-bit reg doing the same nothing) and Quartus optimises it away. Removing it
+// is a separate change from the buffer work.
 reg  [1:0]  active_buffer;   // THREE buffers -- ctrl_word already carries 2 bits
 reg  [28:0] buf_base_addr;
 reg  [8:0]  display_line;     // 0..239 (output display line, also = source line)
@@ -531,6 +535,9 @@ always @(posedge ddr_clk) begin
                     prev_frame_counter <= ctrl_word[31:2];
                     active_buffer      <= ctrl_word[1:0];
                     stale_vblank_count <= 5'd0;
+                    // 2'd3 is ILLEGAL -- ARM only ever emits 0..2. It aliases to BUF2
+                    // here, which is SAFE (a real in-range buffer, never a garbage
+                    // address). Revisit if a fourth buffer is ever added.
                     buf_base_addr      <= (ctrl_word[1:0] == 2'd0) ? BUF0_ADDR :
                                           (ctrl_word[1:0] == 2'd1) ? BUF1_ADDR : BUF2_ADDR;
                     display_line       <= 9'd0;

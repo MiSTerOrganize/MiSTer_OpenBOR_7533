@@ -261,7 +261,7 @@ static void mister_present(SDL_Surface *screen) {
 
     /* Hand this finished buffer to the keepalive before publishing, so a tick
      * cannot republish the other publisher stale buffer. */
-    NativeVideoWriter_NotePublished(mister_active_buf & 1);
+    NativeVideoWriter_NotePublished(mister_active_buf & 3);   /* & 3: three buffers */
     __sync_synchronize();
     mister_frame_cnt++;
     *mister_ctrl = (mister_frame_cnt << 2) | (mister_active_buf & 3);

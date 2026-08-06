@@ -26,7 +26,7 @@
  * It maps the core's OWN cart-staging region at 0x3A080000, which
  * openbor_video_reader.sv uses only while an ioctl cart download is in flight.
  * The audio ring starts at 0x3A0D0000, so 256 KB from 0x3A080000 stays clear of
- * it and of both framebuffers (0x3A000040 / 0x3A040040). REFUSES TO RUN if an
+ * it and of all three framebuffers (0x3A000040 / 0x3A028040 / 0x3A050040). REFUSES TO RUN if an
  * OpenBOR binary is live, so nothing can be using it. It does NOT touch
  * 0x30000000 -- that region's extent is still an unverified Tier-B open item.
  *

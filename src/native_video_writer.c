@@ -2,7 +2,7 @@
 //  Native Video DDR3 Writer — OpenBOR MiSTer
 //
 //  Writes 320x224 RGB565 frames to DDR3 at 0x3A000000 for FPGA native
-//  video output. Double-buffered with control word handshake.
+//  video output. Triple-buffered with control word handshake.
 //
 //  DDR3 Memory Map (must match openbor_video_reader.sv):
 //    0x3A000000 + 0x000     : Control word (frame_counter[31:2] | active_buf[1:0])
@@ -28,7 +28,7 @@
 //    The stride is 0x28000, NOT the old 0x40000: three buffers at the old
 //    spacing would run into the cart-data buffer at 0x3A080000. A frame is
 //    0x23000 bytes, so 0x28000 keeps ~20 KB of slack per buffer and BUF0 does
-//    not move. ðŸ›‘ These offsets are mirrored in patch_sdl_dummy.py and in the
+//    not move. 🛑 These offsets are mirrored in patch_sdl_dummy.py and in the
 //    RTL's BUF*_ADDR localparams -- change all three together or the FPGA reads
 //    the wrong region and shows garbage.
 //    0x3A000000 + 0x80000   : Cart data (PAK file from OSD)
@@ -130,7 +130,7 @@ bool NativeVideoWriter_Init(void) {
         return false;
     }
 
-    /* Clear both buffers, control words, AND all per-player joystick
+    /* Clear all three buffers, control words, AND all per-player joystick
      * offsets. Cart's frame-0 reads stale DDR3 from previous core if
      * Init doesn't zero everything the engine polls. OpenBOR currently
      * uses btn() (held state) more than btn_pressed() so the symptom
@@ -499,7 +499,7 @@ static void nv_draw_fps(volatile uint16_t* dst) {
  *
  * There are two: this file's WriteFrame (the direct-write path) and
  * mister_present in the SDL dummy driver (the fallback used for boot/menu/wait
- * surfaces). Both write the SAME two buffers at 0x3A000000, each with its own
+ * surfaces). Both write the SAME three buffers at 0x3A000000, each with its own
  * active_buf. Only WriteFrame ever drew the overlays, so whenever both were
  * live the published frames alternated between "has the notice" and "does not"
  * -- which is exactly the notice flicker reported 2026-08-04, and why adding a
@@ -1101,7 +1101,7 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
     /* Step 20 (2026-05-27) defensive barrier: ensure ALL pixel writes
      * (scalar, uint64_t-packed, OR NEON 128-bit) drain to DDR3 BEFORE
      * the FPGA sees the new ctrl word and starts reading the buffer we
-     * just finished writing. The double-buffer flip already protects
+     * just finished writing. The buffer rotation already protects
      * against most tearing (FPGA reads OPPOSITE buffer from the one we
      * write), but NEON stores can drain through the write-combine buffer
      * at a different rate than scalar stores -- if ctrl is updated before
@@ -1129,7 +1129,11 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
      * landing anywhere around here republishes a fully-drawn buffer -- either
      * this one or the previous one. Both are complete; neither is the one we are
      * about to fill next. */
-    nv_last_published = active_buf & 1;
+    /* & 3, not & 1. With THREE buffers a 1-bit mask records BUF2 as 0, so the
+     * keepalive republishes BUF0 -- two frames stale, and the buffer WriteFrame
+     * fills next-but-one. That reintroduces the exact dropped-overlay defect the
+     * third buffer exists to remove, on one frame in three. */
+    nv_last_published = active_buf & 3;
     __sync_synchronize();
 
     uint32_t fc = __sync_add_and_fetch(&frame_counter, 1);
@@ -1148,7 +1152,7 @@ bool NativeVideoWriter_IsActive(void) {
  * active-buffer state and writes the same ctrl word. It must hand its finished
  * buffer over too, or a keepalive tick right after one of its frames would
  * republish a buffer from the OTHER publisher and flip the image. */
-void NativeVideoWriter_NotePublished(int buf) { nv_last_published = buf & 1; }
+void NativeVideoWriter_NotePublished(int buf) { nv_last_published = buf & 3; }
 
 void NativeVideoWriter_KeepaliveTick(void) {
     /* Republish the last COMPLETED buffer so the FPGA's ~500 ms staleness
@@ -1168,7 +1172,7 @@ void NativeVideoWriter_KeepaliveTick(void) {
     if (!ddr_base) return;
     uint32_t fc = __sync_add_and_fetch(&frame_counter, 1);
     volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
-    *ctrl = (fc << 2) | (nv_last_published & 1);
+    *ctrl = (fc << 2) | (nv_last_published & 3);
 }
 
 uint32_t NativeVideoWriter_CheckCart(void) {
