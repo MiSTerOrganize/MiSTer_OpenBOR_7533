@@ -145,12 +145,13 @@ bool NativeVideoWriter_Init(void) {
     active_buf = 0;
     nv_last_published = 0;
 
-    /* Both buffers were just zeroed, so any painted notice band went with them.
-     * Cancel the notice rather than leave the painted mask claiming it is still
-     * there -- otherwise a notice set before a re-Init would be skipped by the
-     * game copy and never repainted, leaving a black band with no text in it.
-     * (NULL is the cancel path; the state itself is declared further down.) */
+    /* Both buffers were just zeroed, so any notice band painted into them went
+     * with it. Drop the message (a re-init is a fresh start) and record that
+     * neither buffer holds a band any more -- otherwise the row skip would
+     * protect a hole the game can never cover. NULL is the cancel path; the
+     * state itself is declared further down. */
     NativeVideoWriter_Notice(NULL, 0);
+    NativeVideoWriter_NoticeRepaint();
 
     fprintf(stderr, "NativeVideoWriter: mapped 0x%08X, %dx%d @ %d bytes/frame\n",
             NV_DDR_PHYS_BASE, NV_FRAME_WIDTH, NV_FRAME_HEIGHT, NV_FRAME_BYTES);
@@ -342,7 +343,7 @@ static uint64_t nv_notice_until_ns = 0;
  * nv_notice_rows is the full-width band at the top of the frame that the notice
  * occupies. While a notice is live EVERY publisher starts its per-frame game
  * copy at that row instead of 0 (NativeVideoWriter_NoticeRows), so nothing
- * rewrites those pixels, and nv_notice_painted records which buffers have
+ * rewrites those pixels, and nv_notice_painted_gen records which buffers have
  * already received them.
  *
  * This is the letterbox rule applied to the notice, and it is the actual fix
@@ -363,8 +364,27 @@ static uint64_t nv_notice_until_ns = 0;
  * The band is full width, not just the text panel: the skipped rows keep
  * whatever was in them when the notice went up, so anything not painted would
  * be a frozen strip of stale game image beside the text. */
-static int          nv_notice_rows    = 0;
-static volatile unsigned nv_notice_painted = 0;   /* bit per buffer index */
+static int nv_notice_rows = 0;
+
+/* Which notice each buffer currently holds, as a generation number rather than
+ * a "painted" flag.
+ *
+ * Notice() is called from the .s1 swap-detect thread (sdlport_patch.c) while
+ * the engine thread is inside DrawOverlays, and a flag loses that race in the
+ * worst possible direction: the engine reads the flags, Notice() clears them
+ * for a NEW message, the engine then stores its stale read back -- and the new
+ * notice is marked already-painted, so the OLD text sits on screen for the new
+ * notice's full duration. Making the flag atomic does not help; the race is
+ * logical, not a torn word.
+ *
+ * With a generation, a stale store records an OLD generation, which cannot
+ * match the current one, so the next frame repaints. Every interleaving
+ * self-heals within a frame, and the worst case is one frame of a band drawn
+ * from a message that has just been replaced.
+ *
+ * Generation 0 means "holds no notice", so Notice() skips it on wrap. */
+static volatile unsigned nv_notice_gen = 0;
+static unsigned nv_notice_painted_gen[2] = { 0, 0 };
 
 /* Advance *p past leading spaces and return how many characters fit on one
  * line, breaking at the last space rather than mid-word. 0 at end of text.
@@ -407,10 +427,13 @@ int NativeVideoWriter_NoticeRows(void) { return nv_notice_rows_now(); }
  * Both wipe sites honour the invariant, by different means: mister_present's
  * one-shot letterbox clear calls this, while Init() cancels the notice outright
  * (a re-init is a fresh start, so there is no message worth preserving). */
-void NativeVideoWriter_NoticeRepaint(void) { nv_notice_painted = 0; }
+void NativeVideoWriter_NoticeRepaint(void) {
+    nv_notice_painted_gen[0] = 0;
+    nv_notice_painted_gen[1] = 0;
+}
 
 void NativeVideoWriter_Notice(const char* msg, int seconds) {
-    if (!msg) { nv_notice_until_ns = 0; nv_notice_painted = 0; return; }
+    if (!msg) { nv_notice_until_ns = 0; return; }
     size_t i = 0;
     while (msg[i] && i < sizeof(nv_notice_text) - 1) {
         char c = msg[i];
@@ -446,22 +469,19 @@ void NativeVideoWriter_Notice(const char* msg, int seconds) {
             q += take;
             lines++;
         }
-        if (lines == 0) { nv_notice_until_ns = 0; nv_notice_painted = 0; return; }
+        if (lines == 0) { nv_notice_until_ns = 0; return; }
         nv_notice_rows = lines * 9 + 6;
         if (nv_notice_rows > NV_FRAME_HEIGHT) nv_notice_rows = NV_FRAME_HEIGHT;
     }
 
     nv_notice_until_ns = nv_now_ns() + (uint64_t)seconds * 1000000000ull;
 
-    /* Clear the painted mask LAST, behind a barrier. Notice() is also called
-     * from the .s1 swap-detect thread (sdlport_patch.c) while the engine thread
-     * is inside DrawOverlays, and a cleared mask is what triggers the repaint --
-     * so it must go to 0 only after the text and height it describes are in
-     * place, or the repaint would draw the PREVIOUS message at the new height.
-     * The reverse interleave is harmless: a reader that still sees the mask set
-     * simply repaints one frame later. */
+    /* Bump the generation LAST, behind a barrier: it is what triggers the
+     * repaint, so it must change only once the text and height it refers to are
+     * in place, or a repaint racing it would draw the PREVIOUS message at the
+     * new height. Skip 0 on wrap -- 0 means "this buffer holds no notice". */
     __sync_synchronize();
-    nv_notice_painted = 0;
+    if (++nv_notice_gen == 0) nv_notice_gen = 1;
 }
 
 /* Solid backing panel for the notice text.
@@ -614,15 +634,21 @@ void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst) {
     {
         int rows = nv_notice_rows_now();
         if (rows > 0) {
-            int idx = nv_buf_index(dst);
+            unsigned gen = nv_notice_gen;
+            int      idx = nv_buf_index(dst);
             if (idx < 0) {
                 /* Not one of our buffers. Should not happen -- both publishers
                  * pass ddr_base + BUF0/BUF1 -- so repaint every frame rather
                  * than skip: that is exactly the old behaviour, never worse. */
                 nv_paint_notice_band(dst, rows);
-            } else if (!(nv_notice_painted & (1u << idx))) {
+            } else if (nv_notice_painted_gen[idx] != gen) {
                 nv_paint_notice_band(dst, rows);
-                nv_notice_painted |= (1u << idx);
+                /* Record the generation READ ABOVE, not the current one. If
+                 * Notice() bumped it while we were painting, this stores a
+                 * stale value, which cannot match next frame -- so the buffer
+                 * is repainted with the new message instead of being left
+                 * holding the old one. */
+                nv_notice_painted_gen[idx] = gen;
             }
         }
     }
