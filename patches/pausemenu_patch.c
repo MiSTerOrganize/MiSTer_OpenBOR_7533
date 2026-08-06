@@ -80,14 +80,19 @@ extern int mrec_slot;  /* 1..MREC_SLOTS bounded take slot, chosen on the idle
  * The menu renders into its own display-sized surface and is handed to the
  * writer, which publishes it instead of downscaling. See native_video_writer.h.
  *
- * 🛑 Its three functions are declared in apply_patches.py's openbor.c prelude,
- * NOT here, and neither are the externs above this comment doing any work:
- * replace_function splices this file from `void pausemenu()` ONWARD, so
- * everything above that signature -- including every extern in this block -- is
- * silently discarded. Declared here, the A9 call sites emitted correctly and
- * their declarations vanished; the dry-run still exited 0 and the integrity gate
- * still read 22/22, because neither inspects the emitted C. Add declarations to
- * the prelude, and grep the EMITTED openbor.c to prove they arrived. */
+ * 🛑 Nothing above the function signature below survives: replace_function
+ * splices this file from that signature ONWARD, so every extern in this block
+ * is silently discarded. A9's three functions are declared at FUNCTION SCOPE
+ * inside the body instead. The dry-run still exits 0 and the integrity gate
+ * still reads 22/22 when a declaration goes missing, because neither inspects
+ * the emitted C -- so grep the EMITTED openbor.c to prove it arrived.
+ *
+ * 🛑 And do NOT write the function's signature in a comment here. The splice
+ * searches for that exact text, so a copy inside a comment becomes a FALSE
+ * MARKER and the splice starts mid-sentence: the rest of the comment lands in
+ * the output as bare code. That is not hypothetical -- this very comment used
+ * to quote the signature while explaining the trap, and it broke the build
+ * with "stray '`' in program". */
 
 extern int mister_fps_overlay;  /* Options -> FPS Display. Drawn by
                                  * native_video_writer.c POST-downscale, into the

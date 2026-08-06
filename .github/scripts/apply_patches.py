@@ -15,6 +15,7 @@ Applies:
 
 import sys
 import os
+import re
 
 def read(path):
     # Explicit UTF-8 — Linux CI defaults to UTF-8 but Windows defaults to
@@ -87,11 +88,30 @@ def extract_function(source, func_sig):
 def replace_function(source, func_sig, replacement_file, patches_dir):
     """Replace a function in source with the function from a patch file."""
     patch = read(os.path.join(patches_dir, replacement_file))
-    # Find the function in the patch file
-    func_start = patch.find(func_sig)
-    if func_start < 0:
-        print(f"  ERROR: Could not find '{func_sig}' in {replacement_file}")
+    # Find the function in the patch file.
+    #
+    # 🛑 Anchored to the START OF A LINE. A bare .find() matches the signature
+    # anywhere -- including inside a COMMENT -- and the splice then begins
+    # mid-sentence, dumping the rest of that comment into the output as bare
+    # code. That is a real build break, not a theoretical one: a comment in
+    # pausemenu_patch.c explaining this very trap quoted the signature, and the
+    # build died on "stray '`' in program" with ~40 cascading parse errors.
+    #
+    # It survives every check we had: the patch "applies", the dry-run exits 0,
+    # the integrity gate passes, and a grep for the new symbols FINDS them --
+    # because the function body is still there, just preceded by prose.
+    m = re.search(r"^" + re.escape(func_sig), patch, re.M)
+    if not m:
+        print(f"  ERROR: Could not find '{func_sig}' at the start of a line in "
+              f"{replacement_file}")
         return source
+    func_start = m.start()
+    # A second line-anchored hit means two definitions -- ambiguous, not ours to
+    # guess between.
+    if len(re.findall(r"^" + re.escape(func_sig), patch, re.M)) > 1:
+        raise RuntimeError(
+            f"{replacement_file}: '{func_sig}' starts more than one line; "
+            f"the splice point is ambiguous")
     replacement = patch[func_start:]
     # Find and replace in source
     _, start, end = extract_function(source, func_sig)
