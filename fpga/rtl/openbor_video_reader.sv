@@ -23,7 +23,8 @@
 //    0x3A000000 + 0x030     : Audio ring write pointer (ARM writes)
 //    0x3A000000 + 0x038     : Audio ring read pointer  (FPGA writes)
 //    0x3A000000 + 0x040     : Buffer 0 (320x240 RGB565 = 153,600 bytes; 256KB region)
-//    0x3A040040             : Buffer 1 (320x240 RGB565; 256KB region)
+//    0x3A028040             : Buffer 1 (320x224 RGB565)
+//    0x3A050040             : Buffer 2 (320x224 RGB565)
 //    0x3A080000             : Cart data buffer (past video buffers)
 //    0x3A0D0000             : Audio ring buffer (64 KiB, 16,384 stereo S16 frames)
 //
@@ -107,7 +108,8 @@ assign ddr_be  = 8'hFF;
 //   0x3A000020        29'h07400004       Joystick P3 data
 //   0x3A000028        29'h07400005       Joystick P4 data
 //   0x3A000040        29'h07400008       Buffer 0 base
-//   0x3A040040        29'h07408008       Buffer 1 base
+//   0x3A028040        29'h07405008       Buffer 1 base
+//   0x3A050040        29'h0740A008       Buffer 2 base
 //   0x3A080000        29'h07410000       Cart data buffer (past video buffers)
 //
 // Each buffer holds 240 lines × 320 pixels × 2 bytes = 153,600 bytes
@@ -123,7 +125,8 @@ localparam [28:0] JOY3_ADDR      = 29'h07400005;  // 0x3A000028 >> 3
 localparam [28:0] AUDIO_WR_ADDR   = 29'h07400006;  // 0x3A000030 >> 3
 localparam [28:0] AUDIO_RD_ADDR   = 29'h07400007;  // 0x3A000038 >> 3
 localparam [28:0] BUF0_ADDR      = 29'h07400008;  // 0x3A000040 >> 3
-localparam [28:0] BUF1_ADDR      = 29'h07408008;  // 0x3A040040 >> 3
+localparam [28:0] BUF1_ADDR      = 29'h07405008;  // 0x3A028040 >> 3
+localparam [28:0] BUF2_ADDR      = 29'h0740A008;  // 0x3A050040 >> 3
 localparam [28:0] CART_DATA_ADDR = 29'h07410000;  // 0x3A080000 >> 3
 localparam [28:0] AUDIO_RING_ADDR = 29'h0741A000; // 0x3A0D0000 >> 3
 localparam [31:0] AUDIO_RING_BYTES = 32'h00010000; // 64 KiB
@@ -231,7 +234,7 @@ localparam [4:0] ST_WRITE_AUDIO_RD  = 5'd19;
 reg  [4:0]  state;
 reg  [31:0] ctrl_word;
 reg  [29:0] prev_frame_counter;
-reg         active_buffer;
+reg  [1:0]  active_buffer;   // THREE buffers -- ctrl_word already carries 2 bits
 reg  [28:0] buf_base_addr;
 reg  [8:0]  display_line;     // 0..239 (output display line, also = source line)
 reg  [6:0]  beat_count;
@@ -299,7 +302,7 @@ always @(posedge ddr_clk) begin
         ddr_addr           <= 29'd0;
         ctrl_word          <= 32'd0;
         prev_frame_counter <= 30'd0;
-        active_buffer      <= 1'b0;
+        active_buffer      <= 2'b00;
         buf_base_addr      <= 29'd0;
         display_line       <= 9'd0;
         beat_count         <= 7'd0;
@@ -526,9 +529,10 @@ always @(posedge ddr_clk) begin
                 else if (ctrl_word[31:2] != prev_frame_counter) begin
                     // New frame available
                     prev_frame_counter <= ctrl_word[31:2];
-                    active_buffer      <= ctrl_word[0];
+                    active_buffer      <= ctrl_word[1:0];
                     stale_vblank_count <= 5'd0;
-                    buf_base_addr      <= ctrl_word[0] ? BUF1_ADDR : BUF0_ADDR;
+                    buf_base_addr      <= (ctrl_word[1:0] == 2'd0) ? BUF0_ADDR :
+                                          (ctrl_word[1:0] == 2'd1) ? BUF1_ADDR : BUF2_ADDR;
                     display_line       <= 9'd0;
                     preloading         <= 1'b1;
                     fifo_aclr_cnt      <= 4'd8;

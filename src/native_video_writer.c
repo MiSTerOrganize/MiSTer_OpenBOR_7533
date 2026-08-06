@@ -12,7 +12,25 @@
 //    0x3A000000 + 0x020     : Joystick P3 (32 bits)
 //    0x3A000000 + 0x028     : Joystick P4 (32 bits)
 //    0x3A000000 + 0x040     : Buffer 0 (320*224*2 = 143,360 bytes)
-//    0x3A000000 + 0x40040   : Buffer 1 (153,600 bytes)
+//    0x3A000000 + 0x00040   : Buffer 0
+//    0x3A000000 + 0x28040   : Buffer 1
+//    0x3A000000 + 0x50040   : Buffer 2
+//
+//    THREE buffers, not two. With two, a core rendering faster than the panel
+//    scans (ATOV ~166 fps, JL Legacy ~200, against 59.92 Hz) laps the reader and
+//    must write into the buffer the FPGA has latched -- so the FPGA can scan the
+//    window between the game-pixel write and DrawOverlays, and the overlay is
+//    simply absent for that frame. That is the notice/fps "flicker": confirmed
+//    2026-08-05 when the FPS read-out was seen vanishing at the same rate.
+//    A third buffer means the writer always has one nobody is scanning, at ANY
+//    frame rate. See #TRIPLE_BUFFER_SCOPE.md.
+//
+//    The stride is 0x28000, NOT the old 0x40000: three buffers at the old
+//    spacing would run into the cart-data buffer at 0x3A080000. A frame is
+//    0x23000 bytes, so 0x28000 keeps ~20 KB of slack per buffer and BUF0 does
+//    not move. ðŸ›‘ These offsets are mirrored in patch_sdl_dummy.py and in the
+//    RTL's BUF*_ADDR localparams -- change all three together or the FPGA reads
+//    the wrong region and shows garbage.
 //    0x3A000000 + 0x80000   : Cart data (PAK file from OSD)
 //
 //  Copyright (C) 2026 MiSTer Organize — GPL-3.0
@@ -45,7 +63,8 @@
 #define NV_JOY2_OFFSET      0x00000020u
 #define NV_JOY3_OFFSET      0x00000028u
 #define NV_BUF0_OFFSET      0x00000040u
-#define NV_BUF1_OFFSET      0x00040040u
+#define NV_BUF1_OFFSET      0x00028040u
+#define NV_BUF2_OFFSET      0x00050040u
 #define NV_CART_DATA_OFFSET  0x00080000u
 #define NV_CART_MAX_SIZE     0x00040000u  /* 256KB max PAK size via OSD */
 #define NV_FRAME_WIDTH      320
@@ -118,6 +137,7 @@ bool NativeVideoWriter_Init(void) {
      * doesn't surface, but matches the universal hybrid-core rule. */
     memset((void*)(ddr_base + NV_BUF0_OFFSET), 0, NV_FRAME_BYTES);
     memset((void*)(ddr_base + NV_BUF1_OFFSET), 0, NV_FRAME_BYTES);
+    memset((void*)(ddr_base + NV_BUF2_OFFSET), 0, NV_FRAME_BYTES);
     volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
     *ctrl = 0;
     volatile uint32_t* cart_ctrl = (volatile uint32_t*)(ddr_base + NV_CART_CTRL_OFFSET);
@@ -533,7 +553,8 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
         }
     }
 
-    uint32_t buf_offset = (active_buf == 0) ? NV_BUF0_OFFSET : NV_BUF1_OFFSET;
+    uint32_t buf_offset = (active_buf == 0) ? NV_BUF0_OFFSET :
+                          (active_buf == 1) ? NV_BUF1_OFFSET : NV_BUF2_OFFSET;
     volatile uint16_t* dst = (volatile uint16_t*)(ddr_base + buf_offset);
 
     if (bpp == 16) {
@@ -1092,21 +1113,13 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
      * land in the frame the FPGA is about to scan out. */
     NativeVideoWriter_DrawOverlays(dst);
 
-    /* TEMPORARY DIAG -- REVERT AFTER MEASURED. Publisher tag.
-     *
-     * Measured 2026-08-05: with a notice up, buf0 carried it on 15/15 sampled
-     * frames and buf1 on only 12/15. Something publishes buf1 WITHOUT the
-     * overlays about one time in five, which is the strobe -- and it is not one
-     * of the two publishers I know about, because both now call DrawOverlays.
-     *
-     * The tag rides IN the frame, so it cannot race the way a side-channel word
-     * would: whoever wrote these pixels wrote this tag. A frame carrying
-     * NEITHER tag identifies a third writer by exclusion, which is the case I
-     * cannot find by reading code.
-     *
-     * Pixel (0,0) only -- the notice panel starts at x=1,y=1, so this cannot
-     * disturb what is being measured. */
-    dst[0] = 0xF81F; dst[1] = 0x07E0;   /* magenta,green = WriteFrame */
+    /* The per-frame publisher tag that lived here is REMOVED. It answered its
+     * question: frames carrying neither tag turned out to be a CAPTURE artifact
+     * (fbdump reads ~400 KB while the buffer is rewritten), not a third writer.
+     * The real defect is that overlays are dropped whenever the FPGA scans a
+     * buffer between the game-pixel write and DrawOverlays -- see
+     * #TRIPLE_BUFFER_SCOPE.md. Do not reinstate it to chase that; it corrupts
+     * the very pixels the fix is about. */
 
     __sync_synchronize();
 
@@ -1121,8 +1134,10 @@ void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
 
     uint32_t fc = __sync_add_and_fetch(&frame_counter, 1);
     volatile uint32_t* ctrl = (volatile uint32_t*)(ddr_base + NV_CTRL_OFFSET);
-    *ctrl = (fc << 2) | (active_buf & 1);
-    active_buf ^= 1;
+    *ctrl = (fc << 2) | (active_buf & 3);
+    /* ROTATE 0->1->2->0, not a toggle. The control word already carried a
+     * 2-bit buffer index; only the RTL under-used it, so no protocol change. */
+    active_buf = (active_buf + 1) % 3;
 }
 
 bool NativeVideoWriter_IsActive(void) {

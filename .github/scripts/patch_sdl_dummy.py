@@ -31,7 +31,10 @@ INJECT_INCLUDES = """
 #define MISTER_DDR_REGION_SIZE 0x00100000u
 #define MISTER_CTRL_OFFSET     0x00000000u
 #define MISTER_BUF0_OFFSET     0x00000040u
-#define MISTER_BUF1_OFFSET     0x00040040u
+#define MISTER_BUF1_OFFSET     0x00028040u
+#define MISTER_BUF2_OFFSET     0x00050040u   /* 3 buffers -- MUST match
+                                              * native_video_writer.c and the
+                                              * RTL BUF*_ADDR localparams */
 #define MISTER_FRAME_W         320
 #define MISTER_FRAME_H         224  /* Sega CD V28 NTSC */
 #define MISTER_FRAME_BYTES     (MISTER_FRAME_W * MISTER_FRAME_H * 2)
@@ -155,16 +158,19 @@ static void mister_present(SDL_Surface *screen) {
         mister_logged = 1;
     }
 
-    buf_off = mister_active_buf ? MISTER_BUF1_OFFSET : MISTER_BUF0_OFFSET;
+    buf_off = (mister_active_buf == 0) ? MISTER_BUF0_OFFSET :
+              (mister_active_buf == 1) ? MISTER_BUF1_OFFSET : MISTER_BUF2_OFFSET;
     dst  = (volatile uint16_t *)(mister_ddr + buf_off);
     rows = (const uint8_t *)screen->pixels;
 
-    /* Clear BOTH buffers once on first frame for letterboxing. */
+    /* Clear ALL THREE buffers once on first frame for letterboxing. */
     if (!cleared) {
         volatile uint16_t *buf0 = (volatile uint16_t *)(mister_ddr + MISTER_BUF0_OFFSET);
         volatile uint16_t *buf1 = (volatile uint16_t *)(mister_ddr + MISTER_BUF1_OFFSET);
+        volatile uint16_t *buf2 = (volatile uint16_t *)(mister_ddr + MISTER_BUF2_OFFSET);
         memset((void*)buf0, 0, MISTER_FRAME_W * MISTER_FRAME_H * 2);
         memset((void*)buf1, 0, MISTER_FRAME_W * MISTER_FRAME_H * 2);
+        memset((void*)buf2, 0, MISTER_FRAME_W * MISTER_FRAME_H * 2);
         cleared = 1;
     }
 
@@ -253,19 +259,13 @@ static void mister_present(SDL_Surface *screen) {
      * on the frames that already had the text. */
     NativeVideoWriter_DrawOverlays(dst);
 
-    /* TEMPORARY DIAG -- REVERT AFTER MEASURED. Publisher tag; see the matching
-     * note in native_video_writer.c. BLUE = this path (mister_present). A frame
-     * with NEITHER tag came from a third writer neither of us has accounted
-     * for, which is what the buf1 dropout points at. */
-    dst[0] = 0x07E0; dst[1] = 0xF81F;   /* green,magenta = mister_present */
-
     /* Hand this finished buffer to the keepalive before publishing, so a tick
      * cannot republish the other publisher stale buffer. */
     NativeVideoWriter_NotePublished(mister_active_buf & 1);
     __sync_synchronize();
     mister_frame_cnt++;
-    *mister_ctrl = (mister_frame_cnt << 2) | (mister_active_buf & 1);
-    mister_active_buf ^= 1;
+    *mister_ctrl = (mister_frame_cnt << 2) | (mister_active_buf & 3);
+    mister_active_buf = (mister_active_buf + 1) % 3;
 }
 /* end MiSTer DDR3 bridge */
 """
