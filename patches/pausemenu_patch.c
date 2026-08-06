@@ -35,12 +35,12 @@
  *   hands-free; press ANY button to take over.
  *
  *   SLOTS: a BOUNDED library of MREC_SLOTS (8) per PAK, chosen with left/right on
- *   the "Slot N of 8" item, exactly like savestates -- so no file browsing is
+ *   the "Slot N/8" item, exactly like savestates -- so no file browsing is
  *   needed. It replaced an unbounded <pak>_N library whose only access path was
  *   the OSD picker, which starts at the core's games/ home and would have forced
  *   the user to navigate up and out to reach the takes folder. Record OVERWRITES
  *   the chosen slot, which is the point, but never silently: the item shows
- *   "(used)" or "(empty)" beforehand and a notice names the slot afterwards. The
+ *   "used" or "empty" beforehand and a notice names the slot afterwards. The
  *   chosen slot travels across the reset via /tmp/openbor_recslot, because this
  *   process exits before the take is written. 8 rather than savestates' 4: a take
  *   is an artifact you keep, not scratch you overwrite. The OSD SC1 "Load Replay"
@@ -115,7 +115,8 @@ void pausemenu()
      *
      * 🛑 Declared at FUNCTION SCOPE on purpose. Two file-scope options both
      * fail: above this function they are discarded (replace_function splices
-     * this file from `void pausemenu()` onward), and apply_patches.py's
+     * this file from the signature onward -- and note this comment does not
+     * quote it, for the reason given above), and apply_patches.py's
      * openbor.c prelude lands AFTER pausemenu, so a declaration there does not
      * cover these call sites either -- which is why the pre-existing
      * NativeVideoWriter_Notice() calls below rely on implicit declaration. That
@@ -290,7 +291,7 @@ void pausemenu()
             {
                 _menutextmshift((rec_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Stop Recording"));
                 _menutextmshift((rec_selector == 1)?pauseoffset[1]:pauseoffset[0],  1, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
-                _menutextmshift(pauseoffset[0], 3, 0, pauseoffset[2], pauseoffset[3], Tr("Recording your inputs..."));
+                _menutextmshift(pauseoffset[0], 3, 0, pauseoffset[2], pauseoffset[3], Tr("Recording..."));
             }
             else if(recmode == 2)
             {
@@ -307,7 +308,7 @@ void pausemenu()
                  * It also is not needed to end a replay: take-over ends it on
                  * any button, and it ends itself at _mr_pos >= _mr_len. */
                 _menutextmshift(pauseoffset[1], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
-                _menutextmshift(pauseoffset[0], 3, 0, pauseoffset[2], pauseoffset[3], Tr("Replaying a recording..."));
+                _menutextmshift(pauseoffset[0], 3, 0, pauseoffset[2], pauseoffset[3], Tr("Replaying..."));
             }
             else
             {
@@ -320,7 +321,7 @@ void pausemenu()
                 mrec_content_id(_sn, sizeof(_sn));
                 snprintf(_sp, sizeof(_sp), "/media/fat/replays/OpenBOR_7533/%s_%d.inp", _sn, mrec_slot);
                 _st = fopen(_sp, "rb");
-                snprintf(_sl, sizeof(_sl), "Slot %d of %d (%s)", mrec_slot, MREC_SLOTS, _st ? "used" : "empty");
+                snprintf(_sl, sizeof(_sl), "Slot %d/%d %s", mrec_slot, MREC_SLOTS, _st ? "used" : "empty");
                 if(_st) fclose(_st);
 
                 _menutextmshift((rec_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Record"));
@@ -344,13 +345,13 @@ void pausemenu()
             /* -- Options submenu: Music Volume / SFX Volume / Back -- */
             _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6], Tr("Options"));
 
-            snprintf(volbuf, sizeof(volbuf), "Music Volume: %ld", (long)savedata.musicvol);
+            snprintf(volbuf, sizeof(volbuf), "Music: %ld", (long)savedata.musicvol);
             _menutextmshift((option_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], volbuf);
 
-            snprintf(volbuf, sizeof(volbuf), "SFX Volume: %ld", (long)savedata.effectvol);
+            snprintf(volbuf, sizeof(volbuf), "SFX: %ld", (long)savedata.effectvol);
             _menutextmshift((option_selector == 1)?pauseoffset[1]:pauseoffset[0],  0, 0, pauseoffset[2], pauseoffset[3], volbuf);
 
-            snprintf(volbuf, sizeof(volbuf), "FPS Display: %s", mister_fps_overlay ? "On" : "Off");
+            snprintf(volbuf, sizeof(volbuf), "FPS: %s", mister_fps_overlay ? "On" : "Off");
             _menutextmshift((option_selector == 2)?pauseoffset[1]:pauseoffset[0],  1, 0, pauseoffset[2], pauseoffset[3], volbuf);
 
             _menutextmshift((option_selector == 3)?pauseoffset[1]:pauseoffset[0],  3, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));

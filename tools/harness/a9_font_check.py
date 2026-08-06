@@ -100,8 +100,39 @@ def native_res(blob):
 # The real menu strings, taken from the patch rather than retyped.
 src = io.open(MENU_SRC, encoding="utf-8", errors="replace").read()
 src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
-strings = sorted({m for m in re.findall(r'Tr\("([^"]+)"\)', src)}, key=len, reverse=True)
-print(f"menu strings found: {len(strings)}; longest: {strings[0]!r} ({len(strings[0])} chars)\n")
+strings = {m for m in re.findall(r'Tr\("([^"]+)"\)', src)}
+
+# 🛑 Tr() is not all of the menu text. The Options rows and the slot picker are
+# built at RUNTIME with snprintf, so a Tr()-only scan misses them -- and it
+# missed the ones that matter: after shortening the two 24-char Tr status lines,
+# the longest string left is the slot row at 19 chars, which still overflows.
+# Worst-case expansions, taken from the format strings and their real bounds
+# (MREC_SLOTS = 8, musicvol <= 100, effectvol <= 120).
+RUNTIME = {
+    "Slot 8/8 empty": '"Slot %d/%d %s"',
+    "Music: 100":     '"Music: %ld"',
+    "SFX: 120":       '"SFX: %ld"',
+    "FPS: Off":       '"FPS: %s"',
+}
+# 🛑 The worst-case expansions above are hand-derived, so they go stale the
+# moment someone edits a format string -- and a stale expansion measures text
+# that is not on screen, which is worse than not measuring it. Assert each
+# format is still present in the source; if one changes, this fails loudly
+# instead of quietly reporting a pass against the old wording.
+missing = [f for f in RUNTIME.values() if f not in src]
+if missing:
+    sys.exit("STALE: these format strings are no longer in the menu source, so "
+             "their worst-case expansions cannot be trusted:\n  "
+             + "\n  ".join(missing))
+strings |= set(RUNTIME)
+
+strings = sorted(strings, key=len, reverse=True)
+print(f"menu strings: {len(strings)} ({len(RUNTIME)} runtime-formatted)")
+print("  longest five:")
+for s in strings[:5]:
+    tag = "  <- " + RUNTIME[s] if s in RUNTIME else ""
+    print(f"    {len(s):>3}  {s!r}{tag}")
+print()
 
 rows = []
 skipped = {}          # reason -> [pak names]
