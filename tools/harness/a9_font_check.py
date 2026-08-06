@@ -26,8 +26,18 @@ PAKDIR = sys.argv[1]
 MENU_SRC = sys.argv[2]
 SURFACE = 320
 
-WANT = ("data/video.txt", "data/sprites/font.gif",
-        "data/sprites/font2.gif", "data/sprites/font4.gif")
+# Font sheets are .gif OR .png -- the engine's font_load() takes an extensionless
+# path and loadscreen resolves the extension. Looking only for .gif left 57 of
+# 450 PAKs unmeasured and mislabelled as "no font sheet", when they simply used
+# PNG. Check both, or the coverage number is a fiction.
+#
+# A few PAKs use the multi-part DIRECTORY form instead -- data/sprites/font/00.gif
+# -- which is the MBS font path (font_load takes fontmbs[i] as a flag). Those are
+# the last 4 of 450, so they are included rather than written off.
+WANT = ("data/video.txt",
+        "data/sprites/font.gif", "data/sprites/font.png", "data/sprites/font/00.gif",
+        "data/sprites/font2.gif", "data/sprites/font2.png", "data/sprites/font2/00.gif",
+        "data/sprites/font4.gif", "data/sprites/font4.png", "data/sprites/font4/00.gif")
 
 
 def pak_index(path):
@@ -61,12 +71,19 @@ def extract(path, wanted):
     return out
 
 
-def gif_cell_width(blob):
-    """GIF logical width is bytes 6-7 LE; a font sheet is a 16x16 glyph grid."""
-    if not blob or blob[:3] != b"GIF":
+def cell_size(blob):
+    """Glyph cell of a font sheet: the image is a 16x16 grid (font.c:
+    font->width = screen->width / 16). GIF stores logical width at bytes 6-7
+    little-endian; PNG stores it in IHDR at bytes 16-19 big-endian."""
+    if not blob:
         return None
-    w, h = struct.unpack("<HH", blob[6:10])
-    return w // 16, h // 16
+    if blob[:3] == b"GIF":
+        w, h = struct.unpack("<HH", blob[6:10])
+        return w // 16, h // 16
+    if blob[:8] == b"\x89PNG\r\n\x1a\n" and blob[12:16] == b"IHDR":
+        w, h = struct.unpack(">II", blob[16:24])
+        return w // 16, h // 16
+    return None
 
 
 def native_res(blob):
@@ -87,23 +104,34 @@ strings = sorted({m for m in re.findall(r'Tr\("([^"]+)"\)', src)}, key=len, reve
 print(f"menu strings found: {len(strings)}; longest: {strings[0]!r} ({len(strings[0])} chars)\n")
 
 rows = []
-for pak in sorted(glob.glob(os.path.join(PAKDIR, "*.pak"))):
+skipped = {}          # reason -> [pak names]
+paks = sorted(glob.glob(os.path.join(PAKDIR, "*.pak")))
+
+for pak in paks:
     name = os.path.basename(pak)[:-4]
     try:
         got = extract(pak, WANT)
     except Exception as e:
-        print(f"  !! {name}: {e}")
+        skipped.setdefault(f"unreadable index ({type(e).__name__})", []).append(name)
         continue
     res = native_res(got.get("data/video.txt"))
     cells = {}
-    for idx, fn in ((0, "font.gif"), (1, "font2.gif"), (3, "font4.gif")):
-        c = gif_cell_width(got.get("data/sprites/" + fn))
-        if c:
-            cells[idx] = c
-    if not cells:
-        continue
-    item_w = cells.get(1, cells.get(0))          # selected item font
+    for idx, stem in ((0, "font"), (1, "font2"), (3, "font4")):
+        for suffix in (".gif", ".png", "/00.gif"):
+            c = cell_size(got.get("data/sprites/" + stem + suffix))
+            if c:
+                cells[idx] = c
+                break
+    # 🛑 A skip must be REPORTED, never silently dropped. Counting only the
+    # PAKs that happened to parse would let "393 measured" read as "all of
+    # them", which is exactly the false all-clear this check exists to avoid.
+    item_w = cells.get(1, cells.get(0))
     if not item_w:
+        has_any_font = any(k.startswith("data/sprites/font") for k in got)
+        skipped.setdefault(
+            "no pause-menu font sheet in the PAK (engine default fonts)"
+            if not has_any_font else "font sheet present but not a readable GIF",
+            []).append(name)
         continue
     cw = item_w[0]
     worst = max(len(s) for s in strings) * cw
@@ -123,8 +151,17 @@ for name, res, cw, worst, over in rows:
         regress.append((name, res, cw, worst, over))
 
 regress.sort(key=lambda r: -(r[3] - SURFACE))
-print(f"{len(rows)} PAKs measured: {len(fine)} fit, "
-      f"{len(regress)} REGRESSED by A9, {len(pre_existing)} already broken before A9\n")
+n_skip = sum(len(v) for v in skipped.values())
+print(f"{len(paks)} PAKs found | {len(rows)} measured | {n_skip} not measured\n")
+print(f"  of the {len(rows)} measured: {len(fine)} fit, {len(regress)} REGRESSED "
+      f"by A9, {len(pre_existing)} already broken before A9\n")
+if skipped:
+    print("  NOT MEASURED -- these are unproven, not passing:")
+    for reason, names in sorted(skipped.items(), key=lambda kv: -len(kv[1])):
+        print(f"    {len(names):>4}  {reason}")
+        for n in names[:3]:
+            print(f"            e.g. {n}")
+    print()
 
 if regress:
     print(f"REGRESSIONS -- fit at native width, clip at {SURFACE}:")
