@@ -635,6 +635,34 @@ endif
 
     # ── 4. Patch sdl/control.c — replace control_update() ────────────
     print("Patching sdl/control.c (input mapping)...")
+    # ── A9 follow-up: never centre a string to a NEGATIVE x ──────────────
+    #
+    # _strmidx centres as (hRes - width)/2, which goes negative once a string
+    # is wider than the surface -- clipping it at BOTH ends, so it loses its
+    # beginning and reads as gibberish. Clamping at 0 keeps the start visible
+    # and clips only the tail, which is legible and obviously truncated.
+    #
+    # Global, and safe to be global: at a PAK's own native width the menu
+    # strings fit, so the clamp never fires. It only engages where the old
+    # behaviour was already broken.
+    #
+    # Measured over 393 local PAKs: 378 fit at 320px, 5 are pushed over by A9
+    # drawing at display resolution (Bad Ass Babes 480px, Lust Rush 432, Bearz
+    # and Rocko's 384, He-Man 336), and 10 ALREADY overflowed at their own
+    # native width before any of this. This clamp improves all 15; it does not
+    # by itself make the 5 fit -- see the note on shortening the two 24-char
+    # status strings, which is the other half.
+    hdr = read(os.path.join(obor, 'openbor.h'))
+    hdr = strict_replace(
+        hdr,
+        '#define _strmidx(font, s, args...) ((videomodes.hRes-font_string_width((font), s, ##args))/2)',
+        '#define _strmidx(font, s, args...) (((videomodes.hRes-font_string_width((font), s, ##args))/2) < 0 ? 0 : '
+        '((videomodes.hRes-font_string_width((font), s, ##args))/2))',
+        'openbor.h _strmidx clamp (A9: no negative centring)'
+    )
+    write(os.path.join(obor, 'openbor.h'), hdr)
+    print("  _strmidx clamped at 0 -- a too-wide string clips its tail, not both ends.")
+
     src = read(os.path.join(obor, 'sdl/control.c'))
 
     # Add include
