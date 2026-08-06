@@ -120,6 +120,13 @@ void pausemenu()
     extern void NativeVideoWriter_SetOverlay(const void *pixels);
     extern void NativeVideoWriter_CaptureDisplay(void *dst);
     extern void NativeVideoWriter_GetDisplaySize(int *w, int *h);
+    /* Notice() had the same problem and has had it since the recorder landed:
+     * its only declaration is in that same too-late prelude, so every call
+     * below resolved implicitly. It happened to work -- const char* + int
+     * promote to the identical ARM32 calling convention and the return value is
+     * discarded -- but "compiles to the right thing by luck" is not a property
+     * to keep relying on. Declared properly now. */
+    extern void NativeVideoWriter_Notice(const char *msg, int seconds);
 
     /* NULL menuscreen = fall back to the pre-A9 engine-space path. */
     s_screen *menuscreen = NULL;
