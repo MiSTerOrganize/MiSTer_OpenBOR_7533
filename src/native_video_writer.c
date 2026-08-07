@@ -575,6 +575,66 @@ static void nv_blit_glyph(volatile uint16_t* dst, int gx, int gy,
  *   red    0-29    yellow 30-59    green 60+
  * A black copy is laid down one pixel down-right first so the number stays
  * legible over bright or busy backgrounds. */
+/* The pixels the fps digits are about to cover, kept per buffer so
+ * CaptureDisplay can hand back a frame WITHOUT them.
+ *
+ * CaptureDisplay copies the last published buffer, and the overlays have
+ * already been drawn into it -- so the A9 pause menu, which captures that
+ * frame ONCE as its backdrop, was baking the fps number into the background.
+ * Both numbers sit in the same bottom-right rect, so with the overlay on the
+ * live value painted over the stale one and hid it; switching the overlay off
+ * revealed a frozen number that stayed for the life of the menu (reported on
+ * ATOV, 2026-08-07: "a 60 showed underneath and remained frozen until I
+ * unpaused").
+ *
+ * Saving the rect costs a few hundred bytes and keeps the LIVE fps working
+ * while paused, which is wanted -- the pause loop is uncapped, and its rate is
+ * exactly the thing the overlay is there to show. Blanking the rect instead
+ * would leave a black box in the backdrop; suppressing the overlay during
+ * pause would throw away the measurement. */
+#define NV_FPS_BAK_W (3 * NV_GLYPH_W + 2 * NV_GLYPH_GAP + 1)  /* 3 digits + shadow */
+#define NV_FPS_BAK_H (NV_GLYPH_H + 1)                         /* + shadow          */
+static uint16_t nv_fps_bak[2][NV_FPS_BAK_H][NV_FPS_BAK_W];
+static int      nv_fps_bak_valid[2] = { 0, 0 };
+
+/* Widest possible origin, so the saved rect covers any digit count. */
+static int nv_fps_bak_x0(void) {
+    int x = NV_FRAME_WIDTH - NV_FPS_MARGIN - (3 * NV_GLYPH_W + 2 * NV_GLYPH_GAP);
+    return x < 0 ? 0 : x;
+}
+static int nv_fps_bak_y0(void) {
+    int y = NV_FRAME_HEIGHT - NV_FPS_MARGIN - NV_GLYPH_H;
+    return y < 0 ? 0 : y;
+}
+
+static void nv_fps_save(volatile uint16_t* dst, int buf) {
+    int x0 = nv_fps_bak_x0(), y0 = nv_fps_bak_y0();
+    for (int y = 0; y < NV_FPS_BAK_H; y++) {
+        int sy = y0 + y;
+        if (sy >= NV_FRAME_HEIGHT) break;
+        for (int x = 0; x < NV_FPS_BAK_W; x++) {
+            int sx = x0 + x;
+            if (sx >= NV_FRAME_WIDTH) break;
+            nv_fps_bak[buf][y][x] = dst[(size_t)sy * NV_FRAME_WIDTH + sx];
+        }
+    }
+    nv_fps_bak_valid[buf] = 1;
+}
+
+/* Into a PLAIN copy (the caller's capture), not DDR3. */
+static void nv_fps_restore(uint16_t* copy, int buf) {
+    int x0 = nv_fps_bak_x0(), y0 = nv_fps_bak_y0();
+    for (int y = 0; y < NV_FPS_BAK_H; y++) {
+        int sy = y0 + y;
+        if (sy >= NV_FRAME_HEIGHT) break;
+        for (int x = 0; x < NV_FPS_BAK_W; x++) {
+            int sx = x0 + x;
+            if (sx >= NV_FRAME_WIDTH) break;
+            copy[(size_t)sy * NV_FRAME_WIDTH + sx] = nv_fps_bak[buf][y][x];
+        }
+    }
+}
+
 static void nv_draw_fps(volatile uint16_t* dst) {
     int v = nv_fps_value;
     int digits[3], nd = 0;
@@ -633,6 +693,17 @@ void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst) {
      * cheap band form would put a permanent black bar over rows 206-223, 8% of
      * the frame, the whole time the overlay is on. A dropped frame on a number
      * identical for ~83 frames is a thinning, not lost information. */
+    /* Save what the digits are about to cover, so CaptureDisplay can undo them
+     * (see nv_fps_bak). When the overlay is off nothing is burned in, so the
+     * backup is invalidated rather than left stale -- a stale one would restore
+     * an OLD rect over a capture that never needed correcting. */
+    {
+        int fb = nv_buf_index(dst);
+        if (fb >= 0) {
+            if (mister_fps_overlay) nv_fps_save(dst, fb);
+            else                    nv_fps_bak_valid[fb] = 0;
+        }
+    }
     if (mister_fps_overlay) nv_draw_fps(dst);
 
     /* The notice, once per buffer. Bottom-right fps first so a notice is never
@@ -709,6 +780,15 @@ void NativeVideoWriter_CaptureDisplay(void* dst) {
     const volatile uint8_t* src = ddr_base
         + ((nv_last_published & 1) ? NV_BUF1_OFFSET : NV_BUF0_OFFSET);
     memcpy(dst, (const void*)src, NV_FRAME_BYTES);
+
+    /* Undo the fps digits. The caller freezes this frame as the pause-menu
+     * backdrop, so anything left here is burned in for the life of the menu --
+     * and a number frozen at the moment of pause is worse than no number,
+     * because it looks live until you notice it never changes. */
+    {
+        int b = nv_last_published & 1;
+        if (nv_fps_bak_valid[b]) nv_fps_restore((uint16_t*)dst, b);
+    }
 }
 
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
