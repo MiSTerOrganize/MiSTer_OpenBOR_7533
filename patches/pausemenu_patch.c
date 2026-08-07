@@ -110,12 +110,24 @@ void pausemenu()
     int quit = 0;
     int controlp = 0, i;
     int newkeys;
-    /* Hold-to-repeat for left/right (slot row, volume rows). Matches
-     * PICO-8's btnp() autorepeat -- 15-frame delay, then every 4th frame --
-     * so crossing 8 slots or a volume gauge does not need a tap per step.
+    /* Hold-to-repeat for left/right (slot row, volume rows), so crossing 8
+     * slots or a volume gauge does not need a tap per step.
+     *
+     * 🛑 MILLISECONDS, not loop iterations. This loop is UNCAPPED and runs
+     * >400 iterations/sec, so an iteration-counted "15 delay, every 4th"
+     * fired after ~37 ms and then ~100 times a second: one tap fast-
+     * scrolled the whole row (reported on hardware). PICO-8 feels right
+     * only because btnp() counts real 60 Hz frames. Same mistake as
+     * counting a notice's lifetime in frames -- and the same fix, for the
+     * same reason: a human-facing interval belongs on a wall clock.
+     *
+     * 250 ms then every 66 ms == PICO-8's 15-frame delay and 4-frame rate
+     * at 60 Hz, so the two cores feel identical.
+     *
      * Locals: this is a modal loop, so they cannot leak into the next
      * visit to the menu. */
-    int rep_held = 0, rep_ctr = 0, lrkeys = 0;
+    int rep_held = 0, lrkeys = 0;
+    unsigned int rep_t0 = 0, rep_next = 0;
     char volbuf[64];
     s_set_entry *set = levelsets + current_set;
     /* A9 display-space overlay, defined in native_video_writer.c.
@@ -413,12 +425,16 @@ void pausemenu()
              * confirm/back must never fire twice from one press. */
             int held = (int)(player[controlp].keys & (FLAG_MOVELEFT | FLAG_MOVERIGHT));
             int fire = 0;
+            unsigned int now = timer_gettick();
             if(held && held == rep_held)
             {
-                rep_ctr++;
-                if(rep_ctr >= 15 && ((rep_ctr - 15) % 4) == 0) fire = held;
+                if(now - rep_t0 >= 250u && now >= rep_next)
+                {
+                    fire = held;
+                    rep_next = now + 66u;
+                }
             }
-            else { rep_held = held; rep_ctr = 0; }
+            else { rep_held = held; rep_t0 = now; rep_next = now + 250u; }
             lrkeys = newkeys | fire;
         }
 
