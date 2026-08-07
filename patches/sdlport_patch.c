@@ -267,6 +267,23 @@ static int mrec_snap_ext_ok(const char *name)
     return 0;
 }
 
+/* Empty one scratch leaf. Used only to undo a partial extraction -- see the
+ * refusal path below for why clearing wholesale is safe here. */
+static void mrec_snap_clear_dir(const char *dir)
+{
+    DIR *d = opendir(dir);
+    struct dirent *e;
+    char p[1024];
+    if (!d) return;
+    while ((e = readdir(d)) != NULL)
+    {
+        if (e->d_name[0] == '.') continue;
+        snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
+        remove(p);
+    }
+    closedir(d);
+}
+
 static int mrec_extract_snap(const char *inp, const char *destdir, const char *local_stem)
 {
     FILE *f; unsigned int cont = 0, engver = 0, n32 = 0, crc = 0, cnt = 0, i, pc = 0;
@@ -413,7 +430,7 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
             edl -= (unsigned int)got;
         }
         if (fclose(o) != 0) refused = 1;
-        if (refused) { remove(out); break; }
+        if (refused) { remove(out); break; }   /* the rest is cleared below */
         wrote++;
     }
     fclose(f);
@@ -422,6 +439,21 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
     {
         /* Pass 1 accepted every record, so reaching here means an I/O failure
          * mid-write. Leave nothing half-restored. */
+        /* ...and mean it. Removing only the file that FAILED left every
+         * earlier one on disk, and the handler then fell back to the local
+         * snapshot and copied ON TOP of that residue -- a boot state
+         * matching neither source. A silent desync is worse than a clean
+         * refusal.
+         *
+         * Clearing both leaves wholesale is safe here: the handler recreates
+         * .scratch empty immediately before this runs, and this function is
+         * only reached on the PLAY path, so the sole contents are the files
+         * this call just wrote. */
+        {
+            char d[1024];
+            snprintf(d, sizeof(d), "%s/saves", destdir);      mrec_snap_clear_dir(d);
+            snprintf(d, sizeof(d), "%s/savestates", destdir); mrec_snap_clear_dir(d);
+        }
         printf("[SNAP] write failed after %d file(s) -- not restoring\n", wrote);
         return 1;
     }

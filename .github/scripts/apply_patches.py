@@ -709,7 +709,7 @@ endif
     src = strict_replace(
         src,
         '#include "menu.h"',
-        '#include "menu.h"\n#ifdef MISTER_NATIVE_VIDEO\n#include "native_video_writer.h"\n#include "native_audio_writer.h"\n#include <sys/stat.h>\n#include <stdlib.h>\n#include <time.h>\n#include <unistd.h>\n#include <pthread.h>\n#include <signal.h>\n#include <execinfo.h>\n#endif',
+        '#include "menu.h"\n#ifdef MISTER_NATIVE_VIDEO\n#include "native_video_writer.h"\n#include "native_audio_writer.h"\n#include <sys/stat.h>\n#include <stdlib.h>\n#include <time.h>\n#include <unistd.h>\n#include <pthread.h>\n#include <signal.h>\n#include <execinfo.h>\n#include <dirent.h>\n#endif',
         'sdl/sdlport.c #include injection'
     )
 
@@ -3545,6 +3545,15 @@ extern int mrec_isolate;
             "                        if(!_mr_t){ mrec_slot = _mr_s; break; }\n"
             "                        fclose(_mr_t); } }\n"
             "                    sprintf(_mr_path, \"%s_%d.inp\", _mr_b, mrec_slot);\n"
+            "                    /* Only announce a save once we know there IS one. This ran\n"
+            "                     * before the empty check below, so an empty Stop logged\n"
+            "                     * \"already held a take -- overwriting\" and then \"nothing\n"
+            "                     * captured\". The screen was right (Notice writes one buffer,\n"
+            "                     * last call wins) but the log contradicted itself. PICO-8\n"
+            "                     * checks first; this is that order. The slot is still\n"
+            "                     * resolved above, so _mr_path stays valid for the writer. */\n"
+            "                    if(_mr_len > 0 && _mr_buf)\n"
+            "                    {\n"
             "                    { FILE *_mr_ex = fopen(_mr_path, \"rb\");\n"
             "                      char _mr_ow[96];\n"
             "                      if(_mr_ex){ fclose(_mr_ex);\n"
@@ -3559,6 +3568,7 @@ extern int mrec_isolate;
             "                        snprintf(_mr_ow, sizeof(_mr_ow), \"Saved to slot %d\", mrec_slot);\n"
             "                        NativeVideoWriter_Notice(_mr_ow, 3);\n"
             "                        printf(\"[REC] saved to slot %d\\n\", mrec_slot); } }\n"
+            "                    }\n"
             "                }\n"
             "                if(_mr_len <= 0 || !_mr_buf)\n"
             "                {   /* NEVER create an empty .inp. It would take the highest index,\n"

@@ -571,10 +571,6 @@ static void nv_blit_glyph(volatile uint16_t* dst, int gx, int gy,
     }
 }
 
-/* Draw the current fps, bottom-right, colour-coded:
- *   red    0-29    yellow 30-59    green 60+
- * A black copy is laid down one pixel down-right first so the number stays
- * legible over bright or busy backgrounds. */
 /* The pixels the fps digits are about to cover, kept per buffer so
  * CaptureDisplay can hand back a frame WITHOUT them.
  *
@@ -635,6 +631,10 @@ static void nv_fps_restore(uint16_t* copy, int buf) {
     }
 }
 
+/* Draw the current fps, bottom-right, colour-coded:
+ *   red    0-29    yellow 30-59    green 60+
+ * A black copy is laid down one pixel down-right first so the number stays
+ * legible over bright or busy backgrounds. */
 static void nv_draw_fps(volatile uint16_t* dst) {
     int v = nv_fps_value;
     int digits[3], nd = 0;
@@ -721,13 +721,17 @@ void NativeVideoWriter_DrawOverlaysAt(volatile uint16_t* dst, int buf_index) {
      * backup is invalidated rather than left stale -- a stale one would restore
      * an OLD rect over a capture that never needed correcting. */
     {
-        int fb = buf_index;
+        /* Read the flag ONCE. It was read here and again below; single-
+         * threaded today so the two always agreed, but a mismatch would
+         * either restore a rect nothing drew or leave one burned in. */
+        const int fps_on = mister_fps_overlay;
+        const int fb     = buf_index;
         if (fb >= 0 && fb < 2) {
-            if (mister_fps_overlay) nv_fps_save(dst, fb);
-            else                    nv_fps_bak_valid[fb] = 0;
+            if (fps_on) nv_fps_save(dst, fb);
+            else        nv_fps_bak_valid[fb] = 0;
         }
+        if (fps_on) nv_draw_fps(dst);
     }
-    if (mister_fps_overlay) nv_draw_fps(dst);
 
     /* The notice, once per buffer. Bottom-right fps first so a notice is never
      * painted over by it; they cannot overlap at the current sizes (the band is
