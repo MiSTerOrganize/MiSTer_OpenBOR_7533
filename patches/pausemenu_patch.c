@@ -109,6 +109,12 @@ void pausemenu()
     int quit = 0;
     int controlp = 0, i;
     int newkeys;
+    /* Hold-to-repeat for left/right (slot row, volume rows). Matches
+     * PICO-8's btnp() autorepeat -- 15-frame delay, then every 4th frame --
+     * so crossing 8 slots or a volume gauge does not need a tap per step.
+     * Locals: this is a modal loop, so they cannot leak into the next
+     * visit to the menu. */
+    int rep_held = 0, rep_ctr = 0, lrkeys = 0;
     char volbuf[64];
     s_set_entry *set = levelsets + current_set;
     /* A9 display-space overlay, defined in native_video_writer.c.
@@ -324,9 +330,15 @@ void pausemenu()
                 snprintf(_sl, sizeof(_sl), "Slot %d/%d %s", mrec_slot, MREC_SLOTS, _st ? "used" : "empty");
                 if(_st) fclose(_st);
 
-                _menutextmshift((rec_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Record"));
-                _menutextmshift((rec_selector == 1)?pauseoffset[1]:pauseoffset[0],  0, 0, pauseoffset[2], pauseoffset[3], Tr("Play Recording"));
-                _menutextmshift((rec_selector == 2)?pauseoffset[1]:pauseoffset[0],  1, 0, pauseoffset[2], pauseoffset[3], _sl);
+                /* Slot FIRST, matching PICO-8 (2026-08-07 parity decision).
+                 * The cursor opens on index 0, so with Record there a single
+                 * confirm press reset the PAK and started a recording -- while
+                 * the same press on PICO-8 did nothing. Landing on the harmless
+                 * row is the better default, so this core moved rather than the
+                 * other one. */
+                _menutextmshift((rec_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], _sl);
+                _menutextmshift((rec_selector == 1)?pauseoffset[1]:pauseoffset[0],  0, 0, pauseoffset[2], pauseoffset[3], Tr("Record"));
+                _menutextmshift((rec_selector == 2)?pauseoffset[1]:pauseoffset[0],  1, 0, pauseoffset[2], pauseoffset[3], Tr("Play Recording"));
                 _menutextmshift((rec_selector == 3)?pauseoffset[1]:pauseoffset[0],  3, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
             }
         }
@@ -383,6 +395,20 @@ void pausemenu()
         update(1, 0);
 
         newkeys = player[controlp].newkeys;
+        {   /* lrkeys = a fresh press, OR a held direction that has passed
+             * the delay and landed on a repeat frame. Only left/right
+             * repeat: up/down through a 4-item list does not need it, and
+             * confirm/back must never fire twice from one press. */
+            int held = player[controlp].keyflags & (FLAG_MOVELEFT | FLAG_MOVERIGHT);
+            int fire = 0;
+            if(held && held == rep_held)
+            {
+                rep_ctr++;
+                if(rep_ctr >= 15 && ((rep_ctr - 15) % 4) == 0) fire = held;
+            }
+            else { rep_held = held; rep_ctr = 0; }
+            lrkeys = newkeys | fire;
+        }
 
         if(in_recording)
         {
@@ -401,14 +427,14 @@ void pausemenu()
              * mean up to seven presses to step back one, which is why savestate
              * UIs use a two-directional control. JUMP still cycles forward, so
              * the item is usable on a pad with no working left/right. */
-            if(recmode == 0 && rec_selector == 2)
+            if(recmode == 0 && rec_selector == 0)
             {
-                if(newkeys & FLAG_MOVELEFT)
+                if(lrkeys & FLAG_MOVELEFT)
                 {
                     mrec_slot = (mrec_slot <= 1) ? MREC_SLOTS : mrec_slot - 1;
                     sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
                 }
-                if(newkeys & FLAG_MOVERIGHT)
+                if(lrkeys & FLAG_MOVERIGHT)
                 {
                     mrec_slot = (mrec_slot >= MREC_SLOTS) ? 1 : mrec_slot + 1;
                     sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
@@ -421,7 +447,7 @@ void pausemenu()
 
                 if(recmode == 0)
                 {
-                    if(rec_selector == 0)   /* Record */
+                    if(rec_selector == 1)   /* Record */
                     {
                         /* Title-anchored: queue a RECORD marker + Reset-Pak restart.
                          * On respawn the recorder (openbor.c) arms at the first frame
@@ -441,7 +467,7 @@ void pausemenu()
                         }
                         exit(0);
                     }
-                    else if(rec_selector == 1)  /* Play Recording */
+                    else if(rec_selector == 2)  /* Play Recording */
                     {
                         /* Same restart: the recorder loads the saved stream + restores
                          * the RNG seed, then drives the menus into the level and plays
@@ -561,7 +587,7 @@ void pausemenu()
                             }
                         }
                     }
-                    else if(rec_selector == 2)
+                    else if(rec_selector == 0)
                     {
                         /* Slot row: chosen with LEFT/RIGHT. Confirm deliberately
                          * does nothing.
@@ -590,12 +616,22 @@ void pausemenu()
                 else if(recmode == 1)   /* recording: Stop Recording / Back */
                 {
                     if(rec_selector == 0)   /* Stop Recording */
-                    {   /* signal the recorder to flush the .inp, then resume play */
+                    {   /* Signal the recorder to flush the .inp, then return to
+                         * the MAIN pause menu -- matching PICO-8 (2026-08-07
+                         * parity decision). It used to close the menu and resume
+                         * play, so the two cores ended a take in different
+                         * places. Staying open lets the user see the slot row
+                         * flip to "used" and play it straight back, and the menu
+                         * remains the one place recording is controlled from.
+                         *
+                         * Audio stays paused BECAUSE the menu stays open: the
+                         * resume calls belong to the paths that actually leave,
+                         * and calling them here would unpause the game under an
+                         * open menu. */
                         FILE *_rs = fopen("/tmp/openbor_recstop", "w");
                         if(_rs) fclose(_rs);
-                        quit = 1;   /* close the pause menu, back to gameplay */
-                        sound_pause_music(0);
-                        sound_pause_sample(0);
+                        in_recording = 0;
+                        pauselector = 2;   /* highlight the Recording entry */
                     }
                     else   /* Back */
                     {
@@ -731,7 +767,7 @@ void pausemenu()
                 sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
 
-            if(newkeys & FLAG_MOVELEFT)
+            if(lrkeys & FLAG_MOVELEFT)
             {
                 if(option_selector == 0 && savedata.musicvol >= 10)
                 {
@@ -749,7 +785,7 @@ void pausemenu()
                 sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
 
-            if(newkeys & FLAG_MOVERIGHT)
+            if(lrkeys & FLAG_MOVERIGHT)
             {
                 if(option_selector == 0 && savedata.musicvol <= 90)
                 {
