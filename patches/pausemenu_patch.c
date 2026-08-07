@@ -106,6 +106,7 @@ void pausemenu()
     int rec_selector = 0;
     int in_options = 0;
     int in_recording = 0;
+    int in_quitconfirm = 0, quit_selector = 0;
     int quit = 0;
     int controlp = 0, i;
     int newkeys;
@@ -342,6 +343,17 @@ void pausemenu()
                 _menutextmshift((rec_selector == 3)?pauseoffset[1]:pauseoffset[0],  3, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
             }
         }
+        else if(in_quitconfirm)
+        {
+            /* Quit would discard a recording in progress, and this core
+             * exit(0)s -- the process is gone before a frame publishes, so
+             * a notice afterwards is impossible. Ask first. Cursor starts
+             * on Back: the destructive choice should never be the one a
+             * stray confirm press lands on. */
+            _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6], Tr("Quit? Recording lost"));
+            _menutextmshift((quit_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
+            _menutextmshift((quit_selector == 1)?pauseoffset[1]:pauseoffset[0],  0, 0, pauseoffset[2], pauseoffset[3], Tr("Quit"));
+        }
         else if(!in_options)
         {
             /* -- Main pause menu: Continue / Options / Recording / Reset Pak / Quit -- */
@@ -410,7 +422,33 @@ void pausemenu()
             lrkeys = newkeys | fire;
         }
 
-        if(in_recording)
+        if(in_quitconfirm)
+        {
+            if(newkeys & (FLAG_MOVEUP | FLAG_MOVEDOWN))
+            {
+                quit_selector = !quit_selector;
+                sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
+            }
+            if(newkeys & (FLAG_JUMP | FLAG_START))
+            {
+                sound_play_sample(global_sample_list.beep_2, 0, savedata.effectvol, savedata.effectvol, 100);
+                if(quit_selector == 1)
+                {
+                    remove("/tmp/openbor_current.pak");
+                    remove("/media/fat/config/OpenBOR.s0");
+                    exit(0);
+                }
+                in_quitconfirm = 0;
+                pauselector = 4;   /* back on the Quit row */
+            }
+            if(newkeys & (FLAG_SPECIAL | FLAG_ESC))
+            {
+                sound_play_sample(global_sample_list.beep_2, 0, savedata.effectvol, savedata.effectvol, 100);
+                in_quitconfirm = 0;
+                pauselector = 4;
+            }
+        }
+        else if(in_recording)
         {
             /* -- Recording submenu input handling -- */
             if(newkeys & FLAG_MOVEUP)
@@ -735,6 +773,14 @@ void pausemenu()
 
                 case 4:  /* Quit -- delete .s0 + cache so the relaunch shows the
                           * OSD PAK browser. */
+                    if(mrec_mode == 1)
+                    {   /* A take is in progress and Quit would bin it with
+                         * nothing said. Confirm instead; a normal Quit keeps
+                         * its single press. */
+                        in_quitconfirm = 1;
+                        quit_selector = 0;
+                        break;
+                    }
                     remove("/tmp/openbor_current.pak");
                     remove("/media/fat/config/OpenBOR.s0");
                     /* .s1 intentionally NOT removed — the binary baselines .s1's
