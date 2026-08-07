@@ -134,10 +134,25 @@ _RECLOG="/tmp/openbor_recboot.log"
 if [ -f /tmp/openbor_recmode ]; then
     _MODE=$(cat /tmp/openbor_recmode 2>/dev/null)
     _SCR="$REPLAYS/.scratch"
+    # The loaded PAK's stem, needed by BOTH branches: REC copies your real saves
+    # in under it, PLAY renames the take's embedded payload to it. It used to be
+    # derived inside the REC arm only, so on PLAY it expanded EMPTY and the
+    # rename never happened -- a take received from someone else restored under
+    # the SENDER's pak name while the engine opened yours, so the replay booted
+    # with no saves at all against a recording that had them. Guaranteed desync,
+    # reported as "restored N save file(s)" because the handler counts files
+    # rather than usable ones.
+    #
+    # Trim at the FIRST .pak, not the last: MiSTer writes .s0 WITHOUT truncating,
+    # so a shorter new path leaves a tail from the previous longer one, and the
+    # engine's own reader trims at the first .pak for exactly that reason.
+    # ${_S0%.pak} would keep the residue and yield a stem nothing matches -- and
+    # it fails SILENTLY, because every cp then misses and the arm-snapshot
+    # equality check passes with 0 == 0.
+    _S0=$(cat /media/fat/config/OpenBOR.s0 2>/dev/null | tr -d '\0')
+    _PAK=$(basename "${_S0%%.pak*}" 2>/dev/null)
     case "$_MODE" in
         REC*)
-            _S0=$(cat /media/fat/config/OpenBOR.s0 2>/dev/null | tr -d '\0')
-            _PAK=$(basename "${_S0%.pak}" 2>/dev/null)
             if [ -n "$_PAK" ]; then
                 cp -f "/media/fat/saves/OpenBOR_7533/$_PAK.sav"      "$_SCR/saves/"       2>/dev/null
                 cp -f "/media/fat/config/$_PAK.hi"                   "$_SCR/saves/"       2>/dev/null
@@ -224,8 +239,12 @@ if [ -f /tmp/openbor_recmode ]; then
                 # $_PAK is the locally-loaded PAK's stem: entries are renamed to
                 # it, because the engine derives .sav/.hi/.sNN from getPakName and
                 # would not see a payload still named for the recorder's copy.
-                if ./"$BINARY" --extract-snap "$_INP" "$_SCR/saves" "$_PAK" >> "$_RECLOG" 2>&1; then
-                    _EMB=$(ls -A "$_SCR/saves" 2>/dev/null | grep -vc '^$')
+                # Hand over the scratch ROOT: the payload is flat but the engine
+                # reads .sav/.hi from saves/ and script-saves (.sNN) from
+                # savestates/, so the binary routes each entry by extension.
+                # Passing "$_SCR/saves" put every .sNN where nothing reads it.
+                if ./"$BINARY" --extract-snap "$_INP" "$_SCR" "$_PAK" >> "$_RECLOG" 2>&1; then
+                    _EMB=$(ls -A "$_SCR/saves" "$_SCR/savestates" 2>/dev/null | grep -vc '^$')
                 fi
                 [ "${_EMB:-0}" -gt 0 ] && echo "[REC] restored $_EMB save file(s) from inside: $_INP" >> "$_RECLOG"
             fi

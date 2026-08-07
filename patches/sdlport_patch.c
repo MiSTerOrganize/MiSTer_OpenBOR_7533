@@ -238,19 +238,32 @@ static void *mister_swap_thread(void *arg)
  * extension -- which is also why the extension, not the name, is what we trust.
  *
  * Returns 0 on success, non-zero on refusal. Prints one line per outcome. */
+
+/* .sNN -- saveScriptFile overwrites the last two chars of .scr with the level-set
+ * number, so a multi-set PAK has .s00, .s01, ... one per set. Matching only .s00
+ * would silently drop every set past the first.
+ *
+ * ONE implementation, because two things need this answer: the extension
+ * whitelist, and the router that decides whether an entry belongs in
+ * .scratch/savestates or .scratch/saves. Two copies of a rule is how the value a
+ * thing is CHECKED against drifts from the value it is USED for -- the shape
+ * behind every recorder bug found on 2026-08-07. Takes the dot, not the name. */
+static int mrec_snap_is_script_save(const char *dot)
+{
+    return dot
+        && (dot[1] == 's' || dot[1] == 'S')
+        && dot[2] >= '0' && dot[2] <= '9'
+        && dot[3] >= '0' && dot[3] <= '9'
+        && dot[4] == 0;
+}
+
 static int mrec_snap_ext_ok(const char *name)
 {
     const char *dot = strrchr(name, '.');
     if (!dot || dot == name) return 0;
     if (strcasecmp(dot, ".sav") == 0) return 1;
     if (strcasecmp(dot, ".hi")  == 0) return 1;
-    /* .sNN -- saveScriptFile overwrites the last two chars of .scr with the
-     * level-set number, so a multi-set PAK has .s00, .s01, ... one per set.
-     * Matching only .s00 would silently drop every set past the first. */
-    if ((dot[1] == 's' || dot[1] == 'S')
-        && dot[2] >= '0' && dot[2] <= '9'
-        && dot[3] >= '0' && dot[3] <= '9'
-        && dot[4] == 0) return 1;
+    if (mrec_snap_is_script_save(dot)) return 1;
     return 0;
 }
 
@@ -364,10 +377,30 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
         name[enl] = 0;
 
         dot = strrchr(name, '.');
-        if (local_stem && *local_stem)
-            snprintf(out, sizeof(out), "%s/%s%s", destdir, local_stem, dot);
-        else
-            snprintf(out, sizeof(out), "%s/%s", destdir, name);
+
+        /* Route by extension. The payload is FLAT -- the writer walks
+         * .armsnap/saves and .armsnap/savestates into one list and stores only
+         * the bare filename -- but the engine reads them from two DIFFERENT
+         * roots: .sav/.hi from .scratch/saves, and script-saves (.sNN) from
+         * .scratch/savestates (see the SaveStates path rewrite in
+         * apply_patches.py).
+         *
+         * destdir is therefore the scratch ROOT, not a leaf. Passing the leaf
+         * put every .sNN in .scratch/saves, where nothing reads it, so
+         * .scratch/savestates stayed empty and a replay booted WITHOUT the
+         * unlocks and progression the take was recorded against -- a guaranteed
+         * desync on any multi-set PAK. It could not fall back either: the local-
+         * snapshot branch does restore savestates correctly, but it is skipped
+         * whenever the embedded count is non-zero, and the misplaced files are
+         * what made it non-zero. Found by a review agent 2026-08-07 and
+         * confirmed in source. */
+        {
+            const char *leaf = mrec_snap_is_script_save(dot) ? "savestates" : "saves";
+            if (local_stem && *local_stem)
+                snprintf(out, sizeof(out), "%s/%s/%s%s", destdir, leaf, local_stem, dot);
+            else
+                snprintf(out, sizeof(out), "%s/%s/%s", destdir, leaf, name);
+        }
 
         o = fopen(out, "wb");
         if (!o) { printf("[SNAP] cannot write %s\n", out); refused = 1; break; }
@@ -461,7 +494,11 @@ int main(int argc, char *argv[])
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
 
-    /* --extract-snap <take.inp> <destdir> <local-stem>
+    /* --extract-snap <take.inp> <scratch-root> <local-stem>
+     *
+     * <scratch-root>, NOT a leaf: entries are routed by extension into
+     * <root>/saves or <root>/savestates, because the engine reads .sav/.hi from
+     * one and script-saves (.sNN) from the other.
      *
      * Unpacks the save payload embedded in a recording and exits. Runs HERE:
      * after unbuffered logging is on, but before SDL, DDR3 video/audio, the
