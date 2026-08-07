@@ -674,7 +674,18 @@ void pausemenu()
                         {
                             _m = fopen("/tmp/openbor_recmode", "w");
                             if (_m) { fputs("REC", _m); fclose(_m); }
-                            printf("[REC] reset while recording -- restarting the take\n");
+                            /* Carry the slot, exactly as Record does above.
+                             * Without this the re-armed take fell back to the
+                             * default slot, so Stop Recording wrote a slot the
+                             * user never chose and destroyed whatever was in it:
+                             * recorded to slot 2, Reset, Stop -> overwrote slot 1.
+                             * Reported on hardware 2026-08-07; PICO-8 had the
+                             * same omission on the same path. */
+                            if(mrec_slot < 1 || mrec_slot > MREC_SLOTS) mrec_slot = 1;
+                            _m = fopen("/tmp/openbor_recslot", "w");
+                            if (_m) { fprintf(_m, "%d", mrec_slot); fclose(_m); }
+                            printf("[REC] reset while recording -- restarting the take in slot %d\n",
+                                   mrec_slot);
                         }
                         else if (mrec_mode == 2)
                         {
