@@ -399,7 +399,7 @@ void pausemenu()
              * the delay and landed on a repeat frame. Only left/right
              * repeat: up/down through a 4-item list does not need it, and
              * confirm/back must never fire twice from one press. */
-            int held = player[controlp].keyflags & (FLAG_MOVELEFT | FLAG_MOVERIGHT);
+            int held = (int)(player[controlp].keys & (FLAG_MOVELEFT | FLAG_MOVERIGHT));
             int fire = 0;
             if(held && held == rep_held)
             {
