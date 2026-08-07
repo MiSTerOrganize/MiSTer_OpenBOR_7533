@@ -74,6 +74,7 @@ extern void NativeVideoWriter_NotePublished(int buf);
 /* Overlays (fps read-out + notice). This file is a SECOND publisher of the same
  * DDR3 buffers, so it must draw them too -- see the call site below. */
 extern void NativeVideoWriter_DrawOverlays(volatile uint16_t *dst);
+extern void NativeVideoWriter_DrawOverlaysAt(volatile uint16_t *dst, int buf_index);
 /* Rows the notice occupies at the top of the frame, 0 when none is up. The
  * notice is drawn ONCE per buffer and then left alone, so this publisher must
  * start its copy below it -- writing game pixels over those rows puts the
@@ -270,7 +271,11 @@ static void mister_present(SDL_Surface *screen) {
      * publishers were live the frames alternated between having the notice and
      * not. Adding a backing panel did not help, because the panel was only ever
      * on the frames that already had the text. */
-    NativeVideoWriter_DrawOverlays(dst);
+    /* Pass the index: this file has its OWN mmap, so the writer cannot
+     * recognise our pointers and treated every frame as an unknown buffer --
+     * losing the static-notice guarantee exactly here, on the publisher that
+     * draws boot/menu/wait surfaces. Same value NotePublished gets below. */
+    NativeVideoWriter_DrawOverlaysAt(dst, mister_active_buf & 1);
 
     /* Hand this finished buffer to the keepalive before publishing, so a tick
      * cannot republish the other publisher stale buffer. */

@@ -131,6 +131,32 @@ mkdir -p "$REPLAYS/.scratch/saves" "$REPLAYS/.scratch/savestates" 2>/dev/null
 # instead and splice them into the real log right after it is created.
 _RECLOG="/tmp/openbor_recboot.log"
 : > "$_RECLOG" 2>/dev/null
+# A recmode marker with NO reset marker beside it was never asked for.
+#
+# Every writer of recmode -- Record, Play, Reset-while-recording, and the OSD
+# .s1 pick -- writes /tmp/openbor_reset_marker in the same breath, then exits so
+# the daemon respawns us. But recmode is consumed by the BINARY, much later:
+# not until the first inputrefresh, i.e. after the PAK has finished loading,
+# which is 12-90 s away. Kill the process in that window -- a core switch, a
+# reboot, a crash -- and recmode outlives it.
+#
+# The next time ANY content is launched, the recorder then armed unrequested,
+# and worse: mrec_isolate is raised from this same marker at openborMain entry,
+# so that whole session's .sav/.hi/.sNN resolved into .scratch -- which this
+# script rm -rf's on the following launch. Silent loss of REAL progress.
+#
+# The reset marker is still present here (it is consumed further down, after
+# this block), so its absence is positive evidence of a leftover.
+#
+# 🛑 The trade is deliberate: if a transitional handler spawn is killed AFTER
+# consuming the reset marker but before the binary reads recmode, this discards
+# a legitimate arm -- Record appears not to start, the user presses it again.
+# That is visible and recoverable. Silently isolating and then wiping someone's
+# save files is neither. Prefer the loud failure.
+if [ -f /tmp/openbor_recmode ] && [ ! -f /tmp/openbor_reset_marker ]; then
+    echo "[REC] stale recmode marker with no reset marker -- discarding, not arming" >> "$_RECLOG"
+    rm -f /tmp/openbor_recmode /tmp/openbor_recslot /tmp/openbor_playfile 2>/dev/null
+fi
 if [ -f /tmp/openbor_recmode ]; then
     _MODE=$(cat /tmp/openbor_recmode 2>/dev/null)
     _SCR="$REPLAYS/.scratch"

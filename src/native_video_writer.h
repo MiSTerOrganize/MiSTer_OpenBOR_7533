@@ -93,6 +93,11 @@ void NativeVideoWriter_GetDisplaySize(int* w, int* h);
  * flicker reported 2026-08-04. Call exactly once per published frame: the
  * notice countdown advances here. */
 void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst);
+/* Same, but the caller states WHICH buffer (0/1). Required for any publisher
+ * that does not share this file's mmap -- a pointer from a different mapping
+ * cannot be recognised, and an unrecognised buffer loses both the static-notice
+ * guarantee and the fps-rect backup. */
+void NativeVideoWriter_DrawOverlaysAt(volatile uint16_t* dst, int buf_index);
 
 void NativeVideoWriter_WriteFrame(const void* pixels, int width, int height,
                                   int pitch, int bpp, const void* palette);

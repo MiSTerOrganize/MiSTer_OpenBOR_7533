@@ -676,7 +676,30 @@ static void nv_draw_fps(volatile uint16_t* dst) {
  * it copies game pixels over a notice this function will then not repaint.
  *
  * Call exactly once per published frame. */
-void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst) {
+/* The publisher tells us WHICH buffer it is, because we cannot work it out.
+ *
+ * nv_buf_index() identifies a buffer by comparing the pointer to
+ * ddr_base + BUF0/BUF1 -- but the SDL-dummy publisher (patch_sdl_dummy.py)
+ * performs its OWN mmap of the same physical region, and two mmap(NULL, ...)
+ * calls return DIFFERENT virtual addresses. So every frame IT published came
+ * back as "not one of ours", which meant:
+ *
+ *   - the fps rect was neither saved nor invalidated, while the digits were
+ *     still drawn -- so a pause capture landing there kept them burned in AND
+ *     stamped a stale rect from an older frame over them; and
+ *   - the notice fell to the repaint-every-frame path, which is precisely the
+ *     per-frame repaint the STATIC notice design exists to eliminate. The
+ *     flicker was still live on that publisher, and it is the one that
+ *     publishes boot/menu/wait surfaces -- exactly when the handler's
+ *     save-isolation notices appear.
+ *
+ * A comment here used to assert "both publishers pass ddr_base + BUF0/BUF1".
+ * That was false, and it is why this read as safe.
+ *
+ * The publisher already knows its index (it passes the same value to
+ * NotePublished), so it hands it over rather than us guessing from a pointer
+ * that means different things in different mappings. */
+void NativeVideoWriter_DrawOverlaysAt(volatile uint16_t* dst, int buf_index) {
     if (!dst) return;
     nv_fps_tick();
 
@@ -698,8 +721,8 @@ void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst) {
      * backup is invalidated rather than left stale -- a stale one would restore
      * an OLD rect over a capture that never needed correcting. */
     {
-        int fb = nv_buf_index(dst);
-        if (fb >= 0) {
+        int fb = buf_index;
+        if (fb >= 0 && fb < 2) {
             if (mister_fps_overlay) nv_fps_save(dst, fb);
             else                    nv_fps_bak_valid[fb] = 0;
         }
@@ -714,11 +737,12 @@ void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst) {
         int rows = nv_notice_rows_now();
         if (rows > 0) {
             unsigned gen = nv_notice_gen;
-            int      idx = nv_buf_index(dst);
+            int      idx = (buf_index >= 0 && buf_index < 2)
+                         ? buf_index : -1;
             if (idx < 0) {
-                /* Not one of our buffers. Should not happen -- both publishers
-                 * pass ddr_base + BUF0/BUF1 -- so repaint every frame rather
-                 * than skip: that is exactly the old behaviour, never worse. */
+                /* A caller that does not know its buffer. Repaint every frame
+                 * rather than skip -- correct pixels, just not static. No
+                 * shipped caller takes this path any more. */
                 nv_paint_notice_band(dst, rows);
             } else if (nv_notice_painted_gen[idx] != gen) {
                 nv_paint_notice_band(dst, rows);
@@ -737,6 +761,11 @@ void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst) {
      * paints over them. Whichever way the copy and this function straddle the
      * expiry instant is benign: one frame keeps the band a moment longer, or
      * loses it a moment early. Neither shows stale or half-written pixels. */
+}
+
+/* Pointer-resolving form, kept for callers that share this file's mapping. */
+void NativeVideoWriter_DrawOverlays(volatile uint16_t* dst) {
+    NativeVideoWriter_DrawOverlaysAt(dst, nv_buf_index(dst));
 }
 
 /* ==========================================================================
