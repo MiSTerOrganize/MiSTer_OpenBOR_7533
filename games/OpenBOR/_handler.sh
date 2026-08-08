@@ -261,6 +261,7 @@ if [ -f /tmp/openbor_recmode ]; then
             # allowed to land is a security control, not something to express in
             # shell quoting.
             _EMB=0
+            _SNAPFAIL=0
             if [ -n "$_INP" ] && [ -f "$_INP" ]; then
                 # $_PAK is the locally-loaded PAK's stem: entries are renamed to
                 # it, because the engine derives .sav/.hi/.sNN from getPakName and
@@ -271,6 +272,14 @@ if [ -f /tmp/openbor_recmode ]; then
                 # Passing "$_SCR/saves" put every .sNN where nothing reads it.
                 if ./"$BINARY" --extract-snap "$_INP" "$_SCR" "$_PAK" >> "$_RECLOG" 2>&1; then
                     _EMB=$(ls -A "$_SCR/saves" "$_SCR/savestates" 2>/dev/null | grep -vc '^$')
+                else
+                    # Non-zero means the extractor REFUSED a payload it found --
+                    # a bad name, a disallowed extension, a short read -- and it
+                    # returns before creating the snapshot dir. Without this flag
+                    # the else below announced "carries no save data" about a take
+                    # that carried data we rejected, and playback ran on empty
+                    # saves: a certain desync, reported as a benign fact.
+                    _SNAPFAIL=1
                 fi
                 [ "${_EMB:-0}" -gt 0 ] && echo "[REC] restored $_EMB save file(s) from inside: $_INP" >> "$_RECLOG"
             fi
@@ -292,6 +301,9 @@ if [ -f /tmp/openbor_recmode ]; then
                     # log was the only place either was ever said.
                     printf %s "Could not restore this take's save data" > /tmp/openbor_recwarn
                 fi
+            elif [ "${_SNAPFAIL:-0}" -eq 1 ]; then
+                echo "[REC] this take's payload was refused -- nothing restored" >> "$_RECLOG"
+                printf %s "Could not restore this take's save data" > /tmp/openbor_recwarn
             else
                 echo "[REC] no save snapshot for this take -- starting empty" >> "$_RECLOG"
                 printf %s "This take carries no save data" > /tmp/openbor_recwarn
