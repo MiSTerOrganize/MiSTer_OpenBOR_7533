@@ -370,7 +370,14 @@ void pausemenu()
              * Same rule as the Recording submenu: the shape is fixed, only
              * the title below is allowed to change. */
             _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6],
-                            mrec_mode ? Tr("Lose recording") : Tr("Quit?"));
+                            mrec_mode ? Tr("Lose recording") : Tr("Really quit"));
+            /* 🛑 LETTERS AND DIGITS ONLY in menu text. The PAK supplies the
+             * font as a 16x16 sheet, and a glyph it lacks renders as a solid
+             * box -- "Quit?" came out as "Quit" plus a green block on
+             * hardware. Every string this menu has ever shipped uses letters,
+             * digits and : / %% ; treat anything else as unavailable. Same
+             * kind of constraint as the 14-char width cap, and just as
+             * invisible until a real PAK draws it. */
             _menutextmshift((quit_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
             _menutextmshift((quit_selector == 1)?pauseoffset[1]:pauseoffset[0],  0, 0, pauseoffset[2], pauseoffset[3], Tr("Quit"));
         }
