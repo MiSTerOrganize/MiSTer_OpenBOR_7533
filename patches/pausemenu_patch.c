@@ -370,7 +370,7 @@ void pausemenu()
              * Same rule as the Recording submenu: the shape is fixed, only
              * the title below is allowed to change. */
             _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6],
-                            mrec_mode ? Tr("Lose recording") : Tr("Really quit"));
+                            mrec_mode ? Tr("Lose recording") : Tr("Are you sure"));
             /* 🛑 LETTERS AND DIGITS ONLY in menu text. The PAK supplies the
              * font as a 16x16 sheet, and a glyph it lacks renders as a solid
              * box -- "Quit?" came out as "Quit" plus a green block on
