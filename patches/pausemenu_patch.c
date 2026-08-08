@@ -362,7 +362,7 @@ void pausemenu()
              * a notice afterwards is impossible. Ask first. Cursor starts
              * on Back: the destructive choice should never be the one a
              * stray confirm press lands on. */
-            _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6], Tr("Quit? Recording lost"));
+            _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6], Tr("Lose recording"));
             _menutextmshift((quit_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
             _menutextmshift((quit_selector == 1)?pauseoffset[1]:pauseoffset[0],  0, 0, pauseoffset[2], pauseoffset[3], Tr("Quit"));
         }

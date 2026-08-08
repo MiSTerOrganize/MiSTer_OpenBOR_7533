@@ -22,8 +22,8 @@ import re
 import struct
 import sys
 
-PAKDIR = sys.argv[1]
-MENU_SRC = sys.argv[2]
+PAKDIR = sys.argv[1] if len(sys.argv) > 1 else None
+MENU_SRC = sys.argv[2] if len(sys.argv) > 2 else None
 SURFACE = 320
 
 # Font sheets are .gif OR .png -- the engine's font_load() takes an extensionless
@@ -97,116 +97,121 @@ def native_res(blob):
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
-# The real menu strings, taken from the patch rather than retyped.
-src = io.open(MENU_SRC, encoding="utf-8", errors="replace").read()
-src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
-strings = {m for m in re.findall(r'Tr\("([^"]+)"\)', src)}
+if __name__ == "__main__":
+    # Guarded so the helpers above can be imported (title_text_measure.py)
+    # without this report running as a side effect of the import.
+    if not PAKDIR or not MENU_SRC:
+        raise SystemExit("usage: a9_font_check.py <pakdir> <pausemenu_patch.c>")
+    # The real menu strings, taken from the patch rather than retyped.
+    src = io.open(MENU_SRC, encoding="utf-8", errors="replace").read()
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    strings = {m for m in re.findall(r'Tr\("([^"]+)"\)', src)}
 
-# 🛑 Tr() is not all of the menu text. The Options rows and the slot picker are
-# built at RUNTIME with snprintf, so a Tr()-only scan misses them -- and it
-# missed the ones that matter: after shortening the two 24-char Tr status lines,
-# the longest string left is the slot row at 19 chars, which still overflows.
-# Worst-case expansions, taken from the format strings and their real bounds
-# (MREC_SLOTS = 8, musicvol <= 100, effectvol <= 120).
-RUNTIME = {
-    "Slot 8/8 empty": '"Slot %d/%d %s"',
-    "Music: 100":     '"Music: %ld"',
-    "SFX: 120":       '"SFX: %ld"',
-    "FPS: Off":       '"FPS: %s"',
-}
-# 🛑 The worst-case expansions above are hand-derived, so they go stale the
-# moment someone edits a format string -- and a stale expansion measures text
-# that is not on screen, which is worse than not measuring it. Assert each
-# format is still present in the source; if one changes, this fails loudly
-# instead of quietly reporting a pass against the old wording.
-missing = [f for f in RUNTIME.values() if f not in src]
-if missing:
-    sys.exit("STALE: these format strings are no longer in the menu source, so "
-             "their worst-case expansions cannot be trusted:\n  "
-             + "\n  ".join(missing))
-strings |= set(RUNTIME)
+    # 🛑 Tr() is not all of the menu text. The Options rows and the slot picker are
+    # built at RUNTIME with snprintf, so a Tr()-only scan misses them -- and it
+    # missed the ones that matter: after shortening the two 24-char Tr status lines,
+    # the longest string left is the slot row at 19 chars, which still overflows.
+    # Worst-case expansions, taken from the format strings and their real bounds
+    # (MREC_SLOTS = 8, musicvol <= 100, effectvol <= 120).
+    RUNTIME = {
+        "Slot 8/8 empty": '"Slot %d/%d %s"',
+        "Music: 100":     '"Music: %ld"',
+        "SFX: 120":       '"SFX: %ld"',
+        "FPS: Off":       '"FPS: %s"',
+    }
+    # 🛑 The worst-case expansions above are hand-derived, so they go stale the
+    # moment someone edits a format string -- and a stale expansion measures text
+    # that is not on screen, which is worse than not measuring it. Assert each
+    # format is still present in the source; if one changes, this fails loudly
+    # instead of quietly reporting a pass against the old wording.
+    missing = [f for f in RUNTIME.values() if f not in src]
+    if missing:
+        sys.exit("STALE: these format strings are no longer in the menu source, so "
+                 "their worst-case expansions cannot be trusted:\n  "
+                 + "\n  ".join(missing))
+    strings |= set(RUNTIME)
 
-strings = sorted(strings, key=len, reverse=True)
-print(f"menu strings: {len(strings)} ({len(RUNTIME)} runtime-formatted)")
-print("  longest five:")
-for s in strings[:5]:
-    tag = "  <- " + RUNTIME[s] if s in RUNTIME else ""
-    print(f"    {len(s):>3}  {s!r}{tag}")
-print()
-
-rows = []
-skipped = {}          # reason -> [pak names]
-paks = sorted(glob.glob(os.path.join(PAKDIR, "*.pak")))
-
-for pak in paks:
-    name = os.path.basename(pak)[:-4]
-    try:
-        got = extract(pak, WANT)
-    except Exception as e:
-        skipped.setdefault(f"unreadable index ({type(e).__name__})", []).append(name)
-        continue
-    res = native_res(got.get("data/video.txt"))
-    cells = {}
-    for idx, stem in ((0, "font"), (1, "font2"), (3, "font4")):
-        for suffix in (".gif", ".png", "/00.gif"):
-            c = cell_size(got.get("data/sprites/" + stem + suffix))
-            if c:
-                cells[idx] = c
-                break
-    # 🛑 A skip must be REPORTED, never silently dropped. Counting only the
-    # PAKs that happened to parse would let "393 measured" read as "all of
-    # them", which is exactly the false all-clear this check exists to avoid.
-    item_w = cells.get(1, cells.get(0))
-    if not item_w:
-        has_any_font = any(k.startswith("data/sprites/font") for k in got)
-        skipped.setdefault(
-            "no pause-menu font sheet in the PAK (engine default fonts)"
-            if not has_any_font else "font sheet present but not a readable GIF",
-            []).append(name)
-        continue
-    cw = item_w[0]
-    worst = max(len(s) for s in strings) * cw
-    rows.append((name, res, cw, worst, [s for s in strings if len(s) * cw > SURFACE]))
-
-# The distinction that decides whether A9 broke anything:
-#   was it ALREADY overflowing at its native width?  -> pre-existing, not us
-#   does it only overflow now that we draw at 320?   -> REGRESSION from A9
-regress, pre_existing, fine = [], [], []
-for name, res, cw, worst, over in rows:
-    native_w = res[0] if res else 320
-    if not over:
-        fine.append(name)
-    elif worst > native_w:
-        pre_existing.append((name, res, cw, worst, over))
-    else:
-        regress.append((name, res, cw, worst, over))
-
-regress.sort(key=lambda r: -(r[3] - SURFACE))
-n_skip = sum(len(v) for v in skipped.values())
-print(f"{len(paks)} PAKs found | {len(rows)} measured | {n_skip} not measured\n")
-print(f"  of the {len(rows)} measured: {len(fine)} fit, {len(regress)} REGRESSED "
-      f"by A9, {len(pre_existing)} already broken before A9\n")
-if skipped:
-    print("  NOT MEASURED -- these are unproven, not passing:")
-    for reason, names in sorted(skipped.items(), key=lambda kv: -len(kv[1])):
-        print(f"    {len(names):>4}  {reason}")
-        for n in names[:3]:
-            print(f"            e.g. {n}")
+    strings = sorted(strings, key=len, reverse=True)
+    print(f"menu strings: {len(strings)} ({len(RUNTIME)} runtime-formatted)")
+    print("  longest five:")
+    for s in strings[:5]:
+        tag = "  <- " + RUNTIME[s] if s in RUNTIME else ""
+        print(f"    {len(s):>3}  {s!r}{tag}")
     print()
 
-if regress:
-    print(f"REGRESSIONS -- fit at native width, clip at {SURFACE}:")
-    print(f"  {'PAK':<42}{'native':>10}{'cell':>6}{'widest':>8}{'over by':>9}")
-    for name, res, cw, worst, over in regress:
-        r = f"{res[0]}x{res[1]}" if res else "?"
-        print(f"  {name[:40]:<42}{r:>10}{cw:>6}{worst:>8}{worst - SURFACE:>8}px")
-    print()
-    longest = max((s for _, _, _, _, ov in regress for s in ov), key=len)
-    print(f"  driven by the longest strings, e.g. {longest!r} ({len(longest)} chars)")
+    rows = []
+    skipped = {}          # reason -> [pak names]
+    paks = sorted(glob.glob(os.path.join(PAKDIR, "*.pak")))
 
-if pre_existing:
-    print(f"\nALREADY overflowing before A9 (their own native width is too small "
-          f"for their font) -- not caused by this change:")
-    for name, res, cw, worst, over in pre_existing[:6]:
-        r = f"{res[0]}x{res[1]}" if res else "320x240 default"
-        print(f"  {name[:40]:<42}{r:>16} cell {cw:>3}  widest {worst}px")
+    for pak in paks:
+        name = os.path.basename(pak)[:-4]
+        try:
+            got = extract(pak, WANT)
+        except Exception as e:
+            skipped.setdefault(f"unreadable index ({type(e).__name__})", []).append(name)
+            continue
+        res = native_res(got.get("data/video.txt"))
+        cells = {}
+        for idx, stem in ((0, "font"), (1, "font2"), (3, "font4")):
+            for suffix in (".gif", ".png", "/00.gif"):
+                c = cell_size(got.get("data/sprites/" + stem + suffix))
+                if c:
+                    cells[idx] = c
+                    break
+        # 🛑 A skip must be REPORTED, never silently dropped. Counting only the
+        # PAKs that happened to parse would let "393 measured" read as "all of
+        # them", which is exactly the false all-clear this check exists to avoid.
+        item_w = cells.get(1, cells.get(0))
+        if not item_w:
+            has_any_font = any(k.startswith("data/sprites/font") for k in got)
+            skipped.setdefault(
+                "no pause-menu font sheet in the PAK (engine default fonts)"
+                if not has_any_font else "font sheet present but not a readable GIF",
+                []).append(name)
+            continue
+        cw = item_w[0]
+        worst = max(len(s) for s in strings) * cw
+        rows.append((name, res, cw, worst, [s for s in strings if len(s) * cw > SURFACE]))
+
+    # The distinction that decides whether A9 broke anything:
+    #   was it ALREADY overflowing at its native width?  -> pre-existing, not us
+    #   does it only overflow now that we draw at 320?   -> REGRESSION from A9
+    regress, pre_existing, fine = [], [], []
+    for name, res, cw, worst, over in rows:
+        native_w = res[0] if res else 320
+        if not over:
+            fine.append(name)
+        elif worst > native_w:
+            pre_existing.append((name, res, cw, worst, over))
+        else:
+            regress.append((name, res, cw, worst, over))
+
+    regress.sort(key=lambda r: -(r[3] - SURFACE))
+    n_skip = sum(len(v) for v in skipped.values())
+    print(f"{len(paks)} PAKs found | {len(rows)} measured | {n_skip} not measured\n")
+    print(f"  of the {len(rows)} measured: {len(fine)} fit, {len(regress)} REGRESSED "
+          f"by A9, {len(pre_existing)} already broken before A9\n")
+    if skipped:
+        print("  NOT MEASURED -- these are unproven, not passing:")
+        for reason, names in sorted(skipped.items(), key=lambda kv: -len(kv[1])):
+            print(f"    {len(names):>4}  {reason}")
+            for n in names[:3]:
+                print(f"            e.g. {n}")
+        print()
+
+    if regress:
+        print(f"REGRESSIONS -- fit at native width, clip at {SURFACE}:")
+        print(f"  {'PAK':<42}{'native':>10}{'cell':>6}{'widest':>8}{'over by':>9}")
+        for name, res, cw, worst, over in regress:
+            r = f"{res[0]}x{res[1]}" if res else "?"
+            print(f"  {name[:40]:<42}{r:>10}{cw:>6}{worst:>8}{worst - SURFACE:>8}px")
+        print()
+        longest = max((s for _, _, _, _, ov in regress for s in ov), key=len)
+        print(f"  driven by the longest strings, e.g. {longest!r} ({len(longest)} chars)")
+
+    if pre_existing:
+        print(f"\nALREADY overflowing before A9 (their own native width is too small "
+              f"for their font) -- not caused by this change:")
+        for name, res, cw, worst, over in pre_existing[:6]:
+            r = f"{res[0]}x{res[1]}" if res else "320x240 default"
+            print(f"  {name[:40]:<42}{r:>16} cell {cw:>3}  widest {worst}px")
