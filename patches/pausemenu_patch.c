@@ -362,7 +362,15 @@ void pausemenu()
              * a notice afterwards is impossible. Ask first. Cursor starts
              * on Back: the destructive choice should never be the one a
              * stray confirm press lands on. */
-            _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6], Tr("Lose recording"));
+            /* 🛑 TWO ROWS, ALWAYS, in this order, in every recorder mode.
+             * A replay injects presses by POSITION. This confirm used to
+             * appear only while recording, so replaying a run in which the
+             * user chose Quit and then Back sent that second press to Quit
+             * itself and exited to a black screen -- reported on hardware.
+             * Same rule as the Recording submenu: the shape is fixed, only
+             * the title below is allowed to change. */
+            _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6],
+                            mrec_mode ? Tr("Lose recording") : Tr("Quit?"));
             _menutextmshift((quit_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
             _menutextmshift((quit_selector == 1)?pauseoffset[1]:pauseoffset[0],  0, 0, pauseoffset[2], pauseoffset[3], Tr("Quit"));
         }
@@ -789,14 +797,11 @@ void pausemenu()
 
                 case 4:  /* Quit -- delete .s0 + cache so the relaunch shows the
                           * OSD PAK browser. */
-                    if(mrec_mode == 1)
-                    {   /* A take is in progress and Quit would bin it with
-                         * nothing said. Confirm instead; a normal Quit keeps
-                         * its single press. */
-                        in_quitconfirm = 1;
-                        quit_selector = 0;
-                        break;
-                    }
+                    /* ALWAYS confirm -- see the confirm branch for why this
+                     * must not depend on mrec_mode. */
+                    in_quitconfirm = 1;
+                    quit_selector = 0;
+                    break;
                     remove("/tmp/openbor_current.pak");
                     remove("/media/fat/config/OpenBOR.s0");
                     /* .s1 intentionally NOT removed — the binary baselines .s1's
