@@ -221,7 +221,16 @@ if [ -f /tmp/openbor_recmode ]; then
             # than hand over a take that is guaranteed to desync -- which is what
             # PICO-8 does, and why its notice can honestly say "not recording".
             _NS=$(find "$_SCR/saves" "$_SCR/savestates" -maxdepth 1 -type f 2>/dev/null | wc -l)
-            _NA=$(ls -A "$REPLAYS/.armsnap/saves" "$REPLAYS/.armsnap/savestates" 2>/dev/null | grep -vc '^$')
+            # BOTH sides must count the same way. `ls -A` with TWO directory
+            # operands prints a "dir:" header per directory, and `grep -vc '^$'`
+            # only strips blanks -- so this counted 2 phantom files. That was
+            # survivable while _NS counted identically (both inflated by 2, so
+            # the comparison held), and became a HARD BREAK the moment _NS was
+            # switched to `find` and this line was not: _NS=3 vs _NA=5 on a
+            # faithful 3-file snapshot, so the guard fired on EVERY Record and
+            # OpenBOR could not arm at all. Hardware-caught 2026-08-09; source
+            # review, dry-run, CI and the integrity gate all passed it.
+            _NA=$(find "$REPLAYS/.armsnap/saves" "$REPLAYS/.armsnap/savestates" -maxdepth 1 -type f 2>/dev/null | wc -l)
             if [ "${_NA:-0}" -ne "${_NS:-0}" ]; then
                 echo "[REC] arm snapshot is $_NA of $_NS file(s) -- not arming" >> "$_RECLOG"
                 printf %s "Could not prepare saves - not recording" > /tmp/openbor_recwarn
