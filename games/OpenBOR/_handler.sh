@@ -220,7 +220,7 @@ if [ -f /tmp/openbor_recmode ]; then
             # recorded navigation selects a different slot. REFUSE to arm rather
             # than hand over a take that is guaranteed to desync -- which is what
             # PICO-8 does, and why its notice can honestly say "not recording".
-            _NS=$(ls -A "$_SCR/saves" "$_SCR/savestates" 2>/dev/null | grep -vc '^$')
+            _NS=$(find "$_SCR/saves" "$_SCR/savestates" -maxdepth 1 -type f 2>/dev/null | wc -l)
             _NA=$(ls -A "$REPLAYS/.armsnap/saves" "$REPLAYS/.armsnap/savestates" 2>/dev/null | grep -vc '^$')
             if [ "${_NA:-0}" -ne "${_NS:-0}" ]; then
                 echo "[REC] arm snapshot is $_NA of $_NS file(s) -- not arming" >> "$_RECLOG"
@@ -271,7 +271,7 @@ if [ -f /tmp/openbor_recmode ]; then
                 # savestates/, so the binary routes each entry by extension.
                 # Passing "$_SCR/saves" put every .sNN where nothing reads it.
                 if ./"$BINARY" --extract-snap "$_INP" "$_SCR" "$_PAK" >> "$_RECLOG" 2>&1; then
-                    _EMB=$(ls -A "$_SCR/saves" "$_SCR/savestates" 2>/dev/null | grep -vc '^$')
+                    _EMB=$(find "$_SCR/saves" "$_SCR/savestates" -maxdepth 1 -type f 2>/dev/null | wc -l)
                 else
                     # Non-zero means the extractor REFUSED a payload it found --
                     # a bad name, a disallowed extension, a short read -- and it
@@ -291,7 +291,7 @@ if [ -f /tmp/openbor_recmode ]; then
                 # Count what LANDED. The old line printed "restored" whenever the
                 # directory merely EXISTED -- an empty or unreadable snapshot, or a
                 # cp that failed into 2>/dev/null, all reported success.
-                _N=$(ls -A "$_SCR/saves" "$_SCR/savestates" 2>/dev/null | grep -vc '^$')
+                _N=$(find "$_SCR/saves" "$_SCR/savestates" -maxdepth 1 -type f 2>/dev/null | wc -l)
                 if [ "${_N:-0}" -gt 0 ]; then
                     echo "[REC] restored $_N save file(s) for: $_INP" >> "$_RECLOG"
                 else
