@@ -599,7 +599,13 @@ void pausemenu()
                              * the notice is on screen to say why, and the audio
                              * pairing is never broken because we never leave by
                              * a side door. */
-                            if(_pmx > 0)
+                            /* Also require the LIBRARY to be non-empty. mrec_slot is
+                             * normalised to >=1 on every row draw (see :339), so _pmx > 0
+                             * alone was always true and the "No recording for this game"
+                             * else below was unreachable -- a PAK with no takes at all
+                             * reported "Slot 1 is empty". True, but not the useful answer.
+                             * The engine-side copy of this was fixed the same way. */
+                            if(_pmx > 0 && mrec_highest(_pn) > 0)
                             {
                                 char _pp[MAX_BUFFER_LEN]; char _pw[128];
                                 sprintf(_pp, "%s_%d.inp", _pb, _pmx);

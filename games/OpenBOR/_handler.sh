@@ -302,8 +302,14 @@ if [ -f /tmp/openbor_recmode ]; then
                     printf %s "Could not restore this take's save data" > /tmp/openbor_recwarn
                 fi
             elif [ "${_SNAPFAIL:-0}" -eq 1 ]; then
-                echo "[REC] this take's payload was refused -- nothing restored" >> "$_RECLOG"
+                echo "[REC] this take's payload was refused -- not playing" >> "$_RECLOG"
                 printf %s "Could not restore this take's save data" > /tmp/openbor_recwarn
+                # REFUSE, do not play on. A take whose payload we rejected would
+                # replay against empty saves -- a certain desync. PICO-8 has
+                # refused this since it shipped. Dropping recmode also keeps
+                # isolation down, so the player gets their REAL saves back,
+                # exactly as the "could not prepare saves" branch above does.
+                rm -f /tmp/openbor_recmode /tmp/openbor_playfile 2>/dev/null
             else
                 echo "[REC] no save snapshot for this take -- starting empty" >> "$_RECLOG"
                 printf %s "This take carries no save data" > /tmp/openbor_recwarn
