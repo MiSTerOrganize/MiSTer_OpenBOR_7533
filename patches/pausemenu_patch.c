@@ -373,8 +373,9 @@ void pausemenu()
                             mrec_mode ? Tr("Lose recording") : Tr("Are you sure"));
             /* 🛑 LETTERS AND DIGITS ONLY in menu text. The PAK supplies the
              * font as a 16x16 sheet, and a glyph it lacks renders as a solid
-             * box -- "Quit?" came out as "Quit" plus a green block on
-             * hardware. Every string this menu has ever shipped uses letters,
+             * box -- a quit label ending in a question mark rendered with a
+             * green block after its last letter on hardware. Every string
+             * this menu has ever shipped uses letters,
              * digits and : / %% ; treat anything else as unavailable. Same
              * kind of constraint as the 14-char width cap, and just as
              * invisible until a real PAK draws it. */
