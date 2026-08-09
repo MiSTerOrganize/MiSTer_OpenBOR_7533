@@ -28,6 +28,8 @@ jobs:
       # hardware and no ARM -- it cuts the shipped extractor out of the emitted
       # C and compiles it natively -- so there is no reason for it to be
       # anything other than mandatory on every run.
+      - name: Pause-menu mode-parity (replay-desync gate)
+        run: python3 tools/harness/menu_mode_parity_check.py
       - name: Save-payload extractor tests (untrusted input)
         run: python3 tools/harness/test_snap_extract.py
       - name: Build OpenBOR headless (x86-64)
