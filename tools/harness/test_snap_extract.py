@@ -12,7 +12,8 @@ checked forever, not hand-tested once.
 So this does NOT reimplement the parser and test the reimplementation. It:
 
   1. runs apply_patches.py into a pristine v7533 clone,
-  2. CUTS mrec_snap_ext_ok() and mrec_extract_snap() out of the EMITTED
+  2. CUTS the whole contiguous extractor group -- mrec_snap_is_script_save(),
+     mrec_snap_ext_ok(), mrec_extract_snap() -- out of the EMITTED
      sdl/sdlport.c by text markers,
   3. compiles them natively (x86, no ARM, no QEMU, no SDL) with a test main(),
   4. drives that binary with takes built by mrec_synth.py.
@@ -114,13 +115,22 @@ def build_tree(work):
 
 
 def cut_functions(eng):
-    """Lift the two extractor functions out of the emitted sdlport.c."""
+    """Lift the WHOLE contiguous extractor group out of the emitted sdlport.c.
+
+    🛑 The anchor is the FIRST function in the group, not the one the test is
+    nominally about. It used to start at mrec_snap_ext_ok, which silently
+    excluded mrec_snap_is_script_save sitting immediately above it -- the cut
+    compiled and then failed to LINK with an implicit-declaration warning as
+    the only clue. Anyone adding another helper above this anchor must move it
+    up, or the same link error returns.
+    """
     src = open(os.path.join(eng, "sdl", "sdlport.c"),
                encoding="utf-8", errors="replace").read()
-    start = src.find("static int mrec_snap_ext_ok")
+    start = src.find("static int mrec_snap_is_script_save")
     if start < 0:
-        raise SystemExit("mrec_snap_ext_ok not in the emitted C -- did the "
-                         "sdlport_patch.c splice marker break again?")
+        raise SystemExit("mrec_snap_is_script_save not in the emitted C -- did "
+                         "the sdlport_patch.c splice marker break again, or did "
+                         "a new helper move above the cut anchor?")
     end = src.find("\n#endif", src.find("static int mrec_extract_snap"))
     if end < 0:
         raise SystemExit("could not find the end of mrec_extract_snap")
