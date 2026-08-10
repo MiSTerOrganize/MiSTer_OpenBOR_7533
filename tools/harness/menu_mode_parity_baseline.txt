@@ -1,6 +1,9 @@
 # Reviewed mode-conditional sites in the pause menu.
 # A NEW line here means: does it change what is DRAWN IN a
-# row, or WHICH ROWS EXIST? Only the first is allowed.
+# row, or WHICH ROWS EXIST? Only the first is allowed --
+# EXCEPT a gate on mode NON-ZERO, whose differing shape is
+# unreachable inside a take (captured at 1, replayed at 2).
+# That exception is enforced by check C, not by trust.
 # Regenerate with --update-baseline, and say in the commit
 # message which answer each new site got.
 else if (mrec_mode == 2)
@@ -8,6 +11,7 @@ else if(recmode == 1)
 else if(recmode == 2)
 extern int mrec_mode;
 if (mrec_mode == 1)
+if(mrec_mode)
 if(recmode == 0 && rec_selector == 0)
 if(recmode == 0)
 if(recmode == 1)

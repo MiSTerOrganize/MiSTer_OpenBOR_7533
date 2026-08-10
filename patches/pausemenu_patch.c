@@ -828,11 +828,29 @@ void pausemenu()
 
                 case 4:  /* Quit -- delete .s0 + cache so the relaunch shows the
                           * OSD PAK browser. */
-                    /* ALWAYS confirm -- see the confirm branch for why this
-                     * must not depend on mrec_mode. */
-                    in_quitconfirm = 1;
-                    quit_selector = 0;
-                    break;
+                    /* Confirm ONLY when there is something to lose. Reset Pak
+                     * does not ask and neither should this: a second press to
+                     * leave a game you are simply done with is friction for no
+                     * gain, and the justification for asking was always the
+                     * recording -- Quit exit(0)s, so the process is gone before
+                     * a frame can publish and no notice is possible.
+                     *
+                     * 🛑 THE PREDICATE IS `mrec_mode` (non-zero), NEVER
+                     * `mrec_mode == 1`. A replay injects presses by POSITION.
+                     * A take's frames are only ever captured while RECORDING
+                     * (mode 1) and are replayed at mode 2, so the confirm must
+                     * exist in BOTH or the recorded Back lands on Quit itself
+                     * and exits to a black screen -- that is the exact bug
+                     * reported on hardware when this was `== 1` only. Idle
+                     * (mode 0) is never inside a take, so skipping the confirm
+                     * there cannot desync anything. Enforced by check C of
+                     * tools/harness/menu_mode_parity_check.py. */
+                    if(mrec_mode)
+                    {
+                        in_quitconfirm = 1;
+                        quit_selector = 0;
+                        break;
+                    }
                     remove("/tmp/openbor_current.pak");
                     remove("/media/fat/config/OpenBOR.s0");
                     /* .s1 intentionally NOT removed — the binary baselines .s1's
