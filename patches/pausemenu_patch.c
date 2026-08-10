@@ -372,13 +372,30 @@ void pausemenu()
             _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6],
                             mrec_mode ? Tr("Lose recording") : Tr("Are you sure"));
             /* 🛑 LETTERS AND DIGITS ONLY in menu text. The PAK supplies the
-             * font as a 16x16 sheet, and a glyph it lacks renders as a solid
-             * box -- a quit label ending in a question mark rendered with a
-             * green block after its last letter on hardware. Every string
-             * this menu has ever shipped uses letters,
-             * digits and : / %% ; treat anything else as unavailable. Same
-             * kind of constraint as the 14-char width cap, and just as
-             * invisible until a real PAK draws it. */
+             * font as a 16x16 sheet, and a glyph it lacks renders as a SOLID
+             * BOX -- this label used to read "Quit?" and the '?' drew a green
+             * block after the last letter on hardware. It was reworded, and
+             * '?' has not been used in menu text since.
+             *
+             * 🛑 '?' is PROVEN bad. Treat '!' as bad too: nothing has ever
+             * shown a PAK sheet carrying it, and there is no reason a sheet
+             * missing '?' would have '!'. Neither appears in any menu string
+             * today; keep it that way.
+             *
+             * 🛑 DO NOT confuse this with the NOTICE font. That one is OURS
+             * (native_video_writer.c, nv_glyph_rows) and it genuinely does
+             * have '?' and '!' -- verified at the bitmap, not just the
+             * dispatch. It also FAILS DIFFERENTLY: an unmapped character there
+             * draws nothing and the cell still advances, so it looks like a
+             * space rather than a box. Two fonts, two glyph sets, two failure
+             * modes; a rule proven for one says nothing about the other.
+             *
+             * Safe here: letters, digits, space and : / %% -- plus '.', which
+             * "Recording..." and "Replaying..." rely on and which was captured
+             * rendering correctly on ATOV and TMNT-RP (2026-08-10). Two PAKs
+             * is evidence, not proof; anything outside this set is unavailable
+             * until a real PAK is seen to draw it. Same kind of constraint as
+             * the 14-char width cap, and just as invisible until it ships. */
             _menutextmshift((quit_selector == 0)?pauseoffset[1]:pauseoffset[0], -1, 0, pauseoffset[2], pauseoffset[3], Tr("Back"));
             _menutextmshift((quit_selector == 1)?pauseoffset[1]:pauseoffset[0],  0, 0, pauseoffset[2], pauseoffset[3], Tr("Quit"));
         }
