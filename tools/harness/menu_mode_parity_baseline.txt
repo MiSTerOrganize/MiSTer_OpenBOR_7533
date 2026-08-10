@@ -17,4 +17,4 @@ if(recmode == 0)
 if(recmode == 1)
 int rec_items = (recmode == 0) ? 4 : (recmode == 2) ? 1 : 2;
 int recmode = mrec_mode;
-mrec_mode ? Tr("Lose recording") : Tr("Are you sure"));
+mrec_mode == 1 ? Tr("Lose recording")

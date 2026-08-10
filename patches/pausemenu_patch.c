@@ -361,16 +361,27 @@ void pausemenu()
              * exit(0)s -- the process is gone before a frame publishes, so
              * a notice afterwards is impossible. Ask first. Cursor starts
              * on Back: the destructive choice should never be the one a
-             * stray confirm press lands on. */
-            /* 🛑 TWO ROWS, ALWAYS, in this order, in every recorder mode.
-             * A replay injects presses by POSITION. This confirm used to
-             * appear only while recording, so replaying a run in which the
-             * user chose Quit and then Back sent that second press to Quit
-             * itself and exited to a black screen -- reported on hardware.
-             * Same rule as the Recording submenu: the shape is fixed, only
-             * the title below is allowed to change. */
+             * stray confirm press lands on.
+             *
+             * Reached only when mrec_mode != 0 (see case 4) -- with nothing
+             * to lose, Quit just goes, like Reset Pak.
+             *
+             * 🛑 TWO ROWS, ALWAYS, in this order, in EVERY mode that can
+             * reach here. A replay injects presses by POSITION, and a take
+             * is captured at mode 1 and replayed at mode 2, so both must
+             * show the same shape. This confirm once appeared only while
+             * recording, so replaying a run in which the user chose Quit
+             * and then Back sent that second press to Quit itself and
+             * exited to a black screen -- reported on hardware. Same rule
+             * as the Recording submenu: the shape is fixed, only the title
+             * below may change.
+             *
+             * The title keys on `== 1` deliberately: during PLAYBACK the
+             * take is already on disk, so nothing is lost and "Lose
+             * recording" would be a lie. PICO-8 words it the same way. */
             _menutextmshift(pauseoffset[4], -3, 0, pauseoffset[5], pauseoffset[6],
-                            mrec_mode ? Tr("Lose recording") : Tr("Are you sure"));
+                            mrec_mode == 1 ? Tr("Lose recording")
+                                           : Tr("Are you sure"));
             /* 🛑 LETTERS AND DIGITS ONLY in menu text. The PAK supplies the
              * font as a 16x16 sheet, and a glyph it lacks renders as a SOLID
              * BOX -- this label used to read "Quit?" and the '?' drew a green
