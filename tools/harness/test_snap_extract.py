@@ -150,11 +150,34 @@ def compile_probe(work, body):
 
 
 def run(exe, inp, dest, stem=None):
-    os.makedirs(dest, exist_ok=True)
+    """destdir is the scratch ROOT. The extractor routes .sav/.hi into
+    <dest>/saves and script-saves into <dest>/savestates, and deliberately does
+    NOT create either -- _handler.sh:106 makes them on every launch, so the
+    running core always has them.
+
+    🛑 The driver has to reproduce that precondition. Without it every accept
+    check failed with "cannot write .../saves/TestPak.sav" while the refusal
+    checks sailed through, so the suite still ran and still reported 18/24 --
+    a shipped-code verdict from an environment production never has.
+
+    Files are collected by WALKING, for the same reason: listing only the top
+    of dest saw an empty directory once routing landed on 2026-08-07, and the
+    assertions below match on basenames.
+    """
+    for leaf in ("saves", "savestates"):
+        os.makedirs(os.path.join(dest, leaf), exist_ok=True)
     args = [exe, inp, dest] + ([stem] if stem else [])
     r = subprocess.run(args, capture_output=True, text=True)
-    landed = sorted(os.listdir(dest)) if os.path.isdir(dest) else []
+    landed = sorted(f for _, _, fs in os.walk(dest) for f in fs)
     return r.returncode, r.stdout + r.stderr, landed
+
+
+def leaf_of(dest, basename):
+    """Which scratch leaf a file actually landed in ('' if it is missing)."""
+    for leaf in ("saves", "savestates"):
+        if os.path.exists(os.path.join(dest, leaf, basename)):
+            return leaf
+    return ""
 
 
 def main():
@@ -176,9 +199,26 @@ def main():
             ("TestPak.sav", b"SAVE"), ("TestPak.hi", b"HI"),
             ("TestPak.s00", b"SET0"), ("TestPak.s07", b"SET7"),
         ])
-        rc, out, landed = run(exe, good, os.path.join(work, "d_good"))
+        d_good = os.path.join(work, "d_good")
+        rc, out, landed = run(exe, good, d_good)
         check("valid take: accepted", rc == 0, out.strip())
         check("valid take: all 4 allowed extensions land", len(landed) == 4, str(landed))
+
+        # 🛑 ROUTING. The engine reads .sav/.hi from .scratch/saves and
+        # script-saves from .scratch/savestates. Sending every .sNN to saves/
+        # left savestates/ empty, so a replay booted without the unlocks the
+        # take was recorded against -- a guaranteed desync on any multi-set PAK.
+        # That bug was found by reading the source in Aug 2026; nothing here
+        # would have caught it, because the driver only ever looked at the top
+        # of destdir. It does now.
+        check("routing: .sav lands in saves/",
+              leaf_of(d_good, "TestPak.sav") == "saves", leaf_of(d_good, "TestPak.sav"))
+        check("routing: .hi lands in saves/",
+              leaf_of(d_good, "TestPak.hi") == "saves", leaf_of(d_good, "TestPak.hi"))
+        check("routing: .s00 lands in savestates/",
+              leaf_of(d_good, "TestPak.s00") == "savestates", leaf_of(d_good, "TestPak.s00"))
+        check("routing: .s07 lands in savestates/",
+              leaf_of(d_good, "TestPak.s07") == "savestates", leaf_of(d_good, "TestPak.s07"))
         # .sNN must accept ANY two digits: saveScriptFile writes one file per
         # level set, so matching only .s00 silently drops every later set.
         check("valid take: .s07 kept, not just .s00",
