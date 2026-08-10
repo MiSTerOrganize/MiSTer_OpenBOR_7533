@@ -308,11 +308,11 @@ if [ -f /tmp/openbor_recmode ]; then
                     # A snapshot EXISTS but nothing landed: the take carries state
                     # the run will not have. Distinct from "carries none", and the
                     # log was the only place either was ever said.
-                    printf %s "Could not restore this take's save data" > /tmp/openbor_recwarn
+                    printf %s "Could not restore the save data in this take" > /tmp/openbor_recwarn
                 fi
             elif [ "${_SNAPFAIL:-0}" -eq 1 ]; then
                 echo "[REC] this take's payload was refused -- not playing" >> "$_RECLOG"
-                printf %s "Could not restore this take's save data" > /tmp/openbor_recwarn
+                printf %s "Could not restore the save data in this take" > /tmp/openbor_recwarn
                 # REFUSE, do not play on. A take whose payload we rejected would
                 # replay against empty saves -- a certain desync. PICO-8 has
                 # refused this since it shipped. Dropping recmode also keeps

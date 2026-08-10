@@ -70,6 +70,14 @@ PROLOGUE = r"""
 #include <strings.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+/* dirent.h is needed because the cut function walks a directory (DIR /
+ * struct dirent / opendir). It is absent from the shipped file's own include
+ * list only because that file gets it transitively; the probe does not, so
+ * omitting it here fails the compile with "unknown type name 'DIR'" and takes
+ * the whole gate red -- which is exactly what happened. Same class as the
+ * missing-include build failures the guide records: new C in a cut or injected
+ * fragment must carry its OWN includes, never inherit them. */
+#include <dirent.h>
 """
 
 RESULTS = []

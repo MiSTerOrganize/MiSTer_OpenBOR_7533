@@ -9,6 +9,24 @@ name: Diff Harness
 # (harness driver, --alarm/crash handlers, engine-logic patches, PAK mass-scan).
 
 on:
+  # 🛑 PUSH TRIGGER IS LOAD-BEARING. This was workflow_dispatch-only, so the
+  # hard gates it carries -- the untrusted-input parser tests and the pause-menu
+  # mode-parity check -- ran only when somebody remembered. They did not run for
+  # three days (2026-08-07 -> 08-10) while RED: the probe stopped compiling
+  # (missing dirent.h) and nothing reported it. A gate nobody runs protects
+  # nothing, and "green last time I looked" is not a status.
+  #
+  # The path list is an ALLOW-list, so the failure mode of getting it wrong is a
+  # change that silently never gets checked. Prefer a wasted 2-minute run over a
+  # missed one; add generously, remove only with a reason.
+  push:
+    paths:
+      - '.github/scripts/**'
+      - '.github/workflows/diff_harness.yml'
+      - 'patches/**'
+      - 'src/**'
+      - 'tools/harness/**'
+      - 'games/OpenBOR/_handler.sh'
   workflow_dispatch:
     inputs:
       reason:
