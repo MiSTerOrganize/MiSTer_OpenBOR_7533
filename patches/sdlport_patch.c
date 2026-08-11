@@ -238,21 +238,31 @@ static void *mister_swap_thread(void *arg)
              * compare can fire a spurious Play the moment the core loads. */
             if (!rs_primed) {
                 rs_primed = 1;
-            } else if (mrec_slot_pub_fresh) {
-                /* The pause menu published a slot since the last poll, and the
-                 * echo we are holding may pre-date it: the reader latches
-                 * rs_slot_lat every clk_sys cycle but only WRITES 0x0C once per
-                 * frame (ST_WRITE_JOY0). Adopting a stale echo would REVERT the
-                 * press the user just made, then self-correct a poll later --
-                 * "the slot sometimes jumps back", and a Record made inside that
-                 * window lands in the wrong slot.
-                 *
-                 * One skipped poll is sufficient and cannot stall: the next is
-                 * ~1 s away, long after the reader has rewritten 0x0C many times.
-                 * A simultaneous OSD move is simply picked up then. */
-                mrec_slot_pub_fresh = 0;
             } else {
-                if (rslot != mrec_slot) {
+                /* The skip below covers ADOPTION ONLY. Play must still be
+                 * evaluated on a skipped poll: rs_last_seq advances
+                 * unconditionally at the bottom, so a Play pulse arriving during
+                 * a skipped poll would be consumed and LOST for good rather than
+                 * merely delayed.
+                 *
+                 * rslot is trustworthy for Play even when the echo is stale for
+                 * adoption: the RTL latches rs_cmd_lat and rs_slot_lat TOGETHER
+                 * on the rs_play pulse, so a word carrying cmd=1 carries the slot
+                 * as of that press. */
+                if (mrec_slot_pub_fresh) {
+                    /* The pause menu published a slot since the last poll, and
+                     * the echo we are holding may pre-date it: the reader latches
+                     * rs_slot_lat every clk_sys cycle but only WRITES 0x0C once
+                     * per frame (ST_WRITE_JOY0). Adopting a stale echo would
+                     * REVERT the press the user just made, then self-correct a
+                     * poll later -- "the slot sometimes jumps back", and a Record
+                     * made inside that window lands in the wrong slot.
+                     *
+                     * One skipped poll is sufficient and cannot stall: the next
+                     * is ~1 s away, long after the reader has rewritten 0x0C many
+                     * times. A simultaneous OSD move is simply picked up then. */
+                    mrec_slot_pub_fresh = 0;
+                } else if (rslot != mrec_slot) {
                     FILE *sf;
                     mrec_slot = rslot;
                     /* The slot has to survive the reset: Play respawns the
@@ -260,6 +270,7 @@ static void *mister_swap_thread(void *arg)
                     sf = fopen("/tmp/openbor_recslot", "w");
                     if (sf) { fprintf(sf, "%d", rslot); fclose(sf); }
                 }
+
                 if (rcmd == 1u && rseq != rs_last_seq) {
                     fprintf(stderr, "MiSTer: OSD play replay, slot %d\n", rslot);
                     fflush(stderr);
