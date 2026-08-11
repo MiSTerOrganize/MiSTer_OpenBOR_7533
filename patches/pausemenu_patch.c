@@ -558,6 +558,11 @@ void pausemenu()
                      * it muddies anyone reading the two in a log. */
                     static unsigned _pub_seq = 0;
                     NativeVideoWriter_PublishReplaySlot(mrec_slot, ++_pub_seq);
+                    /* Tell the swap thread to skip ONE adoption. The echo at
+                     * 0x0C is only rewritten once per frame, so for up to a
+                     * frame it still reports the slot we just moved away from,
+                     * and adopting it would undo this press. */
+                    mrec_slot_pub_fresh = 1;
                 }
             }
 

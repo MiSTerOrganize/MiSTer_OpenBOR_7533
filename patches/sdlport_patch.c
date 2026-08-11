@@ -44,6 +44,7 @@ extern int mrec_probe_take(const char *path, char *why, int whysz);
  * checks + the on-screen refusals); it lives in the engine TU because
  * mrec_content_id and mrec_highest are static there. */
 extern int mrec_slot;
+extern int mrec_slot_pub_fresh;
 extern int mrec_arm_slot_play(int slot);
 
 static void mister_crash_handler(int sig, siginfo_t *info, void *ucontext)
@@ -237,6 +238,19 @@ static void *mister_swap_thread(void *arg)
              * compare can fire a spurious Play the moment the core loads. */
             if (!rs_primed) {
                 rs_primed = 1;
+            } else if (mrec_slot_pub_fresh) {
+                /* The pause menu published a slot since the last poll, and the
+                 * echo we are holding may pre-date it: the reader latches
+                 * rs_slot_lat every clk_sys cycle but only WRITES 0x0C once per
+                 * frame (ST_WRITE_JOY0). Adopting a stale echo would REVERT the
+                 * press the user just made, then self-correct a poll later --
+                 * "the slot sometimes jumps back", and a Record made inside that
+                 * window lands in the wrong slot.
+                 *
+                 * One skipped poll is sufficient and cannot stall: the next is
+                 * ~1 s away, long after the reader has rewritten 0x0C many times.
+                 * A simultaneous OSD move is simply picked up then. */
+                mrec_slot_pub_fresh = 0;
             } else {
                 if (rslot != mrec_slot) {
                     FILE *sf;
