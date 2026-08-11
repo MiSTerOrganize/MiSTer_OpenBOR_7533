@@ -102,9 +102,14 @@ def replace_function(source, func_sig, replacement_file, patches_dir):
     # because the function body is still there, just preceded by prose.
     m = re.search(r"^" + re.escape(func_sig), patch, re.M)
     if not m:
-        print(f"  ERROR: Could not find '{func_sig}' at the start of a line in "
-              f"{replacement_file}")
-        return source
+        # 🛑 RAISE, never return unchanged. Printing and returning the source
+        # is a SILENT SKIP: the caller cannot tell, exit code stays 0, and
+        # build_mister_arm.sh's $? check passes -- so a drifted anchor drops
+        # the whole replacement into a green build. That is the exact class
+        # [[apply-patches-verify-persistence]] exists for.
+        raise RuntimeError(
+            f"{replacement_file}: could not find '{func_sig}' at the start of "
+            f"a line -- refusing to ship a silently unpatched build")
     func_start = m.start()
     # A second line-anchored hit means two definitions -- ambiguous, not ours to
     # guess between.
@@ -116,8 +121,12 @@ def replace_function(source, func_sig, replacement_file, patches_dir):
     # Find and replace in source
     _, start, end = extract_function(source, func_sig)
     if start < 0:
-        print(f"  ERROR: Could not find '{func_sig}' in source")
-        return source
+        # 🛑 RAISE -- see above. A miss here means the function we intended to
+        # replace is not in the source at all, which is never something to
+        # continue past.
+        raise RuntimeError(
+            f"could not find '{func_sig}' in the source to replace -- "
+            f"refusing to ship a silently unpatched build")
     return source[:start] + replacement + source[end:]
 
 # The .inp header carries a build id (char[12], write-only -- MREC_OFF_BUILD is
@@ -2869,7 +2878,7 @@ extern int mrec_isolate;
         "a_playrecstatus *playrecstatus = NULL;",
         "a_playrecstatus *playrecstatus = NULL;\n"
         "int mrec_mode = 0; /* MiSTer raw-input recorder: 0=idle 1=rec 2=play */\n"
-        "int mrec_slot = 0; /* 1..MREC_SLOTS, 0 = not yet chosen. BOUNDED slot library, like\n"
+        "volatile int mrec_slot = 0; /* 1..MREC_SLOTS, 0 = not yet chosen. BOUNDED slot library, like\n"
         "                    * savestates: you pick a number, Record overwrites it, Play reads\n"
         "                    * it. Replaces the old unbounded <content>_N library, whose only\n"
         "                    * access path was the OSD file browser -- which starts at the\n"
@@ -2885,7 +2894,7 @@ extern int mrec_isolate;
         "                    * Play both exit() and respawn, so a slot chosen in the menu would\n"
         "                    * otherwise be forgotten before the take is written. */\n"
         "#define MREC_SLOTS 8\n"
-        "int mrec_slot_pub_fresh = 0; /* Set when the pause menu publishes its slot to the OSD;\n"
+        "volatile int mrec_slot_pub_fresh = 0; /* Set when the pause menu publishes its slot to the OSD;\n"
         "                    * consumed by the ONE swap-thread poll that follows.\n"
         "                    * NOT optional bookkeeping -- it closes a real race. The reader\n"
         "                    * latches rs_slot_lat every clk_sys cycle but only WRITES the\n"
@@ -2922,7 +2931,7 @@ extern int mrec_isolate;
             "static int mrec_highest(const char *stem){ (void)stem; return 0; }\n"
             "int mrec_arm_slot_play(int slot){ (void)slot; return 0; }\n"
             "void NativeVideoWriter_Notice(const char *msg, int seconds){ (void)msg; (void)seconds; }\n"
-            "void NativeVideoWriter_PublishReplaySlot(int slot, unsigned seq){ (void)slot; (void)seq; }   /* pausemenu() is replaced in BOTH builds and now publishes the slot to the OSD picker; headless has no FPGA, so inert. */\n"
+            "void NativeVideoWriter_PublishReplaySlot(int slot){ (void)slot; }   /* pausemenu() is replaced in BOTH builds and now publishes the slot to the OSD picker; headless has no FPGA, so inert. */\n"
             "/* A9 display-space pause menu. The ship build composites the menu past the\n"
             " * downscale via these; headless has no display at all, so they are inert.\n"
             " * GetDisplaySize still answers with the real display geometry rather than\n"
@@ -6604,6 +6613,22 @@ extern int mrec_isolate;
                 # hand-summed literals again -- the defect class, not the instance.
                 '#define MREC_HDR_BYTES',                           # derived header geometry
                 'fread(_mr_h,1,MREC_LEN_MAGIC,_mr_pf)==MREC_LEN_MAGIC',  # reader uses it
+                # OSD Replay Slot picker. Added after audit round 1 found the
+                # gate covered NONE of this feature while BOTH of its delivery
+                # mechanisms could fail silently -- replace_function returned
+                # the source unchanged on a miss, and the sdlport splice had no
+                # else-branch at all. Those are fixed too, but a signature here
+                # is what proves the code actually ARRIVED.
+                'int mrec_arm_slot_play(int slot)',                 # the ONE arm-a-slot policy
+                'NativeVideoWriter_PublishReplaySlot',              # pause menu -> OSD write-back
+                'mrec_slot_pub_fresh = 1',                          # stale-echo guard is armed
+            ],
+            # 🛑 sdl/sdlport.c was not checked AT ALL. Its whole contribution is
+            # a single literal-marker splice: if that marker drifts, the entire
+            # OSD poll disappears with no message and a green dry-run.
+            'sdl/sdlport.c': [
+                'NativeVideoWriter_ReadReplay',                     # the OSD poll exists
+                'Stop the recording first',                         # and refuses rather than discarding a take
             ],
             'source/gamelib/sprite.c': [
                 'has_remap_directive && !drawmethod->has_palette_directive',  # step 4 v2 gate

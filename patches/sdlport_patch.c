@@ -43,8 +43,10 @@ extern int mrec_probe_take(const char *path, char *why, int whysz);
  * agree. mrec_arm_slot_play() is the shared policy (library/empty/probe
  * checks + the on-screen refusals); it lives in the engine TU because
  * mrec_content_id and mrec_highest are static there. */
-extern int mrec_slot;
-extern int mrec_slot_pub_fresh;
+extern int mrec_mode;
+extern volatile int mrec_slot;
+extern volatile int mrec_slot_pub_fresh;
+extern void NativeVideoWriter_Notice(const char *msg, int seconds);
 extern int mrec_arm_slot_play(int slot);
 
 static void mister_crash_handler(int sig, siginfo_t *info, void *ucontext)
@@ -192,6 +194,18 @@ static void *mister_swap_thread(void *arg)
                      * library, and this path used to arm and _exit(1) without
                      * opening the file -- destroying the run and explaining itself
                      * only after the reload. Refusing here leaves it untouched. */
+                    if (mrec_mode == 1) {
+                        /* Refuse rather than exit, exactly as the OSD slot Play
+                         * path does. Exiting here would discard an unwritten take
+                         * with no confirm and no message, while pause-Quit raises
+                         * a LOSE RECORDING dialog for the same loss. Same wording
+                         * on both cores. */
+                        fprintf(stderr, "MiSTer: replay refused -- recording in progress\n");
+                        fflush(stderr);
+                        NativeVideoWriter_Notice("Stop the recording first", 5);
+                        mister_replay_mtime = (long)s1st.st_mtime;
+                        continue;
+                    }
                     {
                         char rwhy[128];
                         if (!mrec_probe_take(rfull, rwhy, (int)sizeof(rwhy))) {
@@ -245,10 +259,13 @@ static void *mister_swap_thread(void *arg)
                  * a skipped poll would be consumed and LOST for good rather than
                  * merely delayed.
                  *
-                 * rslot is trustworthy for Play even when the echo is stale for
-                 * adoption: the RTL latches rs_cmd_lat and rs_slot_lat TOGETHER
-                 * on the rs_play pulse, so a word carrying cmd=1 carries the slot
-                 * as of that press. */
+                 * rslot is the slot as of the once-per-frame DDR3 write, NOT a
+                 * snapshot taken at the Play press. (An earlier version of this
+                 * comment claimed the RTL latched cmd and slot together on the
+                 * pulse. It does not -- rs_slot_lat tracks the current slot every
+                 * cycle, which is exactly what lets an OSD move be mirrored
+                 * without pressing Play.) That is still the right value to act
+                 * on: it is what the OSD is displaying when the user presses. */
                 if (mrec_slot_pub_fresh) {
                     /* The pause menu published a slot since the last poll, and
                      * the echo we are holding may pre-date it: the reader latches
@@ -262,19 +279,45 @@ static void *mister_swap_thread(void *arg)
                      * is ~1 s away, long after the reader has rewritten 0x0C many
                      * times. A simultaneous OSD move is simply picked up then. */
                     mrec_slot_pub_fresh = 0;
-                } else if (rslot != mrec_slot) {
-                    FILE *sf;
+                } else if (mrec_mode == 0 && rslot != mrec_slot) {
+                    /* 🛑 Adoption is FROZEN for the life of a take. The slot row
+                     * is drawn on the idle branch only, so while recording there
+                     * is nothing on screen showing which slot Stop will write to
+                     * -- and the OSD picker is still reachable. Without this
+                     * gate, moving it mid-take silently retargets Stop onto a
+                     * DIFFERENT slot and destroys the take that was in it, with
+                     * the only feedback arriving after the damage.
+                     *
+                     * 🛑 And do NOT write /tmp/openbor_recslot from this thread.
+                     * It runs from before openborMain and polls every second,
+                     * while the recovery block that READS that file does not run
+                     * until the PAK has finished loading -- 1.9 s on ATOV, 69 s
+                     * on JL Legacy. Writing here overwrote the marker before it
+                     * was ever read, on essentially every PAK, quietly making the
+                     * FPGA echo the source of truth instead of the file the
+                     * design says carries the slot. mrec_slot alone is enough:
+                     * the arm paths write the marker themselves, on the engine
+                     * thread, at the moment they commit. */
                     mrec_slot = rslot;
-                    /* The slot has to survive the reset: Play respawns the
-                     * process, so a choice held only in memory dies with it. */
-                    sf = fopen("/tmp/openbor_recslot", "w");
-                    if (sf) { fprintf(sf, "%d", rslot); fclose(sf); }
                 }
 
                 if (rcmd == 1u && rseq != rs_last_seq) {
                     fprintf(stderr, "MiSTer: OSD play replay, slot %d\n", rslot);
                     fflush(stderr);
-                    if (mrec_arm_slot_play(rslot)) {
+                    if (mrec_mode == 1) {
+                        /* 🛑 Refuse rather than exit. This is the ONLY route that
+                         * can reach Play while recording -- the pause submenu
+                         * hides Play at mode 1 -- and an unguarded _exit() here
+                         * would discard an unwritten take with no confirm and no
+                         * message, while pause-Quit raises a LOSE RECORDING
+                         * dialog for exactly the same loss. A Notice() placed
+                         * just before _exit() would not help: the process is gone
+                         * before a frame publishes. Same wording as PICO-8. */
+                        fprintf(stderr, "MiSTer: OSD play refused -- recording in progress");
+                        fflush(stderr);
+                        NativeVideoWriter_Notice("Stop the recording first", 5);
+                    }
+                    else if (mrec_arm_slot_play(rslot)) {
                         FILE *mf;
                         mister_swap_requested = 1;
                         mf = fopen("/tmp/openbor_recmode", "w");

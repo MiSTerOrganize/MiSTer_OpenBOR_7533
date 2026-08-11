@@ -69,7 +69,7 @@
  */
 
 extern int mrec_mode;  /* MiSTer raw-input recorder: 0=idle, 1=recording, 2=playing */
-extern int mrec_slot;  /* 1..MREC_SLOTS bounded take slot, chosen on the idle
+extern volatile int mrec_slot;  /* 1..MREC_SLOTS bounded take slot, chosen on the idle
                         * submenu. Defined in openbor.c beside mrec_mode, along
                         * with MREC_SLOTS, both of which precede this function in
                         * the spliced file. */
@@ -156,7 +156,7 @@ void pausemenu()
      * needs an explicit extern here. Without it the call is an implicit
      * declaration and the ship build -- which uses -Werror -- fails, while the
      * patcher dry-run stays perfectly green. A dry-run is not a build. */
-    extern void NativeVideoWriter_PublishReplaySlot(int slot, unsigned seq);
+    extern void NativeVideoWriter_PublishReplaySlot(int slot);
 
     /* NULL menuscreen = fall back to the pre-A9 engine-space path. */
     s_screen *menuscreen = NULL;
@@ -556,13 +556,20 @@ void pausemenu()
                      * that adoption too would bounce the value back and forth.
                      * It converges either way, but the traffic is pointless and
                      * it muddies anyone reading the two in a log. */
-                    static unsigned _pub_seq = 0;
-                    NativeVideoWriter_PublishReplaySlot(mrec_slot, ++_pub_seq);
-                    /* Tell the swap thread to skip ONE adoption. The echo at
-                     * 0x0C is only rewritten once per frame, so for up to a
-                     * frame it still reports the slot we just moved away from,
-                     * and adopting it would undo this press. */
+                    /* 🛑 Raise the flag BEFORE publishing, not after. The swap
+                     * thread is a SEPARATE thread: a poll landing between the
+                     * publish and the flag would see pub_fresh == 0, adopt the
+                     * stale echo and clobber mrec_slot back -- the exact revert
+                     * the flag exists to prevent -- and then the flag would make
+                     * the NEXT poll skip too, leaving the wrong slot standing for
+                     * ~2 s with any Record inside that window mis-slotted.
+                     * Setting it first can only ever cost one harmless extra
+                     * skip. */
                     mrec_slot_pub_fresh = 1;
+                    /* No sequence argument: it is derived from the wire inside
+                     * PublishReplaySlot, because a process-local counter
+                     * restarts at 0 while 0x04 survives the respawn. */
+                    NativeVideoWriter_PublishReplaySlot(mrec_slot);
                 }
             }
 

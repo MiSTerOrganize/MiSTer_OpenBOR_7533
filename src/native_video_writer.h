@@ -125,7 +125,7 @@ uint32_t NativeVideoWriter_ReadJoystick(int player);
  * PublishReplaySlot sends the pause menu's CURRENT slot (1..8) back so the
  * OSD display follows it -- ONE slot value, both directions. */
 uint32_t NativeVideoWriter_ReadReplay(void);
-void NativeVideoWriter_PublishReplaySlot(int slot, unsigned seq);
+void NativeVideoWriter_PublishReplaySlot(int slot);
 
 /// Check if FPGA has loaded a cart file (returns file size, 0 if none).
 uint32_t NativeVideoWriter_CheckCart(void);
