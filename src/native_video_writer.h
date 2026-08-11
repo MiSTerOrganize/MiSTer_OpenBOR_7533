@@ -120,6 +120,13 @@ void NativeVideoWriter_NotePublished(int buf);
 /// Read joystick state for player 0-3 from DDR3 (written by FPGA).
 uint32_t NativeVideoWriter_ReadJoystick(int player);
 
+/* OSD replay-slot picker (see rtl/replay_slot_ui.sv). ReadReplay returns the
+ * raw FPGA->ARM word: cmd [1:0], slot [10:8] (0-based), seq [23:16].
+ * PublishReplaySlot sends the pause menu's CURRENT slot (1..8) back so the
+ * OSD display follows it -- ONE slot value, both directions. */
+uint32_t NativeVideoWriter_ReadReplay(void);
+void NativeVideoWriter_PublishReplaySlot(int slot, unsigned seq);
+
 /// Check if FPGA has loaded a cart file (returns file size, 0 if none).
 uint32_t NativeVideoWriter_CheckCart(void);
 

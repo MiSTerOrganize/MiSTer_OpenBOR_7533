@@ -38,6 +38,13 @@
  * rather than after the PAK has already reloaded. Declared here, below the
  * splice marker above -- see that note. */
 extern int mrec_probe_take(const char *path, char *why, int whysz);
+/* OSD "Replay Slot" picker. mrec_slot is the ONE slot value the pause menu
+ * also uses -- mirroring the OSD into it here is what makes the two pickers
+ * agree. mrec_arm_slot_play() is the shared policy (library/empty/probe
+ * checks + the on-screen refusals); it lives in the engine TU because
+ * mrec_content_id and mrec_highest are static there. */
+extern int mrec_slot;
+extern int mrec_arm_slot_play(int slot);
 
 static void mister_crash_handler(int sig, siginfo_t *info, void *ucontext)
 {
@@ -204,6 +211,58 @@ static void *mister_swap_thread(void *arg)
                 /* .s1 changed but empty/unreadable — advance baseline so we don't spin */
                 mister_replay_mtime = (long)s1st.st_mtime;
             }
+        }
+
+        /* OSD "Replay Slot" 1-8 + "Play Replay". The FPGA publishes both in the
+         * spare upper half of the JOY0 qword (0x0C), which it already writes
+         * every frame, so reading it here costs nothing.
+         *
+         * Two jobs, and the first is the one that makes the feature honest:
+         * mirror the OSD's slot into mrec_slot so the pause-menu picker shows
+         * the SAME number. One slot value, two displays.
+         *
+         * Play reuses mrec_arm_slot_play() -- the same function the pause menu
+         * calls -- so an empty slot refuses with the same words here as there
+         * instead of resetting the PAK to find out. */
+        {
+            static int      rs_primed = 0;
+            static unsigned rs_last_seq = 0;
+            uint32_t rw    = NativeVideoWriter_ReadReplay();
+            unsigned rseq  = (rw >> 16) & 0xFFu;
+            unsigned rcmd  = rw & 3u;
+            int      rslot = (int)((rw >> 8) & 7u) + 1;   /* wire is 0-based */
+
+            /* Seed the sequence from the FIRST real read, never from 0. DDR3
+             * holds whatever the previous core left there, so an unseeded
+             * compare can fire a spurious Play the moment the core loads. */
+            if (!rs_primed) {
+                rs_primed = 1;
+            } else {
+                if (rslot != mrec_slot) {
+                    FILE *sf;
+                    mrec_slot = rslot;
+                    /* The slot has to survive the reset: Play respawns the
+                     * process, so a choice held only in memory dies with it. */
+                    sf = fopen("/tmp/openbor_recslot", "w");
+                    if (sf) { fprintf(sf, "%d", rslot); fclose(sf); }
+                }
+                if (rcmd == 1u && rseq != rs_last_seq) {
+                    fprintf(stderr, "MiSTer: OSD play replay, slot %d\n", rslot);
+                    fflush(stderr);
+                    if (mrec_arm_slot_play(rslot)) {
+                        FILE *mf;
+                        mister_swap_requested = 1;
+                        mf = fopen("/tmp/openbor_recmode", "w");
+                        if (mf) { fputs("PLAY", mf); fclose(mf); }
+                        mf = fopen("/tmp/openbor_reset_marker", "w");
+                        if (mf) fclose(mf);
+                        _exit(1);
+                    }
+                    /* Refused: it has already said why on screen. Fall through
+                     * and keep playing -- do NOT reset. */
+                }
+            }
+            rs_last_seq = rseq;
         }
     }
     return NULL;

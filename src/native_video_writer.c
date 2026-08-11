@@ -55,7 +55,18 @@
 #define NV_DDR_PHYS_BASE    0x3A000000u
 #define NV_DDR_REGION_SIZE  0x00100000u   /* 1MB covers buffers + control + cart data */
 #define NV_CTRL_OFFSET      0x00000000u
+/* OSD replay-slot transport. Both words ride in DEAD SPACE inside qwords the
+ * FPGA already moves every frame, so neither direction costs a new DDR3
+ * transaction:
+ *   0x04 = spare upper half of the CONTROL qword (the reader takes only
+ *          ddr_dout[31:0] of it) -- ARM -> FPGA, byte0=slot, byte1=seq.
+ *   0x0C = spare upper half of the JOY0 qword (the FPGA wrote {32'd0, joy})
+ *          -- FPGA -> ARM, byte0=cmd, byte1=slot, byte2=seq.
+ * Slots are 0-BASED on the wire (0..7); the user-facing 1..8 conversion
+ * happens at this boundary and nowhere else. */
+#define NV_REPLAY_PUB_OFFSET 0x00000004u  /* ARM -> FPGA */
 #define NV_JOY0_OFFSET      0x00000008u
+#define NV_REPLAY_OFFSET    0x0000000Cu   /* FPGA -> ARM */
 #define NV_CART_CTRL_OFFSET  0x00000010u
 #define NV_JOY1_OFFSET      0x00000018u
 #define NV_JOY2_OFFSET      0x00000020u
@@ -1552,4 +1563,29 @@ uint32_t NativeVideoWriter_ReadJoystick(int player) {
     if (!ddr_base || player < 0 || player > 3) return 0;
     volatile uint32_t *joy = (volatile uint32_t *)(ddr_base + joy_offsets[player]);
     return *joy;
+}
+
+/* OSD "Replay Slot" / "Play Replay" -> ARM. Raw word; the caller decodes.
+ *   bits [1:0]  cmd   0 = idle, 1 = play
+ *   bits [10:8] slot  0..7
+ *   bits [23:16] seq  bumped by the FPGA on every captured Play pulse, so a
+ *                     repeat of the SAME slot still reads as a new event. */
+uint32_t NativeVideoWriter_ReadReplay(void) {
+    if (!ddr_base) return 0;
+    volatile uint32_t *rs = (volatile uint32_t *)(ddr_base + NV_REPLAY_OFFSET);
+    return *rs;
+}
+
+/* Pause-menu slot -> OSD. The FPGA edge-detects `seq` and pushes the new slot
+ * into the OSD's status word, which is what makes the two pickers show the
+ * same number.
+ *
+ * `slot` is the user-facing 1..8; it is converted to the 0-based wire value
+ * here so exactly one place in the codebase knows about the offset. */
+void NativeVideoWriter_PublishReplaySlot(int slot, unsigned seq) {
+    if (!ddr_base) return;
+    if (slot < 1) slot = 1;
+    if (slot > 8) slot = 8;
+    volatile uint32_t *pub = (volatile uint32_t *)(ddr_base + NV_REPLAY_PUB_OFFSET);
+    *pub = (uint32_t)((slot - 1) & 7) | (((uint32_t)seq & 0xFFu) << 8);
 }

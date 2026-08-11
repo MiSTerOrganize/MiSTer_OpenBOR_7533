@@ -152,6 +152,11 @@ void pausemenu()
      * discarded -- but "compiles to the right thing by luck" is not a property
      * to keep relying on. Declared properly now. */
     extern void NativeVideoWriter_Notice(const char *msg, int seconds);
+    /* openbor.c does NOT include native_video_writer.h, so every one of these
+     * needs an explicit extern here. Without it the call is an implicit
+     * declaration and the ship build -- which uses -Werror -- fails, while the
+     * patcher dry-run stays perfectly green. A dry-run is not a build. */
+    extern void NativeVideoWriter_PublishReplaySlot(int slot, unsigned seq);
 
     /* NULL menuscreen = fall back to the pre-A9 engine-space path. */
     s_screen *menuscreen = NULL;
@@ -527,15 +532,32 @@ void pausemenu()
              * the item is usable on a pad with no working left/right. */
             if(recmode == 0 && rec_selector == 0)
             {
+                int _slot_moved = 0;
                 if(lrkeys & FLAG_MOVELEFT)
                 {
                     mrec_slot = (mrec_slot <= 1) ? MREC_SLOTS : mrec_slot - 1;
                     sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
+                    _slot_moved = 1;
                 }
                 if(lrkeys & FLAG_MOVERIGHT)
                 {
                     mrec_slot = (mrec_slot >= MREC_SLOTS) ? 1 : mrec_slot + 1;
                     sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
+                    _slot_moved = 1;
+                }
+                if(_slot_moved)
+                {
+                    /* Push the new slot out to the OSD picker so the two show
+                     * the same number. The FPGA edge-detects this sequence and
+                     * writes it back into the OSD's status word.
+                     *
+                     * Published ONLY on a change made HERE. The swap thread
+                     * also adopts the OSD's slot into mrec_slot; publishing on
+                     * that adoption too would bounce the value back and forth.
+                     * It converges either way, but the traffic is pointless and
+                     * it muddies anyone reading the two in a log. */
+                    static unsigned _pub_seq = 0;
+                    NativeVideoWriter_PublishReplaySlot(mrec_slot, ++_pub_seq);
                 }
             }
 
@@ -634,53 +656,16 @@ void pausemenu()
                              * else below was unreachable -- a PAK with no takes at all
                              * reported "Slot 1 is empty". True, but not the useful answer.
                              * The engine-side copy of this was fixed the same way. */
-                            if(_pmx > 0 && mrec_highest(_pn) > 0)
-                            {
-                                char _pp[MAX_BUFFER_LEN]; char _pw[128];
-                                sprintf(_pp, "%s_%d.inp", _pb, _pmx);
-                                /* An empty PICKED slot must say so and stay put.
-                                 * Arming anyway would reset the PAK and then
-                                 * report "no recording for this PAK" from the next
-                                 * process -- both a wasted reset and, whenever some
-                                 * OTHER slot does hold a take, untrue. */
-                                {
-                                    FILE *_pf = fopen(_pp, "rb");
-                                    if(!_pf)
-                                    {
-                                        char _pe[64];
-                                        snprintf(_pe, sizeof(_pe), "Slot %d is empty", _pmx);
-                                        printf("[REPLAY] slot %d is empty -- not arming\n", _pmx);
-                                        NativeVideoWriter_Notice(_pe, 4);
-                                        _arm = 0;
-                                    }
-                                    else fclose(_pf);
-                                }
-                                /* Validate BEFORE the reset. This used to arm and
-                                 * exit(0) unconditionally, so a damaged take -- or
-                                 * one for a PAK that has since been modified --
-                                 * cost the user their session and explained itself
-                                 * only in the next process. Refusing here leaves
-                                 * the pause menu on screen to carry the reason. */
-                                if(_arm && !mrec_probe_take(_pp, _pw, (int)sizeof(_pw)))
-                                {
-                                    printf("[REPLAY] not arming: %s\n", _pw);
-                                    NativeVideoWriter_Notice(_pw, 6);
-                                    _arm = 0;
-                                }
-                                if(_arm)
-                                {
-                                    _rm = fopen("/tmp/openbor_playfile", "w");
-                                    if(_rm) { fputs(_pp, _rm); fclose(_rm); }
-                                }
-                            }
-                            else
-                            {
-                                /* Nothing anywhere in this PAK's library. Say so
-                                 * here rather than resetting to find out. */
-                                printf("[REPLAY] no recording for this PAK -- not arming\n");
-                                NativeVideoWriter_Notice("No recording for this game", 4);
-                                _arm = 0;
-                            }
+                            /* ONE implementation of the arm-a-slot policy, shared with
+                             * the OSD's 'Play Replay' (sdl/sdlport.c). This block used to
+                             * carry its own copy of the library / empty-slot / probe
+                             * checks; the OSD path needs exactly the same refusals with
+                             * exactly the same words, and two copies of a policy diverge.
+                             * mrec_arm_slot_play() explains every refusal on screen and
+                             * writes /tmp/openbor_playfile on success -- how we LEAVE
+                             * still differs (exit(0) here, _exit(1) on the swap thread),
+                             * so that stays with each caller. */
+                            _arm = mrec_arm_slot_play(_pmx);
                             if(_arm)
                             {
                                 _rm = fopen("/tmp/openbor_recmode", "w");

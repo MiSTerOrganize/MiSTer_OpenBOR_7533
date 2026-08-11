@@ -70,7 +70,13 @@ module openbor_video_top (
     // Audio output (clk_audio domain)
     input  wire        clk_audio,
     output wire [15:0] audio_l,
-    output wire [15:0] audio_r
+    output wire [15:0] audio_r,
+
+    // Replay slot (OSD picker <-> ARM pause-menu picker; see replay_slot_ui.sv)
+    input  wire        rs_play,
+    input  wire  [2:0] rs_slot,
+    output wire  [2:0] arm_slot,
+    output wire  [7:0] arm_seq
 );
 
 // -- Timing Generator --------------------------------------------------
@@ -162,7 +168,12 @@ openbor_video_reader reader (
 
     .clk_audio      (clk_audio),
     .audio_l        (audio_l),
-    .audio_r        (audio_r)
+    .audio_r        (audio_r),
+
+    .rs_play        (rs_play),
+    .rs_slot        (rs_slot),
+    .arm_slot       (arm_slot),
+    .arm_seq        (arm_seq)
 );
 
 // -- Output assignments ------------------------------------------------

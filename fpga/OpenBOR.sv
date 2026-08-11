@@ -262,6 +262,9 @@ localparam CONF_STR = {
 	"OQ,Swap Joysticks,No,Yes;",
 	"ORS,Stereo Mix,None,25%,50%,100%;",
 	"-;",
+	"O13,Replay Slot,1,2,3,4,5,6,7,8;",
+	"T9,Play Replay;",
+	"-;",
 	"J1,Attack,Jump,Special,Attack2,Attack3,Attack4,Start;",
 	"jn,A,B,X,Y,L,R,Start;",
 	"-;",
@@ -292,12 +295,29 @@ assign ioctl_wait = nv_ioctl_wait;
 wire  [1:0] img_mounted;
 wire [63:0] img_size;
 
+// Replay slot UI signals. ONE slot value is shared with the ARM's in-game
+// pause-menu picker, so moving it in either place moves the other; see
+// rtl/replay_slot_ui.sv. arm_slot/arm_seq come out of the video reader, which
+// picks them up from the spare upper half of the DDR3 control qword.
+wire        rs_play;          // 1-cycle pulse: OSD "Play Replay"
+wire  [2:0] rs_slot;          // currently selected slot (0..7 == "Slot 1..8")
+wire        rs_statusUpdate;
+wire  [2:0] nv_arm_slot;
+wire  [7:0] nv_arm_seq;
+
 hps_io #(.CONF_STR(CONF_STR), .VDNUM(2)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
 	.forced_scandoubler(forced_scandoubler),
 	.status(status),
+	// Write-back path: lets the core push a value into the OSD's status word,
+	// which is what keeps the OSD "Replay Slot" and the in-game pause-menu
+	// slot picker showing the same number. rs_slot lands on [3:1]; every
+	// other bit is passed through unchanged.
+	//   96 + 28 + 3 + 1 == 128
+	.status_in({96'd0, status[31:4], rs_slot, status[0]}),
+	.status_set(rs_statusUpdate),
 	.status_menumask(cfg),
 	.joystick_0(joystick_0),
 	.joystick_1(joystick_1),
@@ -318,6 +338,20 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(2)) hps_io
 	.sd_rd(2'b0),
 	.sd_wr(2'b0),
 	.sd_buff_din('{8'd0, 8'd0})
+);
+
+// Replay slot UI — the OSD half of the recording feature. Slot + Play only;
+// Record/Stop stay in the pause menu on purpose (Record resets the PAK).
+replay_slot_ui replay_slot_ui_inst
+(
+	.clk           (clk_sys),
+	.status_slot   (status[3:1]),
+	.OSD_play      (status[9]),
+	.arm_slot      (nv_arm_slot),
+	.arm_seq       (nv_arm_seq),
+	.rs_play       (rs_play),
+	.statusUpdate  (rs_statusUpdate),
+	.selected_slot (rs_slot)
 );
 
 ////////////////////   CLOCKS   ///////////////////
@@ -755,7 +789,12 @@ openbor_video_top native_video
 	// Native audio (DDR3 ring buffer -> AUDIO_L/R)
 	.clk_audio      (CLK_AUDIO),
 	.audio_l        (nv_audio_l),
-	.audio_r        (nv_audio_r)
+	.audio_r        (nv_audio_r),
+
+	.rs_play        (rs_play),
+	.rs_slot        (rs_slot),
+	.arm_slot       (nv_arm_slot),
+	.arm_seq        (nv_arm_seq)
 );
 
 // H/V position now handled inside timing module via FP/BP adjustment
