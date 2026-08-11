@@ -112,7 +112,7 @@ Both `OpenBOR_4086` and `OpenBOR_7533` cores have identical support across these
 | Logs (with auto-prune N=10) | ✅ `/media/fat/logs/OpenBOR_4086/` | ✅ `/media/fat/logs/OpenBOR_7533/` |
 | Configs (`<pak>.cfg` + `default.cfg` + `<pak>.hi`) | ✅ `/media/fat/config/` (shared across sister cores) | ✅ shared with 4086 |
 | MGLs (`_Other/*.mgl` one-click launchers) | ✅ | ✅ |
-| Gameplay recording & replay (`<pak>.inp`) | ✅ pause menu **or** MiSTer OSD "Load Replay"; deterministic bit-for-bit, hands-free, press any button to take over | ✅ same |
+| Gameplay recording & replay (`<pak>.inp`) | ✅ 8 slots per PAK, reachable from the pause menu **or** the MiSTer OSD ("Replay Slot" + "Play Replay"), plus "Load Replay" for a file someone sent you; deterministic bit-for-bit, hands-free, press any button to take over | ✅ same |
 | Gamepad (up to 4P, Start adds player) | ✅ | ✅ |
 | Keyboard | ❌ no (SDL keyboard not wired through dummy driver) | ❌ no |
 | Mouse | ❌ no (no native engine mouse support) | ❌ no |
@@ -242,14 +242,24 @@ button to take over.
 - **Take over any time** — during playback, just press any button and the
   automated inputs stop instantly so you can play.
 
-**From the MiSTer OSD** (a second way to launch a replay):
+**From the MiSTer OSD** (a second way to reach the same eight slots):
+
+- **Replay Slot** — pick 1-8. This is the *same* slot the pause menu shows: move
+  it in either place and the other follows, so the two can never disagree about
+  which slot you are on.
+- **Play Replay** — plays that slot. The PAK restarts and the recording runs
+  hands-free (press any button to take over). If the slot is empty it says so
+  and leaves your game alone, rather than restarting the PAK to tell you.
+
+Record and Stop deliberately stay in the pause menu: Record restarts the PAK,
+which is not something to put one OSD click away.
+
+**Also from the OSD**, for a recording that isn't in one of your slots:
 
 1. **Load PAK** — pick the PAK you want.
-2. **Load Replay** — pick a `.inp` file. This is mainly for a recording someone
-   sent you, since your own eight are already one button-press away in the pause
-   menu. The PAK restarts and the recording plays back hands-free (press any
-   button to take over). You can re-load the same recording as many times as you
-   like.
+2. **Load Replay** — pick a `.inp` file directly. This is mainly for a recording
+   someone sent you, since your own eight are already one button-press away.
+   You can re-load the same recording as many times as you like.
 
 Playback is bit-for-bit accurate: recording and replay both start from a PAK
 restart, the random-number seed is captured and restored, and the engine's
