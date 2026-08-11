@@ -19,3 +19,8 @@ fpga/*.bak
 fpga/build_*.log
 fpga/build_id.v
 __pycache__/
+
+# Seed-lottery scratch: per-seed RBF+summaries kept aside so a losing seed
+# does not cost a full recompile to get the winner back. Build artifacts --
+# the WINNER is committed normally from output_files/, this dir is never.
+fpga/seed_lottery/
