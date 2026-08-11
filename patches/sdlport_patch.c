@@ -106,7 +106,14 @@ static void *mister_swap_thread(void *arg)
     while (!mister_swap_requested) {
         sleep(1);
         FILE *f = fopen("/media/fat/config/OpenBOR.s0", "r");
-        if (!f) continue;
+        /* 🛑 `continue` here skips the REST of the loop body, which includes
+         * the .s1 picker and the OSD Replay Slot poll further down. Neither has
+         * anything to do with .s0 being readable, so a missing .s0 silently
+         * disabled two unrelated features. Benign today only because this
+         * thread starts after the blocking .s0 wait -- i.e. by luck of ordering,
+         * not by design. PICO-8's equivalent poll has no such dependency.
+         * Skip only the .s0 work. */
+        if (f) {
         check_path[0] = 0;
         if (fgets(check_path, sizeof(check_path), f)) {
             char *nl = strchr(check_path, '\n');
@@ -156,6 +163,7 @@ static void *mister_swap_thread(void *arg)
                 _exit(1);
             }
         }
+        }   /* end of the .s0 block -- the pollers below run regardless */
 
         /* SC1 "Load Replay" picker: MiSTer rewrites .s1 (bumping its MTIME) on
          * EVERY OSD pick — including re-picking the SAME .inp after a quit/re-

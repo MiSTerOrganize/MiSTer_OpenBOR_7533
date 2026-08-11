@@ -587,17 +587,38 @@ void pausemenu()
                          * the title through gameplay. The marker survives the daemon
                          * respawn. Play replays that whole stream hands-free. */
                         {
-                            FILE *_rm = fopen("/tmp/openbor_recmode", "w");
-                            if(_rm) { fputs("REC", _rm); fclose(_rm); }
                             /* Carry the slot: this process is about to exit, so a
                              * choice held only in memory would be lost and every
-                             * take would land in the fallback slot. */
-                            _rm = fopen("/tmp/openbor_recslot", "w");
-                            if(_rm) { fprintf(_rm, "%d", mrec_slot); fclose(_rm); }
-                            _rm = fopen("/tmp/openbor_reset_marker", "w");
-                            if(_rm) fclose(_rm);
+                             * take would land in the fallback slot.
+                             *
+                             * REFUSE if it cannot be carried, BEFORE writing any
+                             * other marker. An unwritten slot resolves to slot 1
+                             * in the next process, so Record would overwrite
+                             * SLOT 1's take instead of the chosen one, silently.
+                             * Same rule and same wording as PICO-8.
+                             *
+                             * 🛑 The refusal falls through to leave the menu open
+                             * -- it must NOT `break`. The nearest enclosing
+                             * breakable statement here is the menu's own
+                             * while(!quit) loop, not a switch, so a break would
+                             * CLOSE THE PAUSE MENU and resume the game as if the
+                             * user had picked Continue. */
+                            FILE *_rm = fopen("/tmp/openbor_recslot", "w");
+                            if(!_rm)
+                            {
+                                printf("[REC] cannot write the slot marker -- not arming\n");
+                                NativeVideoWriter_Notice("Could not start recording", 5);
+                            }
+                            else
+                            {
+                                fprintf(_rm, "%d\n", mrec_slot); fclose(_rm);
+                                _rm = fopen("/tmp/openbor_recmode", "w");
+                                if(_rm) { fputs("REC", _rm); fclose(_rm); }
+                                _rm = fopen("/tmp/openbor_reset_marker", "w");
+                                if(_rm) fclose(_rm);
+                                exit(0);
+                            }
                         }
-                        exit(0);
                     }
                     else if(rec_selector == 2)  /* Play Recording */
                     {
@@ -820,7 +841,7 @@ void pausemenu()
                              * same omission on the same path. */
                             if(mrec_slot < 1 || mrec_slot > MREC_SLOTS) mrec_slot = 1;
                             _m = fopen("/tmp/openbor_recslot", "w");
-                            if (_m) { fprintf(_m, "%d", mrec_slot); fclose(_m); }
+                            if (_m) { fprintf(_m, "%d\n", mrec_slot); fclose(_m); }
                             printf("[REC] reset while recording -- restarting the take in slot %d\n",
                                    mrec_slot);
                         }
