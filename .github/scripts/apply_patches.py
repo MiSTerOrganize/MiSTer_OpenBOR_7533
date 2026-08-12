@@ -6693,7 +6693,24 @@ extern int mrec_isolate;
     # signature and HARD-FAILS the build on a miss (build_mister_arm.sh checks $?),
     # rather than shipping a binary quietly missing the palette/hash patches.
     # Palette/hash signatures are ship-build only (OB_HEADLESS omits those patches).
-    _required = {}
+    # 🛑 HEADLESS IS GATED TOO.
+    #
+    # This used to be `_required = {}` for headless, which disabled the gate
+    # outright -- so the build the diff harness depends on had NO protection
+    # against the dropped-write class at all, and a silently-truncated recorder
+    # would surface as mystifying harness behaviour rather than a build failure.
+    # Headless omits the palette/hash/16-bit patches, so it gets the subset that
+    # DOES apply to it.
+    _required = {
+        'openbor.c': [
+            'volatile int mrec_mode = 0;',                  # recorder mode global
+            '#define MREC_HDR_BYTES',                       # container geometry
+            'int mrec_save_slot_marker(int slot)',          # marker writer (stub in headless)
+        ],
+    }
+    # NOT in this list, verified rather than assumed: the recorder HOOK body
+    # (_mr_buf and friends) is ship-only, so asserting it here fails the
+    # headless build. That miss is what this subset caught on its first run.
     if not HEADLESS:
         _required = {
             'openbor.c': [
@@ -6704,10 +6721,10 @@ extern int mrec_isolate;
                 'prepare_sprite_map',                               # hash-map loadsprite optimization
                 'mister_scache_lookup',                             # anim-script dedup cache (ported from vscreen-16bit)
                 'mister_ccache_lookup',                             # command-script dedup cache
-                'MiSTer PDC2 fix',                                  # no-model at-entry MODEL_INDEX_NONE
+                'next.weaponindex = MODEL_INDEX_NONE',              # PDC2 fix -- the CODE, not its comment
                 'PIXEL_16)) == NULL',                               # Path B: 16-bit vscreen
                 'volatile int mrec_mode = 0;',                      # raw-input recorder global (volatile: read cross-thread by the OSD poll)
-                'title-anchored raw-input recorder',                # recorder hook body
+                'static u64 *_mr_buf = NULL;',                      # recorder hook BODY (was its comment)
                 # Container geometry. Nothing here asserted the .inp layout until
                 # 2026-08-02, which is how a 5-vs-4 magic mismatch shipped and made
                 # the reader reject every take the same build wrote. These two
@@ -6721,6 +6738,7 @@ extern int mrec_isolate;
                 # the source unchanged on a miss, and the sdlport splice had no
                 # else-branch at all. Those are fixed too, but a signature here
                 # is what proves the code actually ARRIVED.
+                'mrec_probe_take(path, why, (int)sizeof(why))',     # the POLICY BODY of mrec_arm_slot_play (its declaration alone satisfied the old signature)
                 'int mrec_arm_slot_play(int slot)',                 # the ONE arm-a-slot policy
                 'NativeVideoWriter_PublishReplaySlot',              # pause menu -> OSD write-back
                 'mrec_slot_pub_fresh = 1',                          # stale-echo guard is armed
@@ -6742,10 +6760,10 @@ extern int mrec_isolate;
             'openborscript.c': [
                 'mister_script_alias_fresh(Script *pdest',          # dedup bit-exact alias helper
                 'mister_script_compile_noinit',                     # cmd-dedup compile-without-init
-                'match 16-bit vscreen so drawscreen blits',         # P10: script allocscreen PIXEL_16
+                'allocscreen((int)w, (int)h, PIXEL_16)',         # P10: script allocscreen PIXEL_16
             ],
             'source/gamelib/anigif.c': [
-                '565 GIF frames blit into the 16-bit vscreen', # P9: anigif buffers PIXEL_16 (black-cutscene fix)
+                'gif_header.screenheight, PIXEL_16)', # P9: anigif buffers PIXEL_16 (black-cutscene fix)
             ],
             'source/gamelib/loadimg.c': [
                 'PAL_BYTES == 512',                             # P11: PNG PLTE 565 gate (heap-overflow fix)
@@ -6754,10 +6772,48 @@ extern int mrec_isolate;
                 'has_remap_directive',                              # s_model struct field
             ],
         }
+    # 🛑 MATCH AGAINST CODE, NOT COMMENTS.
+    #
+    # This was a substring test over the RAW file, so a COMMENT satisfied every
+    # signature -- meaning a patch could be reduced to a comment describing
+    # itself and the gate would still pass. That is the same
+    # confirms-itself failure the gate exists to prevent.
+    #
+    # Four signatures WERE deliberate comment markers. They were not stripped
+    # blindly (that would have turned them into false build failures); each was
+    # replaced with the code line it annotates, so the gate now proves the code
+    # arrived. If you add a signature, add a CODE one.
+    def _strip_c_comments(_src):
+        _out, _i, _n = [], 0, len(_src)
+        while _i < _n:
+            _ch = _src[_i]
+            _nx = _src[_i + 1] if _i + 1 < _n else ""
+            if _ch == '"' or _ch == "'":
+                _q = _ch; _out.append(_ch); _i += 1
+                while _i < _n:
+                    if _src[_i] == "\\":
+                        _out.append(_src[_i:_i + 2]); _i += 2; continue
+                    _out.append(_src[_i])
+                    if _src[_i] == _q:
+                        _i += 1; break
+                    _i += 1
+                continue
+            if _ch == "/" and _nx == "/":
+                while _i < _n and _src[_i] != "\n":
+                    _i += 1
+                continue
+            if _ch == "/" and _nx == "*":
+                _e = _src.find("*/", _i + 2)
+                _i = _n if _e < 0 else _e + 2
+                _out.append(" ")
+                continue
+            _out.append(_ch); _i += 1
+        return "".join(_out)
+
     _missing = []
     for _rel, _sigs in _required.items():
         try:
-            _c = read(os.path.join(obor, _rel))
+            _c = _strip_c_comments(read(os.path.join(obor, _rel)))
         except Exception as _e:
             _missing.append(f"{_rel}: UNREADABLE ({_e})"); continue
         for _sig in _sigs:
@@ -6769,9 +6825,9 @@ extern int mrec_isolate;
             "but is NOT in the final on-disk source (dropped write / silent no-op / "
             "swept-up deletion; the 5c89107 bug class). Refusing to ship a binary "
             "missing the palette/hash patches:\n  " + "\n  ".join(_missing))
-    if not HEADLESS:
-        print("Post-apply integrity gate: %d load-bearing signatures verified present in final source."
-              % sum(len(v) for v in _required.values()))
+    print("Post-apply integrity gate: %d load-bearing signatures verified present in final source%s."
+          % (sum(len(v) for v in _required.values()),
+             " (headless subset)" if HEADLESS else ""))
 
     print("\nAll patches applied successfully.")
 
