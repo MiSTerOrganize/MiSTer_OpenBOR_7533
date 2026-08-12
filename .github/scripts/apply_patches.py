@@ -2965,6 +2965,11 @@ extern int mrec_isolate;
         ob,
         "a_playrecstatus *playrecstatus = NULL;",
         "a_playrecstatus *playrecstatus = NULL;\n"
+        "volatile int mrec_slot_recovered = 0; /* 1 once the recovery block has consumed\n"
+        "                                        * /tmp/openbor_recslot. The swap thread must not\n"
+        "                                        * write that marker before this is set: it starts before\n"
+        "                                        * openborMain and the marker is not read until the\n"
+        "                                        * PAK has finished loading (1.9 s ATOV, 69 s JLL). */\n"
         "volatile int mrec_mode = 0; /* MiSTer raw-input recorder: 0=idle 1=rec 2=play.\n"
         "                    * VOLATILE, like mrec_slot beside it: the OSD replay poll runs on the\n"
         "                    * SWAP THREAD and reads this as the gate for both the adoption freeze\n"
@@ -3499,6 +3504,7 @@ extern int mrec_isolate;
             "                if(fgets(_mr_sb, sizeof(_mr_sb), _mr_sf)) { int _v = atoi(_mr_sb);\n"
             "                  if(_v >= 1 && _v <= MREC_SLOTS) mrec_slot = _v; }\n"
             "                fclose(_mr_sf); remove(\"/tmp/openbor_recslot\"); } }\n"
+            "            mrec_slot_recovered = 1;   /* pending marker consumed (or absent) -- the swap thread may write now */\n"
             "            if(_mr_f)\n"
             "            {\n"
             "                char _mr_m[8]; _mr_m[0] = 0;\n"

@@ -49,6 +49,7 @@ extern volatile int mrec_slot_pub_fresh;
 extern void NativeVideoWriter_Notice(const char *msg, int seconds);
 extern int mrec_arm_slot_play(int slot);
 extern int mrec_save_slot_marker(int slot);   /* THE one checked writer for /tmp/openbor_recslot */
+extern volatile int mrec_slot_recovered;      /* set by the recovery block once the marker is consumed */
 
 static void mister_crash_handler(int sig, siginfo_t *info, void *ucontext)
 {
@@ -241,18 +242,27 @@ static void *mister_swap_thread(void *arg)
                      * later read in THIS process for it to clobber. Do not take
                      * it as licence to write the marker from the poll itself.
                      *
-                     * 🛑 ONLY IF THE SLOT IS ACTUALLY KNOWN. This thread starts
-                     * BEFORE openborMain, while the recovery block that reads
-                     * and removes /tmp/openbor_recslot does not run until the
-                     * PAK has finished loading (1.9 s on ATOV, 69 s on JL
-                     * Legacy). In that window mrec_slot is still 0, and the
-                     * writer clamps 0 to 1 -- so an unguarded write here would
-                     * OVERWRITE a pending marker that this process had not yet
-                     * consumed. Arm Record on slot 5, respawn, pick a .s1
-                     * replay during the load, and the next process comes up on
-                     * slot 1. Writing only a known slot leaves the pending one
-                     * intact for the recovery block. */
-                    if (mrec_slot >= 1 && mrec_slot <= MREC_SLOTS) {
+                     * 🛑 ONLY AFTER RECOVERY HAS CONSUMED THE MARKER. This
+                     * thread starts BEFORE openborMain, while the recovery block
+                     * that reads and removes /tmp/openbor_recslot does not run
+                     * until the PAK has finished loading (1.9 s on ATOV, 69 s on
+                     * JL Legacy). Writing in that window OVERWRITES a pending
+                     * marker this process has not read yet: arm Record on slot
+                     * 5, respawn, pick a .s1 replay during the load, and the
+                     * next process comes up on slot 1.
+                     *
+                     * 🛑 Gate on the RECOVERY FLAG, never on mrec_slot's value.
+                     * The obvious `mrec_slot >= 1 && <= MREC_SLOTS` test looks
+                     * equivalent and is not -- the OSD adoption branch below
+                     * runs on THIS thread and sets mrec_slot to 1..8 while
+                     * mrec_mode is still 0, i.e. long before recovery. So the
+                     * value is non-zero for almost the whole load window and the
+                     * guard passed exactly when it needed to hold. (It also
+                     * referenced MREC_SLOTS, which is #defined into openbor.c
+                     * and NOT visible in this translation unit -- it did not
+                     * compile.) The flag is owned by the reader, so the
+                     * invariant is true by construction rather than by argument. */
+                    if (mrec_slot_recovered) {
                         if (!mrec_save_slot_marker(mrec_slot))
                             fprintf(stderr, "MiSTer: could not carry the slot into the replay\n");
                     }
