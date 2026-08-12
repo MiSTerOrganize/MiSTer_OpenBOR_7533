@@ -361,11 +361,54 @@ static void nv_blit_rows1x(volatile uint16_t* dst, int gx, int gy,
  * like the fps overlay -- an engine-space notice would be squished with the
  * game image on a PAK that renders at 960x480.
  *
- * Frame-counted rather than clock-based so it behaves identically under a
- * deterministic replay.
+ * WALL-CLOCK deadline, deliberately, and NOT a frame count. The engine is
+ * uncapped, so `seconds * 60` assumed 60 fps while a PAK ran ~100 and every
+ * notice was ~40% shorter than asked -- which reads as flickery, not as brief.
+ *
+ * 🛑 The goals genuinely conflict here and this comment used to claim the other
+ * one. A frame count is replay-deterministic but wrong; scaling it by measured
+ * fps trades a wrong duration for a load-dependent one. Both would need a
+ * DISPLAY-frame count at 59.92 Hz, and the ARM has no vsync. A notice is a
+ * message to a human, so six seconds must be six seconds.
+ *
+ * The cost is that duration is not frame-identical across replays, so golden
+ * captures must never sit inside a notice window -- Phase 0 already requires
+ * stable scenes.
  * ========================================================================== */
 static char     nv_notice_text[NV_COLS * NV_NOTICE_MAX + 1];
-static uint64_t nv_notice_until_ns = 0;
+
+/* THE DEADLINE IS 32-BIT MILLISECONDS, AND THAT WIDTH IS THE POINT.
+ *
+ * It is written by the SWAP THREAD (the .s0/.s1/replay pollers all raise
+ * notices) and read by the ENGINE THREAD every single frame, in
+ * nv_notice_rows_now(), to decide the load-bearing row skip.
+ *
+ * As a uint64_t that was a TORN READ waiting to happen: ARM32 has no atomic
+ * 64-bit plain load, so the reader could observe a new low word beside an old
+ * high word. The dangerous direction lands the deadline far in the future --
+ * nv_notice_rows_now() then never returns 0, every copy path permanently starts
+ * below the band, and the top rows hold one frozen message for the REST OF THE
+ * SESSION. A naturally-aligned 32-bit access IS single-copy atomic on ARM32, so
+ * narrowing the value removes the tear rather than guarding it.
+ *
+ * 🛑 Do NOT "improve" this back to a 64-bit ns deadline with a seqlock: a
+ * seqlock assumes ONE writer and there are two threads here, so it would need a
+ * mutex in the frame path to be correct. Do NOT reach for __atomic_load_n on 8
+ * bytes either -- on ARM32 that can emit a libatomic call this build does not
+ * link. Millisecond resolution is far finer than a multi-second human-facing
+ * message needs.
+ *
+ * Range is 49.7 days, measured from the same monotonic clock as everything
+ * else, and the binary is respawned per content load. Wrap is handled anyway:
+ * the reader compares with a SIGNED difference, which is correct across the
+ * wrap for any interval under ~24 days. */
+static volatile uint32_t nv_notice_until_ms = 0;   /* 0 == no notice live */
+
+/* No notice runs longer than this. A value further out than this cannot have
+ * come from a real call, so the reader treats it as expired instead of trusting
+ * it -- belt-and-braces against any future path that publishes a bad deadline.
+ * Raise it if a caller ever legitimately needs a longer notice. */
+#define NV_NOTICE_MAX_MS  30000u
 
 /* THE NOTICE IS STATIC: written into each buffer ONCE and then left alone.
  *
@@ -436,10 +479,24 @@ static int nv_wrap_take(const char** p) {
     return take;
 }
 
-/* 0 when no notice is live. Publishers start their destination row loop here. */
+static uint32_t nv_now_ms(void) {
+    return (uint32_t)(nv_now_ns() / 1000000ull);
+}
+
+/* 0 when no notice is live. Publishers start their destination row loop here.
+ *
+ * Read once into a local: this runs on the engine thread while the swap thread
+ * can be writing, and re-reading would let the two comparisons below disagree. */
 static int nv_notice_rows_now(void) {
-    if (!nv_notice_until_ns) return 0;
-    if (nv_now_ns() >= nv_notice_until_ns) return 0;
+    const uint32_t until = nv_notice_until_ms;
+    int32_t rem;
+    if (!until) return 0;
+    /* SIGNED difference, not `now >= until`: this is the wrap-correct form (the
+     * same idiom as the kernel's time_after) and stays right across the 49-day
+     * rollover of the millisecond counter. */
+    rem = (int32_t)(until - nv_now_ms());
+    if (rem <= 0) return 0;
+    if ((uint32_t)rem > NV_NOTICE_MAX_MS) return 0;   /* cannot be a real deadline */
     return nv_notice_rows;
 }
 
@@ -462,7 +519,7 @@ void NativeVideoWriter_NoticeRepaint(void) {
 }
 
 void NativeVideoWriter_Notice(const char* msg, int seconds) {
-    if (!msg) { nv_notice_until_ns = 0; return; }
+    if (!msg) { nv_notice_until_ms = 0; return; }
     size_t i = 0;
     while (msg[i] && i < sizeof(nv_notice_text) - 1) {
         char c = msg[i];
@@ -498,12 +555,21 @@ void NativeVideoWriter_Notice(const char* msg, int seconds) {
             q += take;
             lines++;
         }
-        if (lines == 0) { nv_notice_until_ns = 0; return; }
+        if (lines == 0) { nv_notice_until_ms = 0; return; }
         nv_notice_rows = lines * 9 + 6;
         if (nv_notice_rows > NV_FRAME_HEIGHT) nv_notice_rows = NV_FRAME_HEIGHT;
     }
 
-    nv_notice_until_ns = nv_now_ns() + (uint64_t)seconds * 1000000000ull;
+    /* nv_notice_rows is set above and is read by the same engine thread. Order
+     * it BEFORE the deadline behind a barrier, so a reader that sees a live
+     * deadline necessarily sees the height that goes with it -- otherwise the
+     * band could be skipped at the PREVIOUS message's height for a frame. */
+    __sync_synchronize();
+    {
+        uint32_t until = nv_now_ms() + (uint32_t)seconds * 1000u;
+        if (!until) until = 1u;   /* 0 is the "no notice" sentinel; never publish it */
+        nv_notice_until_ms = until;
+    }
 
     /* Bump the generation LAST, behind a barrier: it is what triggers the
      * repaint, so it must change only once the text and height it refers to are
