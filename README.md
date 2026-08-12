@@ -112,7 +112,7 @@ Both `OpenBOR_4086` and `OpenBOR_7533` cores have identical support across these
 | Logs (with auto-prune N=10) | ✅ `/media/fat/logs/OpenBOR_4086/` | ✅ `/media/fat/logs/OpenBOR_7533/` |
 | Configs (`<pak>.cfg` + `default.cfg` + `<pak>.hi`) | ✅ `/media/fat/config/` (shared across sister cores) | ✅ shared with 4086 |
 | MGLs (`_Other/*.mgl` one-click launchers) | ✅ | ✅ |
-| Gameplay recording & replay (`<pak>.inp`) | ✅ the pause menu **or** the MiSTer OSD ("Replay Slot" + "Play Replay"), plus "Load Replay" for a file someone sent you; deterministic bit-for-bit, hands-free, press any button to take over | ✅ same |
+| Gameplay recording & replay (`<pak>.inp`) | ✅ 8 slots per PAK, reachable from the pause menu **or** the MiSTer OSD ("Replay Slot" + "Play Replay"), plus "Load Replay" for a file someone sent you; deterministic bit-for-bit, hands-free, press any button to take over | ✅ same |
 | Gamepad (up to 4P, Start adds player) | ✅ | ✅ |
 | Keyboard | ❌ no (SDL keyboard not wired through dummy driver) | ❌ no |
 | Mouse | ❌ no (no native engine mouse support) | ❌ no |
@@ -244,9 +244,16 @@ button to take over.
 
 **From the MiSTer OSD** (a second way to reach the same eight slots):
 
-- **Replay Slot** — pick 1-8. This is the *same* slot the pause menu shows: move
-  it in either place and the other follows, so the two can never disagree about
-  which slot you are on.
+- **Replay Slot** — pick 1-8. This is the *same* slot the pause menu shows:
+  move it in either place and the other follows, so you are never picking a
+  slot in one place and recording to another.
+
+  One deliberate exception: **while a recording or replay is running, the slot
+  stops following.** Whatever slot the take started on stays its target until it
+  ends, so that moving the picker mid-take cannot silently retarget Stop onto a
+  different slot and overwrite the recording sitting there. The OSD picker will
+  still move while you turn it — it just is not the live target until the take
+  finishes.
 - **Play Replay** — plays that slot. The PAK restarts and the recording runs
   hands-free (press any button to take over). If the slot is empty it says so
   and leaves your game alone, rather than restarting the PAK to tell you.
