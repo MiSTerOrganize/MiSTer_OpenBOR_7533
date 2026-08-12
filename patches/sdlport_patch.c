@@ -263,6 +263,23 @@ static void *mister_swap_thread(void *arg)
          * calls -- so an empty slot refuses with the same words here as there
          * instead of resetting the PAK to find out. */
         {
+            /* 🛑 A Play pressed during the ~1-2 s respawn window is DISCARDED,
+             * deliberately and silently, and that is worth stating because it
+             * looks like a bug from the outside.
+             *
+             * Record and Play both _exit() and let Master_Daemon respawn us, so
+             * for a second or two no process is reading 0x0C. The FPGA still
+             * counts presses. On restart rs_primed is 0, we adopt whatever
+             * rs_seq has reached as the baseline, and anything pressed while we
+             * were gone is absorbed into it.
+             *
+             * Queuing it instead would be worse: the press that armed THIS
+             * respawn is the one still echoing, so honouring it would restart
+             * the content again the moment it finished loading -- and a Play
+             * queued behind a Record arm would immediately throw away the take
+             * the user just started. Discarding is the correct behaviour; it is
+             * only the silence that reads oddly, and there is nothing to report
+             * against (no record of the pre-exit sequence survives the exit). */
             static int      rs_primed = 0;
             static unsigned rs_last_seq = 0;
             uint32_t rw    = NativeVideoWriter_ReadReplay();
