@@ -323,8 +323,18 @@ static void *mister_swap_thread(void *arg)
                      * was ever read, on essentially every PAK, quietly making the
                      * FPGA echo the source of truth instead of the file the
                      * design says carries the slot. mrec_slot alone is enough:
-                     * the arm paths write the marker themselves, on the engine
-                     * thread, at the moment they commit. */
+                     * the arm paths write the marker themselves, at the moment
+                     * they commit.
+                     *
+                     * 🛑 NOT all of them on the engine thread, which this
+                     * comment used to claim. The pause-menu arms are on the
+                     * engine thread; mrec_arm_slot_play is called from THIS
+                     * thread too, by the OSD Play branch just below. That is
+                     * safe for one specific reason -- every such caller
+                     * _exit()s within microseconds, so nothing in this process
+                     * can read the marker after it is written -- and that
+                     * reason is worth stating, because it is the property that
+                     * makes it safe, not the thread it runs on. */
                     mrec_slot = rslot;
                 }
 
