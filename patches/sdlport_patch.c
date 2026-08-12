@@ -157,6 +157,21 @@ static void *mister_swap_thread(void *arg)
                  * the Reset-Pak marker (pausemenu_patch.c case 2). */
                 mf = fopen("/tmp/openbor_hotswap_marker", "w");
                 if (mf) fclose(mf);
+                /* 🛑 Drop any PENDING arm markers. "Hot-swap resets the
+                 * recorder for free because _exit() wipes process state" is
+                 * true of the recorder and false of these: they are
+                 * FILESYSTEM state and outlive the process by design.
+                 * Record on PAK A slot 5, respawn, pick PAK B while A is
+                 * still loading, and the recovery block finds recmode=REC
+                 * plus recslot=5 still sitting there -- so it arms Record on
+                 * PAK B and overwrites B's slot 5 at Stop. The engine
+                 * already defends the same shape one line from here
+                 * (remove("/tmp/openbor_recstop") in the recovery block);
+                 * these two had no equivalent. Recmode is the gate, but
+                 * clear its payloads too so nothing stale is left behind. */
+                remove("/tmp/openbor_recmode");
+                remove("/tmp/openbor_recslot");
+                remove("/tmp/openbor_playfile");
                 /* Use _exit instead of borExit. borExit() calls SDL_Quit()
                  * which is not safe from a non-main thread (we crashed
                  * with SIGSEGV under our keepalive + SDL teardown). The
@@ -227,7 +242,6 @@ static void *mister_swap_thread(void *arg)
                             continue;
                         }
                     }
-                    mister_swap_requested = 1;
                     /* Commit the slot before dying. The adoption branch below
                      * deliberately does NOT write the marker (see the note
                      * there: this thread polls long before the recovery block
@@ -262,10 +276,35 @@ static void *mister_swap_thread(void *arg)
                      * and NOT visible in this translation unit -- it did not
                      * compile.) The flag is owned by the reader, so the
                      * invariant is true by construction rather than by argument. */
-                    if (mrec_slot_recovered) {
-                        if (!mrec_save_slot_marker(mrec_slot))
-                            fprintf(stderr, "MiSTer: could not carry the slot into the replay\n");
+                     * 🛑 …but a skipped write is not a free pass either. The
+                     * flag alone cannot separate the two ways it reads zero:
+                     * a marker is still PENDING (skip -- it already carries
+                     * the user's slot, and clobbering it is the bug the flag
+                     * was added for), or NO marker exists at all (write, or
+                     * the slot is silently dropped). Only the first is a
+                     * reason to skip, so ask the filesystem which one it is.
+                     *
+                     * 🛑 And REFUSE on a failed write -- do not warn to stderr
+                     * and arm anyway. No player reads stderr. PICO-8's
+                     * identical path refuses with a Notice; this one did not,
+                     * and both silent paths land in the same place: the next
+                     * process finds no marker, clamps to slot 1, and freezes
+                     * adoption at mode 2 for the whole replay -- the pause
+                     * picker showing 1 while the OSD shows the real slot, for
+                     * the entire run. That is the two-pickers-disagree state
+                     * this work exists to prevent, reached through the failure
+                     * branch. Nothing has _exit()ed yet, so refusing is free. */
+                    if (mrec_slot_recovered || access("/tmp/openbor_recslot", F_OK) != 0) {
+                        if (!mrec_save_slot_marker(mrec_slot)) {
+                            fprintf(stderr, "MiSTer: could not carry the slot -- not playing\n");
+                            fflush(stderr);
+                            NativeVideoWriter_Notice("Could not start playback", 5);
+                            /* baseline advanced so this does not re-fire */
+                            mister_replay_mtime = (long)s1st.st_mtime;
+                            continue;
+                        }
                     }
+                    mister_swap_requested = 1;
                     mf = fopen("/tmp/openbor_playfile", "w"); if (mf) { fputs(rfull, mf); fclose(mf); }
                     mf = fopen("/tmp/openbor_recmode", "w"); if (mf) { fputs("PLAY", mf); fclose(mf); }
                     mf = fopen("/tmp/openbor_reset_marker", "w"); if (mf) fclose(mf);

@@ -580,8 +580,15 @@ void NativeVideoWriter_Notice(const char* msg, int seconds) {
         }
     }
 
-    /* nv_notice_rows is set above and is read by the same engine thread. Order
-     * it BEFORE the deadline behind a barrier, so a reader that sees a live
+    /* 🛑 nv_notice_rows is written HERE, on whichever thread called Notice(),
+     * and read by nv_notice_rows_now() on the ENGINE thread. Do not restate
+     * the old claim that both run on the engine thread -- this function's
+     * callers include the swap thread (the .s1 pick and every refusal inside
+     * mrec_arm_slot_play, reached from the OSD poll). The barriers below are
+     * load-bearing because of that, and the next reader must not delete them
+     * on the authority of a comment saying the hazard does not exist.
+     *
+     * Order the height BEFORE the deadline, so a reader that sees a live
      * deadline necessarily sees the height that goes with it -- otherwise the
      * band could be skipped at the PREVIOUS message's height for a frame. */
     __sync_synchronize();

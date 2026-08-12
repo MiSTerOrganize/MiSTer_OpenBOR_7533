@@ -6771,6 +6771,7 @@ extern int mrec_isolate;
                 'PIXEL_16)) == NULL',                               # Path B: 16-bit vscreen
                 'volatile int mrec_mode = 0;',                      # raw-input recorder global (volatile: read cross-thread by the OSD poll)
                 'static u64 *_mr_buf = NULL;',                      # recorder hook BODY (was its comment)
+                'mrec_slot_recovered = 1',                          # recovery consumed the marker -- the swap thread's write gate
                 # Container geometry. Nothing here asserted the .inp layout until
                 # 2026-08-02, which is how a 5-vs-4 magic mismatch shipped and made
                 # the reader reject every take the same build wrote. These two
@@ -6795,6 +6796,8 @@ extern int mrec_isolate;
             'sdl/sdlport.c': [
                 'NativeVideoWriter_ReadReplay',                     # the OSD poll exists
                 'Stop the recording first',                         # and refuses rather than discarding a take
+                'if (mrec_slot_recovered || access(',               # .s1 writes the slot only when no marker is pending
+                'could not carry the slot -- not playing',          # ...and REFUSES rather than arming without it
             ],
             'source/gamelib/sprite.c': [
                 'has_remap_directive && !drawmethod->has_palette_directive',  # step 4 v2 gate
