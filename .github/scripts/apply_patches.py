@@ -723,23 +723,77 @@ endif
     )
 
     # Replace main() and inject any code above it (swap thread, etc.)
+    #
+    # 🛑 EVERY MISS BELOW MUST RAISE.
+    #
+    # This splice is not strict_replace -- it copies a whole file from a literal
+    # marker to EOF -- so it had none of strict_replace's protection and every
+    # failure mode was silent:
+    #
+    #   - `if start >= 0:` with no else wrote the file UNCHANGED and still
+    #     printed "main() replaced.", so a drifted upstream signature produced a
+    #     binary with stock main() and none of the MiSTer glue, reported as a
+    #     success. (An earlier commit of mine claimed this was fixed. It was
+    #     not: only replace_function had been hardened.)
+    #   - if BOTH the pre-main marker and the signature missed inside the patch,
+    #     func_start was -1 and `patch[func_start:]` silently became
+    #     patch[-1:] -- a ONE-CHARACTER replacement.
+    #
+    # The marker is also fragile by nature: inserting anything between that
+    # `#ifdef` and the `/* Crash handler` comment breaks it, and the splice then
+    # copies nothing while every other check stays green. Hence the content
+    # assertions after the join, not just the index checks.
     main_sig = "int main(int argc, char *argv[])"
     start = src.find(main_sig)
-    if start >= 0:
-        patch = read(os.path.join(patches, 'sdlport_patch.c'))
-        # Find the first #ifdef MISTER_NATIVE_VIDEO before main() —
-        # that's where our pre-main code starts (swap thread, globals)
-        premain_marker = "#ifdef MISTER_NATIVE_VIDEO\n/* Crash handler"
-        premain_start = patch.find(premain_marker)
-        if premain_start >= 0:
-            replacement = patch[premain_start:]
-        else:
-            func_start = patch.find(main_sig)
-            replacement = patch[func_start:]
-        src = src[:start] + replacement + "\n"
+    if start < 0:
+        raise RuntimeError(
+            "sdl/sdlport.c: upstream main() signature not found (%r). The splice "
+            "would have written the file unchanged and reported success, "
+            "shipping stock main() with no MiSTer glue." % main_sig)
 
+    patch = read(os.path.join(patches, 'sdlport_patch.c'))
+    # Find the first #ifdef MISTER_NATIVE_VIDEO before main() -- that's where
+    # our pre-main code starts (swap thread, globals).
+    premain_marker = "#ifdef MISTER_NATIVE_VIDEO\n/* Crash handler"
+    premain_start = patch.find(premain_marker)
+    if premain_start >= 0:
+        replacement = patch[premain_start:]
+    else:
+        func_start = patch.find(main_sig)
+        if func_start < 0:
+            raise RuntimeError(
+                "patches/sdlport_patch.c: neither the pre-main marker (%r) nor "
+                "the main() signature was found. The old code indexed with -1 "
+                "here and spliced in a single character."
+                % premain_marker)
+        print("  WARNING: sdlport pre-main marker missing; splicing from main() "
+              "only -- everything above it (swap thread, globals) is LOST.")
+        replacement = patch[func_start:]
+
+    # Content assertions: an index can be valid and the payload still be wrong.
+    if main_sig not in replacement:
+        raise RuntimeError("sdlport splice: replacement does not contain main().")
+    if len(replacement) < 2000:
+        raise RuntimeError(
+            "sdlport splice: replacement is only %d bytes -- far too small to be "
+            "the real patch." % len(replacement))
+
+    src = src[:start] + replacement + "\n"
     write(os.path.join(obor, 'sdl/sdlport.c'), src)
-    print("  main() replaced.")
+
+    # Verify what actually landed on disk. The splice's whole failure mode is
+    # being silent, so the success line is only printed once the emitted file
+    # has been read back and the load-bearing symbols confirmed present.
+    emitted = read(os.path.join(obor, 'sdl/sdlport.c'))
+    for sym in ("mister_crash_handler",
+                "mrec_save_slot_marker",
+                "mister_replay_mtime",
+                main_sig):
+        if sym not in emitted:
+            raise RuntimeError(
+                "sdl/sdlport.c was written but %r is missing from it -- the "
+                "splice silently dropped part of the patch." % sym)
+    print("  main() replaced (%d bytes spliced, symbols verified)." % len(replacement))
 
     # ── 6. Patch source/utils.c — redirect save + log paths ─────────────
     print("Patching source/utils.c (save path redirect + log path absolute)...")
