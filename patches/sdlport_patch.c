@@ -275,8 +275,9 @@ static void *mister_swap_thread(void *arg)
                      * referenced MREC_SLOTS, which is #defined into openbor.c
                      * and NOT visible in this translation unit -- it did not
                      * compile.) The flag is owned by the reader, so the
-                     * invariant is true by construction rather than by argument. */
-                     * 🛑 …but a skipped write is not a free pass either. The
+                     * invariant is true by construction rather than by argument.
+                     *
+                     * 🛑 ...but a skipped write is not a free pass either. The
                      * flag alone cannot separate the two ways it reads zero:
                      * a marker is still PENDING (skip -- it already carries
                      * the user's slot, and clobbering it is the bug the flag
