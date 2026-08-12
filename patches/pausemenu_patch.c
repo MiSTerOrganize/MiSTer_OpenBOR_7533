@@ -871,18 +871,24 @@ void pausemenu()
                             }
                             else
                             {
-                            _m = fopen("/tmp/openbor_recmode", "w");
-                            if (_m) { fputs("REC", _m); fclose(_m); }
+                                _m = fopen("/tmp/openbor_recmode", "w");
+                                if (_m) { fputs("REC", _m); fclose(_m); }
+                                /* The slot is carried by the checked write above
+                                 * -- this is the bug that made it necessary:
+                                 * recorded to slot 2, Reset, Stop -> overwrote
+                                 * slot 1. Reported on hardware 2026-08-07;
+                                 * PICO-8 had the same omission on the same path.
+                                 * The unchecked second write that used to live
+                                 * here re-opened it whenever /tmp was full.
+                                 *
+                                 * 🛑 This line belongs INSIDE the else. Left
+                                 * outside, the failure path printed "restarting
+                                 * the take in slot N" immediately after
+                                 * declining to re-arm it -- two lines saying
+                                 * opposite things about the same event. */
+                                printf("[REC] reset while recording -- restarting the take in slot %d\n",
+                                       mrec_slot);
                             }
-                            /* The slot is carried by the checked write above --
-                             * this is the bug that made it necessary: recorded
-                             * to slot 2, Reset, Stop -> overwrote slot 1.
-                             * Reported on hardware 2026-08-07; PICO-8 had the
-                             * same omission on the same path. The unchecked
-                             * second write that used to live here re-opened it
-                             * whenever /tmp was full. */
-                            printf("[REC] reset while recording -- restarting the take in slot %d\n",
-                                   mrec_slot);
                         }
                         else if (mrec_mode == 2)
                         {

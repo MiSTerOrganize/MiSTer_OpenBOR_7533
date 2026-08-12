@@ -239,8 +239,23 @@ static void *mister_swap_thread(void *arg)
                      * 🛑 This write is exempt from that note for one reason
                      * only: the process exits on the next line, so there is no
                      * later read in THIS process for it to clobber. Do not take
-                     * it as licence to write the marker from the poll itself. */
-                    mrec_save_slot_marker(mrec_slot);
+                     * it as licence to write the marker from the poll itself.
+                     *
+                     * 🛑 ONLY IF THE SLOT IS ACTUALLY KNOWN. This thread starts
+                     * BEFORE openborMain, while the recovery block that reads
+                     * and removes /tmp/openbor_recslot does not run until the
+                     * PAK has finished loading (1.9 s on ATOV, 69 s on JL
+                     * Legacy). In that window mrec_slot is still 0, and the
+                     * writer clamps 0 to 1 -- so an unguarded write here would
+                     * OVERWRITE a pending marker that this process had not yet
+                     * consumed. Arm Record on slot 5, respawn, pick a .s1
+                     * replay during the load, and the next process comes up on
+                     * slot 1. Writing only a known slot leaves the pending one
+                     * intact for the recovery block. */
+                    if (mrec_slot >= 1 && mrec_slot <= MREC_SLOTS) {
+                        if (!mrec_save_slot_marker(mrec_slot))
+                            fprintf(stderr, "MiSTer: could not carry the slot into the replay\n");
+                    }
                     mf = fopen("/tmp/openbor_playfile", "w"); if (mf) { fputs(rfull, mf); fclose(mf); }
                     mf = fopen("/tmp/openbor_recmode", "w"); if (mf) { fputs("PLAY", mf); fclose(mf); }
                     mf = fopen("/tmp/openbor_reset_marker", "w"); if (mf) fclose(mf);

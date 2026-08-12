@@ -28,6 +28,34 @@ def write(path, content):
     with open(path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(content)
 
+def _strip_c_comments(_src):
+    _out, _i, _n = [], 0, len(_src)
+    while _i < _n:
+        _ch = _src[_i]
+        _nx = _src[_i + 1] if _i + 1 < _n else ""
+        if _ch == '"' or _ch == "'":
+            _q = _ch; _out.append(_ch); _i += 1
+            while _i < _n:
+                if _src[_i] == "\\":
+                    _out.append(_src[_i:_i + 2]); _i += 2; continue
+                _out.append(_src[_i])
+                if _src[_i] == _q:
+                    _i += 1; break
+                _i += 1
+            continue
+        if _ch == "/" and _nx == "/":
+            while _i < _n and _src[_i] != "\n":
+                _i += 1
+            continue
+        if _ch == "/" and _nx == "*":
+            _e = _src.find("*/", _i + 2)
+            _i = _n if _e < 0 else _e + 2
+            _out.append(" ")
+            continue
+        _out.append(_ch); _i += 1
+    return "".join(_out)
+
+
 def strict_replace(content, old, new, label, count=1):
     """Replace `old` with `new` in content; RAISE if `old` not found OR
     if found more than `count` times (default 1).
@@ -759,16 +787,19 @@ endif
     if premain_start >= 0:
         replacement = patch[premain_start:]
     else:
-        func_start = patch.find(main_sig)
-        if func_start < 0:
-            raise RuntimeError(
-                "patches/sdlport_patch.c: neither the pre-main marker (%r) nor "
-                "the main() signature was found. The old code indexed with -1 "
-                "here and spliced in a single character."
-                % premain_marker)
-        print("  WARNING: sdlport pre-main marker missing; splicing from main() "
-              "only -- everything above it (swap thread, globals) is LOST.")
-        replacement = patch[func_start:]
+        # 🛑 NO DEGRADED MODE. This used to warn and splice from main() only,
+        # which presents a "works, but reduced" path that CANNOT EXIST: the
+        # read-back below requires mister_crash_handler and mister_replay_mtime,
+        # and both live ABOVE main() in sdlport_patch.c -- so that branch always
+        # raised a few lines later anyway, just with a more confusing message.
+        # Fail here, where the actual cause is known.
+        raise RuntimeError(
+            "patches/sdlport_patch.c: the pre-main marker (%r) was not found. "
+            "Everything above main() -- the swap thread, the crash handler, the "
+            "replay poll -- lives after that marker, so the splice would drop "
+            "all of it. This breaks by EDITING NEAR THE MARKER: inserting "
+            "anything between the #ifdef and the /* Crash handler comment "
+            "silently detaches the whole file." % premain_marker)
 
     # Content assertions: an index can be valid and the payload still be wrong.
     if main_sig not in replacement:
@@ -784,7 +815,10 @@ endif
     # Verify what actually landed on disk. The splice's whole failure mode is
     # being silent, so the success line is only printed once the emitted file
     # has been read back and the load-bearing symbols confirmed present.
-    emitted = read(os.path.join(obor, 'sdl/sdlport.c'))
+    # Comment-stripped, matching the integrity gate. Both landed in round 2 one
+    # commit apart with different rigour, and this is the one guarding the file
+    # whose splice failure mode is SILENCE -- so it should not be the weaker.
+    emitted = _strip_c_comments(read(os.path.join(obor, 'sdl/sdlport.c')))
     for sym in ("mister_crash_handler",
                 "mrec_save_slot_marker",
                 "mister_replay_mtime",
@@ -6789,32 +6823,6 @@ extern int mrec_isolate;
     # blindly (that would have turned them into false build failures); each was
     # replaced with the code line it annotates, so the gate now proves the code
     # arrived. If you add a signature, add a CODE one.
-    def _strip_c_comments(_src):
-        _out, _i, _n = [], 0, len(_src)
-        while _i < _n:
-            _ch = _src[_i]
-            _nx = _src[_i + 1] if _i + 1 < _n else ""
-            if _ch == '"' or _ch == "'":
-                _q = _ch; _out.append(_ch); _i += 1
-                while _i < _n:
-                    if _src[_i] == "\\":
-                        _out.append(_src[_i:_i + 2]); _i += 2; continue
-                    _out.append(_src[_i])
-                    if _src[_i] == _q:
-                        _i += 1; break
-                    _i += 1
-                continue
-            if _ch == "/" and _nx == "/":
-                while _i < _n and _src[_i] != "\n":
-                    _i += 1
-                continue
-            if _ch == "/" and _nx == "*":
-                _e = _src.find("*/", _i + 2)
-                _i = _n if _e < 0 else _e + 2
-                _out.append(" ")
-                continue
-            _out.append(_ch); _i += 1
-        return "".join(_out)
 
     _missing = []
     for _rel, _sigs in _required.items():
