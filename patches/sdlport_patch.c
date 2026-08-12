@@ -43,7 +43,7 @@ extern int mrec_probe_take(const char *path, char *why, int whysz);
  * agree. mrec_arm_slot_play() is the shared policy (library/empty/probe
  * checks + the on-screen refusals); it lives in the engine TU because
  * mrec_content_id and mrec_highest are static there. */
-extern int mrec_mode;
+extern volatile int mrec_mode;
 extern volatile int mrec_slot;
 extern volatile int mrec_slot_pub_fresh;
 extern void NativeVideoWriter_Notice(const char *msg, int seconds);

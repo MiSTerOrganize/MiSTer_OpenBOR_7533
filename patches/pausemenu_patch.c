@@ -68,11 +68,21 @@
  * Copyright (C) 2026 MiSTer Organize — GPL-3.0
  */
 
-extern int mrec_mode;  /* MiSTer raw-input recorder: 0=idle, 1=recording, 2=playing */
-extern volatile int mrec_slot;  /* 1..MREC_SLOTS bounded take slot, chosen on the idle
-                        * submenu. Defined in openbor.c beside mrec_mode, along
-                        * with MREC_SLOTS, both of which precede this function in
-                        * the spliced file. */
+/* 🛑 EVERYTHING IN THIS BLOCK IS DEAD TEXT AND IS NEVER COMPILED.
+ * replace_function splices this file from the line starting `void pausemenu()`
+ * ONWARD, so no declaration above that line reaches the output. These two are
+ * kept only so the file reads sensibly on its own.
+ *
+ * That matters more than it looks: an "update the extern to match" edit here
+ * has NO EFFECT, and would leave someone believing a type mismatch had been
+ * fixed. It is correct at runtime for a different reason -- the real
+ * definitions in openbor.c (volatile int, both) precede the splice point, so
+ * pausemenu sees the definitions themselves, not a declaration.
+ *
+ * Anything pausemenu genuinely needs declared must be declared at FUNCTION
+ * SCOPE inside the body, which is where the A9/NativeVideoWriter externs live. */
+extern volatile int mrec_mode;  /* 0=idle, 1=recording, 2=playing */
+extern volatile int mrec_slot;  /* 1..MREC_SLOTS bounded take slot */
 /* A9: the pause menu is composited in DISPLAY space, not at the PAK's native
  * resolution. Drawn engine-side it went through WriteFrame's downscale with the
  * game image -- on He-Man (960x480 -> 320x224) the menu came out about a third
@@ -603,15 +613,20 @@ void pausemenu()
                              * while(!quit) loop, not a switch, so a break would
                              * CLOSE THE PAUSE MENU and resume the game as if the
                              * user had picked Continue. */
-                            FILE *_rm = fopen("/tmp/openbor_recslot", "w");
-                            if(!_rm)
+                            /* One checked writer for this marker -- see
+                             * mrec_save_slot_marker in openbor.c. Declared at
+                             * FUNCTION SCOPE because the prelude that defines it
+                             * lands AFTER this function in the spliced file, and
+                             * the externs at the top of this patch file are dead
+                             * text that never reaches the output. */
+                            extern int mrec_save_slot_marker(int slot);
+                            FILE *_rm;
+                            if(!mrec_save_slot_marker(mrec_slot))
                             {
-                                printf("[REC] cannot write the slot marker -- not arming\n");
                                 NativeVideoWriter_Notice("Could not start recording", 5);
                             }
                             else
                             {
-                                fprintf(_rm, "%d\n", mrec_slot); fclose(_rm);
                                 _rm = fopen("/tmp/openbor_recmode", "w");
                                 if(_rm) { fputs("REC", _rm); fclose(_rm); }
                                 _rm = fopen("/tmp/openbor_reset_marker", "w");
@@ -830,18 +845,33 @@ void pausemenu()
                          * already covers stopping one. */
                         if (mrec_mode == 1)
                         {
+                            extern int mrec_save_slot_marker(int slot);
+                            /* 🛑 SLOT FIRST, THEN recmode. This path used to
+                             * write recmode first and the slot unchecked
+                             * afterwards, so a failed slot write still RE-ARMED
+                             * the recorder -- and the respawn then resolved to
+                             * slot 1 and Stop overwrote slot 1's take. The
+                             * comment right below describes that exact bug,
+                             * which the unchecked write had quietly re-opened.
+                             * Record and Play refuse on this failure; Reset
+                             * cannot refuse (the reset is the point), so it
+                             * resets WITHOUT re-arming and says so. */
+                            if (!mrec_save_slot_marker(mrec_slot))
+                            {
+                                printf("[REC] could not carry the slot -- resetting WITHOUT re-arming\n");
+                            }
+                            else
+                            {
                             _m = fopen("/tmp/openbor_recmode", "w");
                             if (_m) { fputs("REC", _m); fclose(_m); }
-                            /* Carry the slot, exactly as Record does above.
-                             * Without this the re-armed take fell back to the
-                             * default slot, so Stop Recording wrote a slot the
-                             * user never chose and destroyed whatever was in it:
-                             * recorded to slot 2, Reset, Stop -> overwrote slot 1.
+                            }
+                            /* The slot is carried by the checked write above --
+                             * this is the bug that made it necessary: recorded
+                             * to slot 2, Reset, Stop -> overwrote slot 1.
                              * Reported on hardware 2026-08-07; PICO-8 had the
-                             * same omission on the same path. */
-                            if(mrec_slot < 1 || mrec_slot > MREC_SLOTS) mrec_slot = 1;
-                            _m = fopen("/tmp/openbor_recslot", "w");
-                            if (_m) { fprintf(_m, "%d\n", mrec_slot); fclose(_m); }
+                             * same omission on the same path. The unchecked
+                             * second write that used to live here re-opened it
+                             * whenever /tmp was full. */
                             printf("[REC] reset while recording -- restarting the take in slot %d\n",
                                    mrec_slot);
                         }
