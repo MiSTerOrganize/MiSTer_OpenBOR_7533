@@ -9,7 +9,7 @@
 else if (mrec_mode == 2)
 else if(recmode == 1)
 else if(recmode == 2)
-extern int mrec_mode;
+extern volatile int mrec_mode;
 if (mrec_mode == 1)
 if(mrec_mode)
 if(recmode == 0 && rec_selector == 0)
