@@ -3504,6 +3504,19 @@ extern int mrec_isolate;
             "                if(fgets(_mr_sb, sizeof(_mr_sb), _mr_sf)) { int _v = atoi(_mr_sb);\n"
             "                  if(_v >= 1 && _v <= MREC_SLOTS) mrec_slot = _v; }\n"
             "                fclose(_mr_sf); remove(\"/tmp/openbor_recslot\"); } }\n"
+            "            /* Publish the PAYLOAD before the GATE. mrec_slot and\n"
+            "             * mrec_slot_recovered are read by the SWAP THREAD, and\n"
+            "             * volatile orders these two stores for the COMPILER only --\n"
+            "             * the Cortex-A9 is weakly ordered and may still commit them\n"
+            "             * out of order. If the gate lands first the swap thread takes\n"
+            "             * the write branch and carries the STALE slot.\n"
+            "             *\n"
+            "             * native_video_writer.c uses exactly this release/acquire pair\n"
+            "             * for nv_notice_rows / nv_notice_until_ns, between these same\n"
+            "             * two threads, and says so in its own comment: a release\n"
+            "             * without a matching acquire guarantees the reader nothing.\n"
+            "             * This pair had neither. */\n"
+            "            __sync_synchronize();\n"
             "            mrec_slot_recovered = 1;   /* pending marker consumed (or absent) -- the swap thread may write now */\n"
             "            if(_mr_f)\n"
             "            {\n"
@@ -6796,7 +6809,9 @@ extern int mrec_isolate;
             'sdl/sdlport.c': [
                 'NativeVideoWriter_ReadReplay',                     # the OSD poll exists
                 'Stop the recording first',                         # and refuses rather than discarding a take
-                'if (mrec_slot_recovered || access(',               # .s1 writes the slot only when no marker is pending
+                'access("/tmp/openbor_recslot"',                    # .s1 writes the slot only when no marker is pending
+                '&& mrec_slot >= 1',                                # ...and only when the slot MEANS something (not a clamped 0)
+                '__sync_synchronize',                               # ...paired with the release in the recovery block (the gate STRIPS comments, so the signature must be comment-free)
                 'could not carry the slot -- not playing',          # ...and REFUSES rather than arming without it
             ],
             'source/gamelib/sprite.c': [

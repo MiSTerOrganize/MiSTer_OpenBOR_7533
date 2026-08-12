@@ -29,7 +29,9 @@
  * so we can see exactly where the segfault happens.
  *
  * NOTE: apply_patches.py splices this file from the literal marker
- * "#ifdef MISTER_NATIVE_VIDEO\n/* Crash handler" to EOF. Do NOT insert anything
+ * "#ifdef MISTER_NATIVE_VIDEO\n/ * Crash handler" (written with a space here
+ * ONLY so this note does not open a nested comment -- the real marker has no
+ * space) to EOF. Do NOT insert anything
  * between that #ifdef and this comment -- the marker stops matching, the splice
  * silently applies NOTHING from this file, and the dry-run still reports
  * "All patches applied successfully". Add declarations below the handler. */
@@ -277,6 +279,13 @@ static void *mister_swap_thread(void *arg)
                      * compile.) The flag is owned by the reader, so the
                      * invariant is true by construction rather than by argument.
                      *
+                     * 🛑 The `mrec_slot >= 1` below is NOT that rejected test
+                     * coming back. This paragraph rejects it as a REPLACEMENT
+                     * for the flag, which it still is: on its own it passes
+                     * exactly when it needs to hold. Below it is an ADDITIONAL
+                     * conjunct, which can only ever SKIP a write, never permit
+                     * one -- so it cannot reopen what the flag closes.
+                     *
                      * 🛑 ...but a skipped write is not a free pass either. The
                      * flag alone cannot separate the two ways it reads zero:
                      * a marker is still PENDING (skip -- it already carries
@@ -294,8 +303,36 @@ static void *mister_swap_thread(void *arg)
                      * picker showing 1 while the OSD shows the real slot, for
                      * the entire run. That is the two-pickers-disagree state
                      * this work exists to prevent, reached through the failure
-                     * branch. Nothing has _exit()ed yet, so refusing is free. */
-                    if (mrec_slot_recovered || access("/tmp/openbor_recslot", F_OK) != 0) {
+                     * branch. Nothing has _exit()ed yet, so refusing is free.
+                     *
+                     * 🛑 ...and only carry a slot that MEANS something. mrec_slot is
+                     * still 0 until this thread's SECOND poll: the OSD block below
+                     * only PRIMES on the first one (rs_primed), so there is a ~2 s
+                     * window -- longer if a .s1 refusal `continue`s past it -- where
+                     * a clean respawn has no marker, this gate is true, and the
+                     * writer clamps 0 to slot 1. That carries a FABRICATED value.
+                     * Skipping instead lets recovery fall back to the highest
+                     * occupied slot, which is at least the take that will play.
+                     *
+                     * 🛑 Neither value is the OSD's, and that is ACCEPTED, not
+                     * overlooked. Inside that window there is genuinely nothing to
+                     * carry. It is display-only in every case -- the .s1 route takes
+                     * its path from /tmp/openbor_playfile, so the CORRECT FILE ALWAYS
+                     * PLAYS -- and it self-heals: when playback ends mrec_mode returns
+                     * to 0 and the adoption branch re-syncs to the OSD within one poll.
+                     *
+                     * 🛑 The same applies to the race between this access() and
+                     * recovery's remove(): the marker can be consumed between the two,
+                     * leaving nothing carried. That is NOT closable by choosing a
+                     * different predicate -- there is no atomic test-and-write across
+                     * a process boundary here -- so do not "fix" it with a cleverer
+                     * condition. Same display-only, self-healing consequence. */
+                    if ((mrec_slot_recovered || access("/tmp/openbor_recslot", F_OK) != 0)
+                        && mrec_slot >= 1) {
+                        __sync_synchronize();   /* acquire: pair for the release in the
+                                                 * recovery block, so a visible
+                                                 * mrec_slot_recovered implies a visible
+                                                 * mrec_slot */
                         if (!mrec_save_slot_marker(mrec_slot)) {
                             fprintf(stderr, "MiSTer: could not carry the slot -- not playing\n");
                             fflush(stderr);
