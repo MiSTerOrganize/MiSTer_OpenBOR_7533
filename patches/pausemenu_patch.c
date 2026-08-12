@@ -642,8 +642,17 @@ void pausemenu()
                          * back hands-free. Press any button to take control. */
                         {
                             FILE *_rm;
-                            int _arm = 1;   /* cleared by any refusal below; see the
-                                             * "MUST NOT break" note further down */
+                            /* Assigned unconditionally from mrec_arm_slot_play()
+                             * below and read straight after, so this value is
+                             * never used. Kept at block top for C90, and 0 --
+                             * "do not arm" -- so any future path that reaches
+                             * the read without assigning fails safe.
+                             *
+                             * It used to initialise to 1 with a comment saying
+                             * refusals cleared it. They no longer do: every
+                             * refusal now lives inside mrec_arm_slot_play and
+                             * is reported by its return value. */
+                            int _arm = 0;
                             /* Resolve WHICH take now, at selection time, and hand the
                              * path to the handler. The handler has to restore that
                              * take's save snapshot before the binary starts -- the

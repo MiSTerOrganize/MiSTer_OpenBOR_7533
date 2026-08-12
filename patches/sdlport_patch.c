@@ -48,6 +48,7 @@ extern volatile int mrec_slot;
 extern volatile int mrec_slot_pub_fresh;
 extern void NativeVideoWriter_Notice(const char *msg, int seconds);
 extern int mrec_arm_slot_play(int slot);
+extern int mrec_save_slot_marker(int slot);   /* THE one checked writer for /tmp/openbor_recslot */
 
 static void mister_crash_handler(int sig, siginfo_t *info, void *ucontext)
 {
@@ -226,6 +227,20 @@ static void *mister_swap_thread(void *arg)
                         }
                     }
                     mister_swap_requested = 1;
+                    /* Commit the slot before dying. The adoption branch below
+                     * deliberately does NOT write the marker (see the note
+                     * there: this thread polls long before the recovery block
+                     * that reads it), so after an OSD slot move the user's
+                     * choice lives only in mrec_slot, in memory. Every OTHER
+                     * respawn writes the marker at commit time; this was the one
+                     * that did not, so a .s1 replay taken after an OSD move came
+                     * back showing the PREVIOUS slot.
+                     *
+                     * 🛑 This write is exempt from that note for one reason
+                     * only: the process exits on the next line, so there is no
+                     * later read in THIS process for it to clobber. Do not take
+                     * it as licence to write the marker from the poll itself. */
+                    mrec_save_slot_marker(mrec_slot);
                     mf = fopen("/tmp/openbor_playfile", "w"); if (mf) { fputs(rfull, mf); fclose(mf); }
                     mf = fopen("/tmp/openbor_recmode", "w"); if (mf) { fputs("PLAY", mf); fclose(mf); }
                     mf = fopen("/tmp/openbor_reset_marker", "w"); if (mf) fclose(mf);
@@ -260,6 +275,10 @@ static void *mister_swap_thread(void *arg)
              * compare can fire a spurious Play the moment the core loads. */
             if (!rs_primed) {
                 rs_primed = 1;
+                /* Consume a publish that happened before priming, or the skip
+                 * lands on the wrong poll -- harmless, but it would be spent on
+                 * a poll it was not meant for. Mirrors PICO-8. */
+                mrec_slot_pub_fresh = 0;
             } else {
                 /* The skip below covers ADOPTION ONLY. Play must still be
                  * evaluated on a skipped poll: rs_last_seq advances
@@ -321,7 +340,7 @@ static void *mister_swap_thread(void *arg)
                          * dialog for exactly the same loss. A Notice() placed
                          * just before _exit() would not help: the process is gone
                          * before a frame publishes. Same wording as PICO-8. */
-                        fprintf(stderr, "MiSTer: OSD play refused -- recording in progress");
+                        fprintf(stderr, "MiSTer: OSD play refused -- recording in progress\n");
                         fflush(stderr);
                         NativeVideoWriter_Notice("Stop the recording first", 5);
                     }
