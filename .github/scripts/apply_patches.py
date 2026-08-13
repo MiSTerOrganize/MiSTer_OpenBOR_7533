@@ -4200,6 +4200,36 @@ extern int mrec_isolate;
     # playgif's loop consumes ONE recorder sample per rendered iteration
     # (update(0,x) -> inputrefresh), but advances its progress counter by
     # sound_getinterval() -- REAL time, because samplesplayed is bumped by the
+    # 🛑 THE SAME CLASS, SECOND MEMBER. gameover()'s loop calls update(), so it
+    # consumes exactly ONE recorder frame per iteration, and its exit term
+    # !sound_query_music() asks the MIXER whether the track has drained. On
+    # MiSTer the mixer runs off the DDR3 audio thread at the FPGA's 48 kHz
+    # crystal, independent of the game loop -- so record at ~95 fps and replay
+    # at ~80 (fps overlay, a notice band, thermal) and the loop eats a
+    # DIFFERENT NUMBER of recorded frames. _time is interval-locked and hits
+    # GAME_SPEED*8 at the same frame in both runs; the music does not. Every
+    # input after the game-over is offset by that delta, permanently.
+    #
+    # The synctosound fix below closed the first member and was scoped to that
+    # VARIABLE rather than to the class, which is why this one survived. A
+    # sweep of all 25 update() call sites found exactly three loop-exits
+    # mentioning time or sound, and this is the only other one with a sound
+    # term -- so the class is complete at two.
+    #
+    # Making the music term inert while the recorder runs leaves a pure _time
+    # bound, which the interval-lock replays exactly. Outside a recorder
+    # session the behaviour is byte-identical to upstream.
+    #
+    # (The ogg path is accidentally immune: sound_query_ogg() returns 1
+    # unconditionally, so the timer arm never fires there. This is adpcm-only,
+    # which is why it survived casual play-testing.)
+    ob = strict_replace(
+        ob,
+        "        done |= (_time > GAME_SPEED * 8 && !sound_query_music(NULL, NULL));",
+        "        done |= (_time > GAME_SPEED * 8 && (mrec_mode || !sound_query_music(NULL, NULL)));"
+        "   /* MiSTer recorder: see the note above -- the mixer runs on the FPGA audio clock, so this term ends the loop after a DIFFERENT number of update() calls between record and replay */",
+        "gameover(): drop the audio-clock term while recording (replay desync)")
+
     # DDR3 audio thread. mixing_active is 1 once anything plays, so synctosound
     # is TRUE on MiSTer. If an intro cutscene takes N iterations on record and
     # N' on playback (different frame cost -- FPS overlay, thermal, cache), the
@@ -6809,8 +6839,18 @@ extern int mrec_isolate;
             'sdl/sdlport.c': [
                 'NativeVideoWriter_ReadReplay',                     # the OSD poll exists
                 'Stop the recording first',                         # and refuses rather than discarding a take
-                'access("/tmp/openbor_recslot"',                    # .s1 writes the slot only when no marker is pending
-                '&& mrec_slot >= 1',                                # ...and only when the slot MEANS something (not a clamped 0)
+                # 🛑 BOTH TERMS. Round 7 had to replace the old signature (the
+                # two-line reformat inserted a paren) and picked only the
+                # access() half, dropping mrec_slot_recovered from the gate's
+                # coverage entirely -- nothing else here asserted it, and the
+                # 'mrec_slot_recovered = 1' entry under openbor.c covers the
+                # WRITE side, not this READ. Simplifying the gate to
+                # `access(...) && mrec_slot >= 1` would then pass all 33.
+                # NOT bare 'mrec_slot_recovered': the extern declaration at the
+                # top of this file would satisfy it -- the confirms-itself
+                # shape the gate exists to prevent.
+                'mrec_slot_recovered || access(',                   # .s1 writes the slot only when no marker is pending
+                'if (mrec_slot >= 1)',                              # ...and only when the slot MEANS something (not a clamped 0). Form changed when the acquire fence moved ABOVE this read; the gate correctly refused the stale signature.
                 '__sync_synchronize',                               # ...paired with the release in the recovery block (the gate STRIPS comments, so the signature must be comment-free)
                 'could not carry the slot -- not playing',          # ...and REFUSES rather than arming without it
             ],

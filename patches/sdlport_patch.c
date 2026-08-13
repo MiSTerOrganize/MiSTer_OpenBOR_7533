@@ -312,7 +312,12 @@ static void *mister_swap_thread(void *arg)
                      * a clean respawn has no marker, this gate is true, and the
                      * writer clamps 0 to slot 1. That carries a FABRICATED value.
                      * Skipping instead lets recovery fall back to the highest
-                     * occupied slot, which is at least the take that will play.
+                     * occupied slot -- a real slot rather than a fabricated one.
+                     * (It is NOT "the take that will play": on this route the
+                     * path comes from /tmp/openbor_playfile, as the paragraph
+                     * below says, so the fallback slot is only ever a DISPLAYED
+                     * value. Saying otherwise contradicted that paragraph six
+                     * lines later.)
                      *
                      * 🛑 Neither value is the OSD's, and that is ACCEPTED, not
                      * overlooked. Inside that window there is genuinely nothing to
@@ -327,12 +332,16 @@ static void *mister_swap_thread(void *arg)
                      * different predicate -- there is no atomic test-and-write across
                      * a process boundary here -- so do not "fix" it with a cleverer
                      * condition. Same display-only, self-healing consequence. */
-                    if ((mrec_slot_recovered || access("/tmp/openbor_recslot", F_OK) != 0)
-                        && mrec_slot >= 1) {
-                        __sync_synchronize();   /* acquire: pair for the release in the
-                                                 * recovery block, so a visible
-                                                 * mrec_slot_recovered implies a visible
-                                                 * mrec_slot */
+                    if (mrec_slot_recovered || access("/tmp/openbor_recslot", F_OK) != 0) {
+                        /* acquire: pair for the release in the recovery block, so a
+                         * visible mrec_slot_recovered implies a visible mrec_slot.
+                         * FLAG -> FENCE -> PAYLOAD, in that order: the slot test
+                         * below is a payload read and used to sit in the condition
+                         * ABOVE the fence. Benign there (the only stale value
+                         * reachable is 0, which skips) but the wrong shape to leave
+                         * for the next reader to copy. */
+                        __sync_synchronize();
+                        if (mrec_slot >= 1) {
                         if (!mrec_save_slot_marker(mrec_slot)) {
                             fprintf(stderr, "MiSTer: could not carry the slot -- not playing\n");
                             fflush(stderr);
@@ -340,6 +349,7 @@ static void *mister_swap_thread(void *arg)
                             /* baseline advanced so this does not re-fire */
                             mister_replay_mtime = (long)s1st.st_mtime;
                             continue;
+                        }
                         }
                     }
                     mister_swap_requested = 1;
