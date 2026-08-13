@@ -3957,12 +3957,23 @@ extern int mrec_isolate;
             # WHOLE payload, the handler sets _SNAPFAIL and drops recmode, and the
             # take never plays. Permanently, with nothing pointing at the cause.
             #
-            # 🛑 FIX THE WRITER, NEVER THE READER. .scr is refused on purpose: it
-            # sits in the same whitelist as path traversal and ROM overlay because
-            # saveScriptFile() emits RE-EXECUTABLE OpenBOR script that
-            # loadScriptFile() runs on load, so accepting one from a shared take is
-            # arbitrary script execution. Widening ext_ok to make the writer's
-            # output legal would trade a usability bug for a code-execution path.
+            # 🛑 FIX THE WRITER, NEVER THE READER -- but for the RIGHT reason, and
+            # the obvious one is wrong. It is tempting to say .scr is refused
+            # because it is re-executable engine script; that argument does not
+            # hold, because .sNN is the SAME script and IS accepted. Design note
+            # O1 accepts exactly that: a shared take carries re-executable script,
+            # which is what makes the whitelist load-bearing. The whitelist stops
+            # entries landing where they do not belong -- traversal, ROM overlay,
+            # shell scripts -- it never kept script-saves out, because the replay
+            # needs them.
+            #
+            # The real reason is duller and firmer: THE ENGINE NEVER OPENS A FILE
+            # NAMED .scr. Verified in pristine v7533 -- saveScriptFile (3121) and
+            # loadScriptFile (3208) both take getPakName's ".scr" template and
+            # overwrite the last two chars with the set number, so only .sNN is
+            # ever read or written. A .scr on disk is vestigial. It is not state,
+            # so it does not belong in a take, and leaving it out cannot cost the
+            # replay anything.
             #
             # PICO-8 filters at write time for exactly this reason -- its comment
             # says a cart using cstore "would write a take its own reader then
