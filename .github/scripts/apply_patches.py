@@ -4136,7 +4136,17 @@ extern int mrec_isolate;
             "             * Re-uses the normal stop path by dropping its marker, so the flush logic\n"
             "             * stays in exactly one place. */\n"
             "            FILE *_mr_cf = fopen(\"/tmp/openbor_recstop\", \"w\");\n"
-            "            if(_mr_cf) fclose(_mr_cf);\n"
+            # 🛑 The latch below must not fire on a marker that was never
+            # written. It latched unconditionally, so with /tmp full or
+            # read-only the marker never appeared, the latch blocked every
+            # retry, and the recorder sat at the cap appending nothing while
+            # the menu still offered Stop Recording -- with nothing anywhere
+            # saying the automatic save had not happened. Manual Stop still
+            # worked, so it was recoverable, but only by luck.
+            "            if(!_mr_cf)\n"
+            "            {   printf(\"[REC] frame cap reached but /tmp/openbor_recstop could not be written -- press Stop Recording\\n\");\n"
+            "                NativeVideoWriter_Notice(\"Could not save the recording - free space and Stop again\", 6); }\n"
+            "            else fclose(_mr_cf);\n"
             "            printf(\"[REC] frame cap reached (%ld frames) -- stopping and saving\\n\", _mr_len);\n"
             "            /* No notice here. This one used to claim \"- saved\" before the write had\n"
             "             * even been attempted -- the marker above is consumed EARLIER in this\n"

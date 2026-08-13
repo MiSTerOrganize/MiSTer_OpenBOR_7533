@@ -279,10 +279,18 @@ void pausemenu()
      * the frame that opens this menu ticks in FULL and only then lands here.
      * Dropping it left the replay one input sample short and desynced
      * everything after the pause (user-reported 2026-08-01).
-     * Nothing extra is needed: the mrec_mode == 2 guard above keeps a replay
-     * out of this menu, so the frame replays as a normal ticking frame and the
-     * next recorded frame follows -- correct, because the paused frames
-     * contributed no ticks and were never captured in the first place. */
+     * Nothing extra is needed -- but NOT for the reason this comment used to
+     * give. It claimed "the mrec_mode == 2 guard above keeps a replay out of
+     * this menu". THERE IS NO SUCH GUARD. The mrec_mode == 2 early return was
+     * tried and REMOVED on 2026-08-01 (see the note above): it skipped
+     * pausemenu()'s exit and left the engine's audio paused for the rest of
+     * the run.
+     *
+     * A replay DOES enter this menu, and that is what makes it work: the
+     * recorded navigation drives the menu and the recorded Continue closes it.
+     * The item-count reasoning further down depends on the replay entering,
+     * so anyone who "restored" the guard on the strength of the old sentence
+     * would break both. */
 
     while(!quit)
     {
