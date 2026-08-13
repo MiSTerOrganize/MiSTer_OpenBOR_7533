@@ -864,9 +864,14 @@ endif
  *
  * Config is deliberately NOT redirected: it holds per-PAK KEY BINDINGS, and
  * resetting a player's controls the moment they press Record would be a worse
- * problem than the one being solved. The residual risk is <pak>.hi -- a
- * qualifying score can change whether an initials-entry screen appears -- which
- * is documented rather than fixed.
+ * problem than the one being solved.
+ *
+ * 🛑 <pak>.hi is NOT a residual risk any more. This paragraph used to end
+ * "the residual risk is <pak>.hi -- a qualifying score can change whether an
+ * initials-entry screen appears -- which is documented rather than fixed",
+ * and the HighScores branch a dozen lines below now isolates exactly that,
+ * for exactly that reason. The note outlived the fix and would have sent the
+ * next reader looking for a hole that had already been closed.
  *
  * Logs stay put: diagnostics should not vanish into a scratch dir. */
 extern int mrec_isolate;
@@ -3265,8 +3270,20 @@ extern int mrec_isolate;
             "      { fclose(f); snprintf(why, whysz, \"Made by a newer core - update to play it\"); return 0; }\n"
             "      if(ev < MREC_ENGINE_VER)\n"
             "      { fclose(f); snprintf(why, whysz, \"Recorded by an older core - re-record it\"); return 0; } }\n"
+            # USE the derived offsets. MREC_OFF_PAK/_SEED/_FRAMES/_CRC and
+            # MREC_HDR_BYTES were computed as a self-referential ladder and then
+            # read by NOTHING -- every consumer hand-wrote the layout, which is
+            # the exact drift the ladder exists to prevent (the handler's
+            # dd skip=280 already went stale once, when the magic shrank 5 -> 4).
+            # This probe is in openbor.c where the macros ARE visible, so it uses
+            # them: add a header field and this seek follows automatically.
+            #
+            # The other two consumers genuinely cannot -- mrec_extract_snap is a
+            # different TU and _handler.sh is shell -- so their literals are the
+            # hand-written copies that remain, and that is worth knowing rather
+            # than assuming the ladder covers everything.
             "    /* skip build + pak + seed + count + crc, then read identity */\n"
-            "    if(fseek(f, 12+256+8+4+4, SEEK_CUR)!=0)\n"
+            "    if(fseek(f, MREC_HDR_BYTES - MREC_OFF_BUILD, SEEK_CUR)!=0)\n"
             "    { fclose(f); snprintf(why, whysz, \"Recording is truncated - not playing\"); return 0; }\n"
             "    if(fread(&ic,2,1,f)!=1 || ic > 1)\n"
             "    { fclose(f); snprintf(why, whysz, \"Recording is damaged - not playing\"); return 0; }\n"
@@ -3922,7 +3939,25 @@ extern int mrec_isolate;
             "                       * falsely and letting two unhashable PAKs compare equal. */\n"
             "                      { unsigned char _mr_wh[NSHA1_DIGEST_LEN]; unsigned short _mr_wc, _mr_wl, _mr_ws;\n"
             "                        char _mr_wstem[128];\n"
-            "                        _mr_wc = (mrec_pak_hash(packfile, _mr_wh) == 0) ? 1 : 0;\n"
+            # BOUND THE NAME TO WHAT THE READERS ACCEPT. Both of them --
+            # mrec_probe_take and mrec_extract_snap -- refuse nl >= 512 into a
+            # char[512]. This wrote strlen(_mr_nm) as a u16 with no such bound, and
+            # _mr_nm comes from mrec_content_id: the PAK path relative to Paks/ with
+            # separators flattened. A deep enough subfolder therefore produced a take
+            # that this build wrote and this same build then refused, permanently,
+            # with nothing pointing at the cause.
+            #
+            # Same writer/reader divergence class as the .scr embed bug, and invisible
+            # for the same reason: both parser suites exercise only the READER, so no
+            # case can observe the writer emitting something illegal. Fixed on the
+            # WRITER. Never widen the reader to make bad output legal -- that is how
+            # the .scr attempt turned a usability bug into arbitrary script execution.
+            #
+            # Falls back to the no-identity form this block already defines for an
+            # unhashable PAK: "the take then does not vouch for its content, instead
+            # of vouching falsely". A TRUNCATED name would vouch falsely -- it
+            # compares unequal at play time and refuses with no reason given.
+            "                        _mr_wc = (mrec_pak_hash(packfile, _mr_wh) == 0 && strlen(_mr_nm) < 512) ? 1 : 0;\n"
             "                        _mr_ok = _mr_ok && fwrite(&_mr_wc,2,1,_mr_wf)==1;\n"
             "                        if(_mr_wc)\n"
             "                        { _mr_wl = (unsigned short)strlen(_mr_nm);\n"
@@ -4076,7 +4111,7 @@ extern int mrec_isolate;
             "                             * snapshot and report it as that take's data. Wrong save state,\n"
             "                             * asserted as correct. The seed is per-take, so a received file\n"
             "                             * simply finds no local snapshot and says so honestly.\n"
-            "                             * The handler reads the same 8 bytes at offset 277 with dd. */\n"
+            "                             * The handler reads the same 8 bytes with dd at MREC_OFF_SEED == 280 (_handler.sh: skip=280). This said 277 -- wrong by 3, in the very file whose header comment cites a stale dd offset as the reason the derived ladder exists. */\n"
             "                            { const unsigned char *_mr_sp = (const unsigned char*)&_mr_seed;\n"
             "                              char _mr_sh[24]; int _mr_k;\n"
             "                              for(_mr_k = 0; _mr_k < 8; _mr_k++)\n"
@@ -4113,7 +4148,18 @@ extern int mrec_isolate;
             "                                    : \"Saved to slot %d. Saves off until reset.\", mrec_slot);\n"
             "                            NativeVideoWriter_Notice(_mr_ow, 6);\n"
             "                        }\n"
-            "                        if(_mr_buf){free(_mr_buf);_mr_buf=NULL;} _mr_cap=0; _mr_len=0;\n"
+            # Clear _mr_capdone HERE too. This line resets every other member of the
+            # group -- buf, cap, len -- and left the cap latch set, so after a
+            # stop-at-cap the invariant "capdone describes the CURRENT take" stayed
+            # false for the rest of the process.
+            #
+            # Inert today ONLY because Record is title-anchored: it writes a marker
+            # and exits, so the statics are re-initialised by the restart. That makes
+            # the correctness of this line depend on a restart happening in a
+            # different file, which is not a property worth relying on for the sake
+            # of one token. The other two free sites set mrec_mode=0 on the same line
+            # and cannot have recorded anything, so the latch is genuinely moot there.
+            "                        if(_mr_buf){free(_mr_buf);_mr_buf=NULL;} _mr_cap=0; _mr_len=0; _mr_capdone=0;\n"
             "                        mrec_mode = 0;\n"
             "                    }\n"
             "                    else\n"
