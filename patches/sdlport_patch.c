@@ -570,7 +570,23 @@ static void mrec_snap_clear_dir(const char *dir)
     if (!d) return;
     while ((e = readdir(d)) != NULL)
     {
-        if (e->d_name[0] == '.') continue;
+        /* 🛑 Skip ONLY "." and "..", matching PICO-8's p8_wipe_dir. This skipped
+         * every dot-leading name, while mrec_snap_ext_ok ACCEPTS them -- verified
+         * by compiling the real predicate: "..sav", "..hi", "..s00", "....sav",
+         * ".x.sav" and ". .sav" all return 1. Only ".sav", "." and ".." are
+         * refused, and those for a different reason (dot == name).
+         *
+         * So an accepted dot-leading entry survived the wholesale clear that runs
+         * when pass 2 fails mid-write, defeating the invariant this cleanup states
+         * about itself: removing only the file that FAILED leaves a boot state
+         * matching neither source, and a silent desync is worse than a clean
+         * refusal.
+         *
+         * Reachability is narrow -- the handler passes a non-empty local_stem on
+         * every normal path, and that branch builds the name itself and ignores
+         * the attacker's -- but the two cores had diverged with OpenBOR holding
+         * the weaker rule, and the fix is one line. */
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
         snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
         remove(p);
     }

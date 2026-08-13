@@ -3814,11 +3814,22 @@ extern int mrec_isolate;
             "         * while(_time < newtime) tick loop, so that frame ticks in full and only\n"
             "         * then does the menu appear. Dropping it left the replay one input sample\n"
             "         * short and desynced everything after the pause (user-reported 2026-08-01).\n"
-            "         * The mrec_mode==2 guard in pausemenu() is what keeps a replay out of the\n"
-            "         * modal menu, and it needs no help: the frame is injected, the game ticks\n"
-            "         * exactly as it did while recording, the menu simply refuses to open, and\n"
-            "         * the next recorded frame follows -- which is correct, because the paused\n"
-            "         * frames contributed no ticks and were never captured. */\n"
+            # The three claims this used to make were each contradicted elsewhere in
+            # the same emitted file. It is the TWIN of the comment already corrected
+            # in pausemenu_patch.c -- that fix landed on one copy and this one was
+            # missed, so a corrected and an uncorrected version shipped in one binary
+            # arguing against each other.
+            #
+            # It matters more than tidiness: it told the reader the mrec_mode == 2
+            # early return is load-bearing. Reinstating that is a shipped-and-reverted
+            # change which skips pausemenu()'s exit and leaves the engine's audio
+            # paused for the REST OF THE RUN, because the caller pauses audio before
+            # the menu and the menu's exit is what resumes it.
+            "         * There is NO mrec_mode==2 guard in pausemenu(): it was tried and REMOVED\n"
+            "         * on 2026-08-01 for the audio reason above. A replay DOES enter this menu,\n"
+            "         * and that is what makes it work -- the recorded navigation drives the\n"
+            "         * menu and the recorded Continue closes it. The menu's frames ARE\n"
+            "         * captured: the append below is deliberately NOT gated on !_pause. */\n"
             "        if(mrec_mode == 0 && _mr_buf)\n"
             "        {   /* Buffer lifetime follows the MODE, not whoever cleared it. Every\n"
             "             * other free lives inside a mode==1 or mode==2 branch, so any path\n"
