@@ -3950,6 +3950,35 @@ extern int mrec_isolate;
             "                            {\n"
             "                                char _mr_fp[1024]; FILE *_mr_sf; long _mr_fl; unsigned int _mr_nl2, _mr_dl;\n"
             "                                if(_mr_e->d_name[0]=='.') continue;\n"
+            # 🛑 EMBED ONLY WHAT THE READER WILL ACCEPT. _handler.sh seeds both
+            # "<pak>.s[0-9][0-9]" and "<pak>.scr" into the scratch, and this loop
+            # took every non-dot file it found -- so a PAK carrying a .scr produced
+            # a take that mrec_snap_ext_ok then refused. One bad entry refuses the
+            # WHOLE payload, the handler sets _SNAPFAIL and drops recmode, and the
+            # take never plays. Permanently, with nothing pointing at the cause.
+            #
+            # 🛑 FIX THE WRITER, NEVER THE READER. .scr is refused on purpose: it
+            # sits in the same whitelist as path traversal and ROM overlay because
+            # saveScriptFile() emits RE-EXECUTABLE OpenBOR script that
+            # loadScriptFile() runs on load, so accepting one from a shared take is
+            # arbitrary script execution. Widening ext_ok to make the writer's
+            # output legal would trade a usability bug for a code-execution path.
+            #
+            # PICO-8 filters at write time for exactly this reason -- its comment
+            # says a cart using cstore "would write a take its own reader then
+            # rejects outright". Same defect, mirrored. Neither parser suite could
+            # see it: both test only the READER, so a writer/reader divergence has
+            # no case that can observe it.
+            "                                { const char *_mr_dot = strrchr(_mr_e->d_name, '.');\n"
+            "                                  int _mr_okx = 0;\n"
+            "                                  if(_mr_dot && _mr_dot != _mr_e->d_name)\n"
+            "                                  { if(strcasecmp(_mr_dot, \".sav\") == 0) _mr_okx = 1;\n"
+            "                                    else if(strcasecmp(_mr_dot, \".hi\") == 0) _mr_okx = 1;\n"
+            "                                    else if(_mr_dot[0]=='.' && _mr_dot[1]=='s'\n"
+            "                                            && _mr_dot[2]>='0' && _mr_dot[2]<='9'\n"
+            "                                            && _mr_dot[3]>='0' && _mr_dot[3]<='9'\n"
+            "                                            && _mr_dot[4]==0) _mr_okx = 1; }\n"
+            "                                  if(!_mr_okx) continue; }\n"
             "                                snprintf(_mr_fp,sizeof(_mr_fp), \"%s/%s\", _mr_sd2, _mr_e->d_name);\n"
             "                                _mr_sf = fopen(_mr_fp, \"rb\");\n"
             "                                if(!_mr_sf) continue;\n"

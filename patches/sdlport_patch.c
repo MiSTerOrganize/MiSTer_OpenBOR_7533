@@ -682,8 +682,16 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
         const char *dot;
         FILE *o;
 
-        if (fread(&enl,4,1,f)!=1 || fread(name,1,enl,f)!=enl
-            || fread(&edl,4,1,f)!=1) { refused = 1; break; }
+        /* 🛑 The SAME bounds as pass 1, not an inherited invariant. This read
+         * used to omit both clauses and was safe only because it re-reads the
+         * same bytes from the same fd -- true today, undocumented, and one
+         * refactor from false. Without them: an fread of up to 4 GiB into a
+         * 512-byte stack buffer, and strrchr() on an unterminated name can
+         * return NULL straight into snprintf("%s%s"). Two clauses is a cheap
+         * price for deleting the argument. */
+        if (fread(&enl,4,1,f)!=1 || enl == 0 || enl >= sizeof(name)
+            || fread(name,1,enl,f)!=enl
+            || fread(&edl,4,1,f)!=1 || edl > 8u*1024u*1024u) { refused = 1; break; }
         name[enl] = 0;
 
         dot = strrchr(name, '.');
