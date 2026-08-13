@@ -174,6 +174,39 @@ static void *mister_swap_thread(void *arg)
                 remove("/tmp/openbor_recmode");
                 remove("/tmp/openbor_recslot");
                 remove("/tmp/openbor_playfile");
+                /* 🛑 TELL THE USER their take is gone. PICO-8 shows "Cart
+                 * changed - recording discarded" here; OpenBOR showed NOTHING,
+                 * so the same event was announced on one core and silent on the
+                 * other. User-reported 2026-08-13 while testing.
+                 *
+                 * The gap came from a real architectural difference used as an
+                 * excuse: PICO-8 hot-swaps IN-PROCESS and must discard the
+                 * recorder explicitly, while we _exit() and Master_Daemon
+                 * respawns us, so the state dies for free and no code was ever
+                 * needed. That explains the MECHANISM. It does not excuse the
+                 * SILENCE -- from where the user sits the situation is
+                 * identical: I was recording, I changed content, my take is
+                 * gone. An audit earlier the same day filed this as an
+                 * acceptable per-core difference on exactly that reasoning,
+                 * which was wrong.
+                 *
+                 * Carried across the respawn via the recwarn marker the engine
+                 * already consumes at openborMain entry (it caps at 95 chars;
+                 * both strings are well inside that).
+                 *
+                 * Wording follows the content-noun rule: identical to PICO-8's
+                 * except for the noun this core actually loads -- "Pak", not
+                 * "Cart". A PICO-8 user loaded a cart; an OpenBOR user never
+                 * did, so borrowing the word would be plainly wrong rather than
+                 * merely inconsistent. */
+                if (mrec_mode != 0) {
+                    FILE *wf = fopen("/tmp/openbor_recwarn", "w");
+                    if (wf) {
+                        fputs(mrec_mode == 1 ? "Pak changed - recording discarded"
+                                             : "Pak changed - replay stopped", wf);
+                        fclose(wf);
+                    }
+                }
                 /* Use _exit instead of borExit. borExit() calls SDL_Quit()
                  * which is not safe from a non-main thread (we crashed
                  * with SIGSEGV under our keepalive + SDL teardown). The
