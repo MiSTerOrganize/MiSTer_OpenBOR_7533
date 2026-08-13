@@ -3525,7 +3525,26 @@ extern int mrec_isolate;
             "                fclose(_mr_f);\n"
             "                remove(\"/tmp/openbor_recmode\");\n"
             "                {   /* default path = the chosen slot's <pak>_<slot>.inp; OSD 'Load Replay' overrides below */\n"
-            "                    char _mr_b[MAX_BUFFER_LEN]; int _mr_i, _mr_mx = 0;\n"
+            # 🛑 SNAPSHOT the slot here, BEFORE the readdir below. mrec_mode is
+            # still 0 for this whole span, so the swap thread's adoption branch is
+            # LIVE inside it -- and the span contains mrec_highest(), a readdir
+            # over the replays directory: real exFAT I/O, milliseconds.
+            #
+            # Arm Record on slot 5, respawn, move the OSD Replay Slot to 6 during
+            # the PAK load, and a 1 Hz poll landing in that window wrote the take
+            # to SLOT 6 -- destroying whatever was there -- while slot 5 was left
+            # untouched. Silent, and nondeterministic: the same actions gave
+            # different outcomes run to run.
+            #
+            # The freeze note in sdlport_patch.c says adoption is frozen 'for the
+            # life of a take', and it is -- but the freeze keys on mrec_mode, which
+            # is set far later than this, so the ARM window sat outside the
+            # protection that comment claims.
+            #
+            # This also makes the release above honest: mrec_slot is written AGAIN
+            # by the clamp below, so 'a visible flag implies a visible slot' was
+            # only ever true of the MARKER value, never the final one.
+            "                    char _mr_b[MAX_BUFFER_LEN]; int _mr_i, _mr_mx = 0, _mr_armsl = mrec_slot;\n"
             "                    strcpy(_mr_b, \"/media/fat/replays/OpenBOR_7533/\"); mrec_content_id(_mr_nm, MAX_BUFFER_LEN);   /* Identity-derived stem, NOT getPakName's basename: same-named PAKs in different Paks/ subfolders would otherwise share one library AND pass the match guard, and the wrong replay would PLAY. Also drops the old strstr(\".inp\") strip, which cut at the FIRST match and so mangled any PAK with .inp in its own name. */\n"
             "                    { size_t _mr_bl = strlen(_mr_b); snprintf(_mr_b + _mr_bl, sizeof(_mr_b) - _mr_bl, \"%s\", _mr_nm); }   /* was strcat, bounded only by upstream MAX_FILENAME_LEN=256 in a different file */\n"
             "                    { int _mr_miss = 0;   /* Highest OCCUPIED slot, used only as the fallback when no slot has been picked. Enumerated in one readdir rather than probed: the old code fopen'd _1.._999 twice per session, a measurable exFAT stall that also widened the window for a swap-thread _exit mid-flush. Bounded slots make the ceiling MREC_SLOTS, but the enumeration is kept because it costs one pass either way and stays correct if the count changes. */\n"
@@ -3533,8 +3552,9 @@ extern int mrec_isolate;
             "                    /* PLAY reads the chosen slot. If none was chosen, fall back to the\n"
             "                     * newest occupied one so Play-without-touching-anything still does\n"
             "                     * what it always did: play the most recent take. */\n"
-            "                    if(mrec_slot < 1 || mrec_slot > MREC_SLOTS) mrec_slot = (_mr_mx > 0 && _mr_mx <= MREC_SLOTS) ? _mr_mx : 1;\n"
-            "                    sprintf(_mr_path, \"%s_%d.inp\", _mr_b, mrec_slot);\n"
+            "                    if(_mr_armsl < 1 || _mr_armsl > MREC_SLOTS) _mr_armsl = (_mr_mx > 0 && _mr_mx <= MREC_SLOTS) ? _mr_mx : 1;\n"
+            "                    mrec_slot = _mr_armsl;   /* re-assert: adoption may have moved it during the readdir above */\n"
+            "                    sprintf(_mr_path, \"%s_%d.inp\", _mr_b, _mr_armsl);   /* the slot the user ARMED, never one adopted mid-recovery */\n"
             "                }\n"
             "                if(_mr_m[0] == 'P')\n"
             "                {\n"
