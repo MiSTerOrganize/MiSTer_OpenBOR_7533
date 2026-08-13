@@ -3247,8 +3247,26 @@ extern int mrec_isolate;
             "    { fclose(f); snprintf(why, whysz, \"That file is not a valid recording\"); return 0; }\n"
             "    if(cont > 2u){ fclose(f); snprintf(why, whysz, \"Made by a newer core - update to play it\"); return 0; }\n"
             "    if(cont < 2u){ fclose(f); snprintf(why, whysz, \"Recorded by an older core - re-record it\"); return 0; }\n"
-            "    /* skip engine_ver + build + pak + seed + count + crc, then read identity */\n"
-            "    if(fseek(f, 4+12+256+8+4+4, SEEK_CUR)!=0)\n"
+            # 🛑 CHECK THE ENGINE VERSION HERE, not only at load. This probe exists
+            # so a bad pick is refused BEFORE the content reset -- arming a damaged
+            # take costs the user their session and explains itself only in the next
+            # process. The version was SKIPPED as part of the header seek, so a
+            # version-mismatched take sailed through, the content reset, and only
+            # then did the loader refuse. That is precisely the cost the probe was
+            # added to avoid, on the refusal a take received from someone ELSE
+            # triggers most predictably.
+            #
+            # Same wording and same direction as the load path and the container
+            # check above, so a user sees one message for one condition.
+            "    { unsigned int ev = 0;\n"
+            "      if(fread(&ev,4,1,f)!=1)\n"
+            "      { fclose(f); snprintf(why, whysz, \"Recording is truncated - not playing\"); return 0; }\n"
+            "      if(ev > MREC_ENGINE_VER)\n"
+            "      { fclose(f); snprintf(why, whysz, \"Made by a newer core - update to play it\"); return 0; }\n"
+            "      if(ev < MREC_ENGINE_VER)\n"
+            "      { fclose(f); snprintf(why, whysz, \"Recorded by an older core - re-record it\"); return 0; } }\n"
+            "    /* skip build + pak + seed + count + crc, then read identity */\n"
+            "    if(fseek(f, 12+256+8+4+4, SEEK_CUR)!=0)\n"
             "    { fclose(f); snprintf(why, whysz, \"Recording is truncated - not playing\"); return 0; }\n"
             "    if(fread(&ic,2,1,f)!=1 || ic > 1)\n"
             "    { fclose(f); snprintf(why, whysz, \"Recording is damaged - not playing\"); return 0; }\n"
