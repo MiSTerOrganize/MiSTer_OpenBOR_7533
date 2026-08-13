@@ -50,6 +50,12 @@ jobs:
         run: python3 tools/harness/menu_mode_parity_check.py
       - name: Save-payload extractor tests (untrusted input)
         run: python3 tools/harness/test_snap_extract.py
+      # The suite above can only observe the READER, so a writer emitting
+      # something its own reader refuses has no case that can see it. That blind
+      # spot held two live bugs at once (the .scr embed, the unbounded identity
+      # name), and this check found a third on its first run.
+      - name: Writer/reader agreement (the reader-only blind spot)
+        run: python3 tools/harness/test_writer_reader_agree.py
       - name: Build OpenBOR headless (x86-64)
         run: bash .github/scripts/build_headless.sh
       - name: Stage binary
