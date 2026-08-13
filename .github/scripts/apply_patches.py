@@ -4122,9 +4122,28 @@ extern int mrec_isolate;
             "                     * recording, with the only evidence being the pause menu quietly\n"
             "                     * offering Record again. The stranded buffer is reclaimed by the\n"
             "                     * mode==0 sweep above on the next frame. */\n"
-            "                    printf(\"[REC] out of memory at %ld frames -- recording stopped\\n\", _mr_len);\n"
+            "                    printf(\"[REC] out of memory at %ld frames -- stopping and saving\\n\", _mr_len);\n"
             "                    NativeVideoWriter_Notice(\"Out of memory - stopped. Saves off until reset.\", 6);\n"
-            "                    mrec_mode = 0;\n"
+            # 🛑 FLUSH, do not discard. This path used to drop straight to mode 0,
+            # so the buffer was reclaimed by the mode-0 sweep and the take was
+            # GONE -- while the frame-cap path, three blocks up, saves what it
+            # has. Two 'cannot record any more' paths, opposite outcomes, and the
+            # one that destroys hours of capture is the one the user cannot see
+            # coming. The frames already in the buffer are perfectly valid and
+            # writable; nothing about a failed realloc invalidates them.
+            #
+            # Dropping the stop marker is exactly what the cap does, so the
+            # normal stop path writes the take on the next frame and both paths
+            # now end the same way. Mode stays 1 until that write happens -- the
+            # stop path keeps the buffer and stays mode 1 if the write FAILS, on
+            # purpose, so the user can free space and Stop again.
+            "                    { FILE *_mr_of = fopen(\"/tmp/openbor_recstop\", \"w\");\n"
+            "                      if(_mr_of) fclose(_mr_of);\n"
+            # If even the marker cannot be written there is nothing left to try:
+            # appending is impossible and no flush can be scheduled. Drop to idle
+            # so the state is honest rather than a recorder that looks armed and
+            # silently records nothing.
+            "                      else mrec_mode = 0; }\n"
             "                }\n"
             "            }\n"
             "            if(mrec_mode==1 && _mr_buf)\n"
