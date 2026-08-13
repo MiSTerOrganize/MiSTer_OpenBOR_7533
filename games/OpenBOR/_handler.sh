@@ -101,7 +101,16 @@ rmdir "$GAMEDIR/Replays" 2>/dev/null
 # Keep only the 20 newest per-take snapshots. Nothing pruned these before, so
 # they accumulated one directory per Stop Recording, forever, under saves/.
 # Everything else in this project auto-prunes (see the log rotation below).
-ls -dt "$REPSTATE"/*.* 2>/dev/null | tail -n +21 | xargs -r rm -rf
+# NUL-delimited. The old form was ls | tail | xargs, which splits on
+# whitespace: a snapshot dir named "my take.deadbeef" is NOT removed (silent
+# prune failure) and the fragments "my" and "take.deadbeef" are each rm -rf'd
+# -- the second RELATIVE to cd "$GAMEDIR", i.e. inside the user's PAK library.
+# Unreachable today because snapshot names are built from the sanitised
+# content id, so no space can appear; but this is rm -rf, and the sanitiser
+# is one edit away from being the only thing standing between a filename and
+# a recursive delete in the wrong directory.
+find "$REPSTATE" -maxdepth 1 -name "*.*" -printf "%T@ %p\0" 2>/dev/null \
+    | sort -zrn | tail -z -n +21 | cut -z -d" " -f2- | xargs -0 -r rm -rf
 rm -rf "$REPLAYS/.scratch" 2>/dev/null
 mkdir -p "$REPLAYS/.scratch/saves" "$REPLAYS/.scratch/savestates" 2>/dev/null
 
@@ -155,7 +164,13 @@ _RECLOG="/tmp/openbor_recboot.log"
 # save files is neither. Prefer the loud failure.
 if [ -f /tmp/openbor_recmode ] && [ ! -f /tmp/openbor_reset_marker ]; then
     echo "[REC] stale recmode marker with no reset marker -- discarding, not arming" >> "$_RECLOG"
-    rm -f /tmp/openbor_recmode /tmp/openbor_recslot /tmp/openbor_playfile 2>/dev/null
+    # recwarn too. It is the only one of these four that produces a
+    # USER-VISIBLE message, and the engine consumes it unconditionally at
+    # openborMain entry -- so a handler that writes it and is then killed
+    # before the binary starts leaves it for the next launch, of any PAK,
+    # with no take involved. Same leftover-marker class as the guard above.
+    rm -f /tmp/openbor_recmode /tmp/openbor_recslot /tmp/openbor_playfile \
+          /tmp/openbor_recwarn 2>/dev/null
 fi
 if [ -f /tmp/openbor_recmode ]; then
     _MODE=$(cat /tmp/openbor_recmode 2>/dev/null)
@@ -180,7 +195,13 @@ if [ -f /tmp/openbor_recmode ]; then
     case "$_MODE" in
         REC*)
             if [ -n "$_PAK" ]; then
-                cp -f "/media/fat/saves/OpenBOR_7533/$_PAK.sav"      "$_SCR/saves/"       2>/dev/null
+                # $BINARY, not a literal. The comment at the top of this file records
+                # that a hardcoded OpenBOR_7533 was the bug fixed for $REPLAYS -- three
+                # instances survived that fix, here in the REC branch. Not reachable
+                # today (4086 has no recorder), but a 4086 launch carrying a leftover
+                # recmode+reset pair would seed 7533's real saves into a 4086 scratch,
+                # and a third build makes it live.
+                cp -f "/media/fat/saves/$BINARY/$_PAK.sav"      "$_SCR/saves/"       2>/dev/null
                 cp -f "/media/fat/config/$_PAK.hi"                   "$_SCR/saves/"       2>/dev/null
                 # SCRIPT-SAVE data, not emulator save states -- OpenBOR has none.
                 # saveScriptFile() emits re-executable OpenBOR script here
@@ -193,8 +214,8 @@ if [ -f /tmp/openbor_recmode ]; then
                 # ".scr" -> ".s00", ".s01", ... one file PER SET. So glob it:
                 # matching only .s00 would miss every later set on the big
                 # multi-set PAKs, which is exactly where the progress lives.
-                cp -f "/media/fat/savestates/OpenBOR_7533/$_PAK".s[0-9][0-9] "$_SCR/savestates/" 2>/dev/null
-                cp -f "/media/fat/savestates/OpenBOR_7533/$_PAK".scr        "$_SCR/savestates/" 2>/dev/null
+                cp -f "/media/fat/savestates/$BINARY/$_PAK".s[0-9][0-9] "$_SCR/savestates/" 2>/dev/null
+                cp -f "/media/fat/savestates/$BINARY/$_PAK".scr        "$_SCR/savestates/" 2>/dev/null
                 echo "[REC] seeded scratch from your saves for: $_PAK" >> "$_RECLOG"
             fi
             # Keep a PRISTINE copy of exactly what the run is about to boot with.

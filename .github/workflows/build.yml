@@ -31,6 +31,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 🛑 THE GATES RUN HERE, BEFORE THE BUILD, so a failure stops the SHIP.
+      #
+      # These same checks also run in diff_harness.yml -- but that is a separate
+      # workflow with no `needs:` or `workflow_run:` relationship to this one, so
+      # the two fire in PARALLEL on the same push. A commit that broke the .inp
+      # parser would still reach the commit-back and the DB dispatch, shipping to
+      # every update_all user, while the harness went red minutes later. Running
+      # them again here costs a couple of minutes of a runner and converts that
+      # race into a gate.
+      #
+      # Kept in diff_harness.yml as well: it additionally builds the headless
+      # engine and runs the corpus scan, and it fires on pushes this workflow's
+      # paths-ignore filter deliberately skips.
+      # 🛑 SHIP-ONLY GATE. Pushing to main IS the ship, and the standing rule is
+      # that a new RBF and a new ARM binary go together. CI builds only the ARM
+      # half, so without this a source push that moved the wire contract would
+      # auto-ship a binary against whatever bitstream is in _Other/ -- and the
+      # replay-slot picker adds a NEW DDR3 word, so under the old RBF that offset
+      # is dead space holding the previous core's leftovers.
+      #
+      # Restricted to main deliberately: a workflow_dispatch validation build on
+      # a branch SHOULD still run while the RBF is being recompiled. It is the
+      # ship that must wait, not the verification.
+      - name: Gate - RBF and ARM binary ship together (main only)
+        if: github.ref == 'refs/heads/main'
+        run: python3 tools/harness/test_rbf_arm_contract.py
+      - name: Gate - CI staleness guard
+        run: python3 -m pip install --quiet pyyaml && python3 tools/harness/test_ci_staleness_guard.py
+      - name: Gate - pause-menu mode parity (replay desync)
+        run: python3 tools/harness/menu_mode_parity_check.py
+      - name: Gate - save-payload extractor (untrusted input)
+        run: python3 tools/harness/test_snap_extract.py
+      - name: Gate - writer/reader agreement
+        run: python3 tools/harness/test_writer_reader_agree.py
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:

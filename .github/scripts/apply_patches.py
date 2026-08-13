@@ -199,7 +199,7 @@ def main():
     # harness tests OUR shipped engine behavior. Ship build does NOT set this.
     HEADLESS = bool(os.environ.get("OB_HEADLESS"))
     if HEADLESS:
-        print("OB_HEADLESS=1 — skipping MiSTer-infra-only patches (control_update)")
+        print("OB_HEADLESS=1 -- skipping MiSTer-infra-only patches (control_update)")
 
     # ── 1. Patch Makefile ─────────────────────────────────────────────
     print("Patching Makefile...")
@@ -241,7 +241,13 @@ endif
     if marker in mf:
         mf = mf.replace(marker, marker + "\n" + mister_target)
     else:
-        print("  ERROR: BUILD_LINUX_LE_arm anchor not found — Makefile structure may have changed")
+        # RAISE, like the other 15 error sites. This printed and continued, so the
+        # MiSTer build target was never injected and the failure surfaced one step
+        # later as require_file's "OpenBOR missing" -- true, but pointing at the
+        # wrong thing. Also the only runtime print here carrying a non-ASCII dash,
+        # which can raise UnicodeEncodeError on a bare Windows console during the
+        # documented local dry-run.
+        raise RuntimeError("BUILD_LINUX_LE_arm anchor not found -- the Makefile structure changed; the MiSTer build target cannot be injected")
 
     # Add MISTER_NATIVE_VIDEO CFLAGS. v7533 uses SDL2 natively; no
     # -DSDL2 needed (no codepaths gate on it).
@@ -303,7 +309,7 @@ endif
             strip_anchor + "\nifdef BUILD_MISTER\nSTRIP           = strip $(TARGET) -o $(TARGET_FINAL)\nendif"
         )
     else:
-        print("  WARN: BUILD_PANDORA strip anchor not found — binary may not be stripped")
+        print("  WARN: BUILD_PANDORA strip anchor not found -- binary may not be stripped")
 
     # Force SDL2 link libs for MiSTer (-lSDL2 instead of -lSDL),
     # plus -ldl for dlopen, -lpthread for native writer threads.
@@ -399,7 +405,7 @@ endif
     # already does the anisotropic NN squish to 320x224 for non-native
     # source dimensions). Expected savings: ~15ms per frame → ~10ms total
     # update() = ~100 fps native on Cortex-A9.
-    print("Patching sdl/video.c (bypass SDL2 renderer — direct WriteFrame)...")
+    print("Patching sdl/video.c (bypass SDL2 renderer -- direct WriteFrame)...")
     video_path = os.path.join(obor, 'sdl/video.c')
     video_c = read(video_path)
 
@@ -736,7 +742,7 @@ endif
         print("  control_update() replaced.")
     else:
         write(os.path.join(obor, 'sdl/control.c'), src)
-        print("  control_update() kept stock (headless — MiSTer DDR3 joystick patch skipped).")
+        print("  control_update() kept stock (headless -- MiSTer DDR3 joystick patch skipped).")
 
     # ── 5. Patch sdl/sdlport.c — replace main() ─────────────────────
     print("Patching sdl/sdlport.c (main + NativeVideoWriter init)...")
@@ -1497,7 +1503,7 @@ extern int mrec_isolate;
     ob_k40 = strict_replace(ob_k40, s40_diag_old, s40_diag_new,
                              'Step 40: kill_entity defense_find_current_object uses victim not self (NULL deref fix)')
     write(ob_path_g, ob_k40)
-    print("  Step 40: defense_find_current_object now uses victim (was self=NULL from script bridge) — TMNT-RP save-game crash root cause fix")
+    print("  Step 40: defense_find_current_object now uses victim (was self=NULL from script bridge) -- TMNT-RP save-game crash root cause fix")
 
     # ── Step 34 (2026-05-28): restore 4086's permissive range.base default ─
     # User reported Aliens Clash platform-mounted Prin shooters don't fire,
@@ -1725,7 +1731,7 @@ extern int mrec_isolate;
     ob_s42 = strict_replace(ob_s42, s42_old, s42_new,
                              'Step 42 v2: force-set ALL standard player physics flags in ent_default_init')
     write(ob_path_g, ob_s42)
-    print("  Step 42: TYPE_PLAYER force SUBJECT_TO_GRAVITY (hardware-verified — fixes Raph respawn-vertical)")
+    print("  Step 42: TYPE_PLAYER force SUBJECT_TO_GRAVITY (hardware-verified -- fixes Raph respawn-vertical)")
 
     # ── Step 67 (2026-06-01): respect cart's `subject_to_hole 0` (flying characters) ──
     # User reported Bearz OWL (the flying character, type PLAYER + subject_to_hole 0
@@ -2512,7 +2518,7 @@ extern int mrec_isolate;
     #
     # Anchored on the END of the landing block (after checkdamageonlanding,
     # before self->hithead = NULL).
-    print("Patching openbor.c (Step 46: landing transition ANI_FALL → ANI_IDLE + roll vel.x)...")
+    print("Patching openbor.c (Step 46: landing transition ANI_FALL -> ANI_IDLE + roll vel.x)...")
     s46_old = (
         "                        // Taking damage on a landing?\n"
         "                        checkdamageonlanding(self);\n"
@@ -2674,7 +2680,7 @@ extern int mrec_isolate;
         write(os.path.join(obor, 'sdl/sblaster.c'), sb)
         print("  sdl/sblaster.c replaced.")
     else:
-        print("  sdl/sblaster.c kept stock (headless — MiSTer DDR3 audio backend skipped).")
+        print("  sdl/sblaster.c kept stock (headless -- MiSTer DDR3 audio backend skipped).")
 
     # -- 8. Fix R/B swap bug in 32-bit blend functions ------------------
     # pixelformat.c's blend_screen32 / blend_multiply32 / blend_half32
@@ -2699,7 +2705,7 @@ extern int mrec_isolate;
     print("Patching source/gamelib/pixelformat.c (32-bit blend R/B fix)...")
     pf_path = os.path.join(obor, 'source/gamelib/pixelformat.c')
     if not STEP_8_ENABLED:
-        print("  SKIPPED (step 8 disabled — testing if it caused green-purple girls)")
+        print("  SKIPPED (step 8 disabled -- testing if it caused green-purple girls)")
     elif os.path.exists(pf_path):
         pf = read(pf_path)
         fixes = [
@@ -2739,7 +2745,7 @@ extern int mrec_isolate;
         write(pf_path, pf)
         print(f"  {applied}/{len(fixes)} blend R/B fixes applied.")
     else:
-        print("  WARN: pixelformat.c not found at expected path — may have moved in 7533")
+        print("  WARN: pixelformat.c not found at expected path -- may have moved in 7533")
 
     # ── 8b. Per-sprite palette (fixes A Tale of Vengeance Hugo/Vice/Playa) ──
     #
@@ -3435,7 +3441,22 @@ extern int mrec_isolate;
             "        NativeVideoWriter_Notice(\"Could not start playback\", 5);   /* every other refusal here shows one */\n"
             "        return 0;\n"
             "    }\n"
-            "    if(fputs(path, f) < 0 || fclose(f) != 0)\n"
+            # fclose UNCONDITIONALLY. As `fputs(...) < 0 || fclose(f) != 0` the
+            # || short-circuits on a write failure and the descriptor is leaked,
+            # left open and unflushed. mrec_save_slot_marker five lines up gets
+            # this right, and so does PICO-8's p8rec_save_slot_marker -- three
+            # implementations of one pattern, one of them different.
+            # Shaped exactly like mrec_save_slot_marker above -- close on the
+            # write failure, then test the close -- rather than introducing a
+            # block for a temporary.
+            "    if(fputs(path, f) < 0)\n"
+            "    {\n"
+            "        fclose(f);\n"
+            "        printf(\"[REPLAY] playfile write failed -- not arming\\n\");\n"
+            "        NativeVideoWriter_Notice(\"Could not start playback\", 5);\n"
+            "        return 0;\n"
+            "    }\n"
+            "    if(fclose(f) != 0)\n"
             "    {\n"
             "        printf(\"[REPLAY] playfile write failed -- not arming\\n\");\n"
             "        NativeVideoWriter_Notice(\"Could not start playback\", 5);\n"
@@ -3470,8 +3491,12 @@ extern int mrec_isolate;
             "     * disambiguates the library BY CONSTRUCTION rather than relying on the\n"
             "     * guard to refuse a collision after the fact. */\n"
             "    /* WHITELIST, not substitution. This value becomes a FILENAME, a glob in\n"
-            "     * the handler, and -- until the system() calls below are gone -- part of a\n"
-            "     * shell command run as ROOT. Replacing only the separators let every other\n"
+            "     * the handler. It WAS also part of a shell command run as root, until the\n"
+            "     * system() calls went away -- they are gone (0 real calls in the emitted C;\n"
+            "     * the three matches are comments), so that clause is history rather than a\n"
+            "     * reason to expect a shell exec here. The whitelist stays load-bearing\n"
+            "     * regardless, because the value still becomes a filename and a glob.\n"
+            "     * Replacing only the separators let every other\n"
             "     * metacharacter through: a PAK named   a';id>/tmp/pwn;'.pak   broke out of\n"
             "     * the single quotes in the snapshot copy and executed as root. PAKs travel\n"
             "     * the same forum/Discord channels as the recordings, so the filename is\n"
@@ -4283,7 +4308,26 @@ extern int mrec_isolate;
             "                      else mrec_mode = 0; }\n"
             "                }\n"
             "            }\n"
-            "            if(mrec_mode==1 && _mr_buf)\n"
+            # 🛑 `_mr_len < _mr_cap` IS LOAD-BEARING -- without it this is a heap
+            # overflow. The realloc-failure path directly above keeps mode at 1
+            # and keeps _mr_buf non-NULL (deliberately: the stop marker it drops
+            # makes the next frame flush the take rather than lose it), and it
+            # updates NEITHER _mr_len NOR _mr_cap. So _mr_len == _mr_cap still
+            # holds here, and `_mr_buf + _mr_len*9` is exactly one element past
+            # the end of a _mr_cap*9*8-byte allocation: 72 bytes written out of
+            # bounds, then _mr_len++ makes the following fwrite READ 72 bytes
+            # past it too.
+            #
+            # In a process running as root, on the "we ran out of memory, let's
+            # save your work" path -- the one that is supposed to be the graceful
+            # one. The first allocation is safe (_mr_buf stays NULL and the guard
+            # catches it); every doubling after that is exposed, and at 72 -> 144
+            # MB on a 1 GB board shared with the FPGA the failure is plausible
+            # rather than theoretical.
+            #
+            # PICO-8 has no equivalent hole: push_back owns its own capacity and
+            # the bad_alloc is caught.
+            "            if(mrec_mode==1 && _mr_buf && _mr_len < _mr_cap)\n"
             "            {\n"
             "                u64 *_mr_fr = _mr_buf + _mr_len*9;\n"
             "                _mr_fr[0] = (u64)interval;   /* game-clock steps this input sample drives */\n"
@@ -4434,7 +4478,7 @@ extern int mrec_isolate;
     loadsprite_old = "loadsprite(value, offset.x, offset.y, nopalette ? PIXEL_x8 : PIXEL_8); //don't use palette for the sprite since it will one palette from the entity's remap list in 24bit mode"
     loadsprite_new = "loadsprite(value, offset.x, offset.y, (newchar->has_remap_directive || nopalette) ? PIXEL_x8 : PIXEL_8); // MiSTer v3.9 2026-05-20: force PIXEL_x8 for ATOV-style legacy `remap` PAKs; modern PAKs (alternatepal-only Cap/He-Man) keep stock PIXEL_8 path"
     ob = strict_replace(ob, loadsprite_old, loadsprite_new, 'step 1: loadsprite PIXEL_x8 gated on newchar->has_remap_directive')
-    print("  loadsprite → PIXEL_x8 ONLY for ATOV-style legacy `remap` PAKs")
+    print("  loadsprite -> PIXEL_x8 ONLY for ATOV-style legacy `remap` PAKs")
 
     # Step 2: skip force-assign ONLY for legacy-remap PAKs. Modern PAKs keep
     # the force-assign so sprite->palette = newchar->palette consistently
@@ -7008,6 +7052,13 @@ extern int mrec_isolate;
                 'int mrec_arm_slot_play(int slot)',                 # the ONE arm-a-slot policy
                 'NativeVideoWriter_PublishReplaySlot',              # pause menu -> OSD write-back
                 'mrec_slot_pub_fresh = 1',                          # stale-echo guard is armed
+                # Without the `_mr_len < _mr_cap` term this is a 72-byte heap
+                # overflow on the realloc-failure path (which keeps mode 1 and a
+                # non-NULL buffer on purpose). Pinned because it is one token,
+                # it looks redundant beside the two conditions next to it, and
+                # the path that needs it only runs when the board is already out
+                # of memory -- so nothing routine would ever notice its removal.
+                'mrec_mode==1 && _mr_buf && _mr_len < _mr_cap',
             ],
             # 🛑 sdl/sdlport.c was not checked AT ALL. Its whole contribution is
             # a single literal-marker splice: if that marker drifts, the entire
