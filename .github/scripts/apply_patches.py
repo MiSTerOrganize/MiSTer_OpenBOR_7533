@@ -4038,7 +4038,19 @@ extern int mrec_isolate;
             "                                  if(_mr_dot && _mr_dot != _mr_e->d_name)\n"
             "                                  { if(strcasecmp(_mr_dot, \".sav\") == 0) _mr_okx = 1;\n"
             "                                    else if(strcasecmp(_mr_dot, \".hi\") == 0) _mr_okx = 1;\n"
-            "                                    else if(_mr_dot[0]=='.' && _mr_dot[1]=='s'\n"
+            # CASE, to match the reader. mrec_snap_is_script_save accepts
+            # (dot[1] == 's' || dot[1] == 'S'); this tested lowercase only, so a
+            # <pak>.S00 in the scratch was silently NOT embedded while the reader
+            # would have accepted it. The card is exFAT -- case-preserving -- and
+            # OpenBOR writes ONE script-save PER LEVEL SET, so the cost is a take
+            # that restores partial progression: a load/continue menu with a
+            # different shape, and the recorded navigation lands on a different
+            # item. A desync with no error anywhere.
+            #
+            # Writer narrower than reader, which is why nothing refused and nothing
+            # logged. Fixed on the WRITER; the reader is the security boundary and
+            # is not widened to make the writer's output legal.
+            "                                    else if(_mr_dot[0]=='.' && (_mr_dot[1]=='s' || _mr_dot[1]=='S')\n"
             "                                            && _mr_dot[2]>='0' && _mr_dot[2]<='9'\n"
             "                                            && _mr_dot[3]>='0' && _mr_dot[3]<='9'\n"
             "                                            && _mr_dot[4]==0) _mr_okx = 1; }\n"
