@@ -896,11 +896,29 @@ void pausemenu()
                                  * opposite things about the same event. */
                                 printf("[REC] reset while recording -- restarting the take in slot %d\n",
                                        mrec_slot);
+                                /* On screen too, carried across the exit(0) below
+                                 * via the recwarn marker the engine consumes at
+                                 * openborMain entry. A log line is not a message
+                                 * to the player: without this the take silently
+                                 * restarted and the previous run was gone with
+                                 * nothing said. */
+                                {
+                                    FILE *_wn = fopen("/tmp/openbor_recwarn", "w");
+                                    if (_wn) {
+                                        fprintf(_wn, "Reset - recording restarted in slot %d",
+                                                mrec_slot);
+                                        fclose(_wn);
+                                    }
+                                }
                             }
                         }
                         else if (mrec_mode == 2)
                         {
                             printf("[REC] reset during playback -- playback ended\n");
+                            {
+                                FILE *_wn = fopen("/tmp/openbor_recwarn", "w");
+                                if (_wn) { fputs("Reset - replay stopped", _wn); fclose(_wn); }
+                            }
                         }
                         _m = fopen("/tmp/openbor_reset_marker", "w");
                         if (_m) fclose(_m);
