@@ -22,6 +22,7 @@ on:
   push:
     paths:
       - '.github/scripts/**'
+      - '.github/workflows/build.yml'
       - '.github/workflows/diff_harness.yml'
       - 'patches/**'
       - 'src/**'
@@ -41,11 +42,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Runs FIRST and is a hard gate: it exercises the payload parser, which
-      # turns a stranger's bytes into filenames on a root filesystem. Needs no
-      # hardware and no ARM -- it cuts the shipped extractor out of the emitted
-      # C and compiles it natively -- so there is no reason for it to be
-      # anything other than mandatory on every run.
+      # 🛑 This test existed on BOTH cores and NO workflow ran it. The staleness
+      # guard it covers is what stops an older build finishing last and shipping
+      # a stale binary over a newer one -- a failure that is invisible because
+      # both runs report success. A guard whose test is never executed is a
+      # guard nobody is checking. Triggered on build.yml too, since that is the
+      # file it validates.
+      - name: CI staleness-guard tests (commit-back cannot ship stale)
+        run: python3 -m pip install --quiet pyyaml && python3 tools/harness/test_ci_staleness_guard.py
+      # Hard gates, all of them BEFORE the engine build: they exercise the
+      # payload parser, which turns a stranger's bytes into filenames on a root
+      # filesystem. None needs hardware or ARM -- each cuts the shipped code out
+      # of the emitted C and compiles it natively -- so there is no reason for
+      # any of them to be anything other than mandatory on every run.
+      # (This said "Runs FIRST" while sitting above the second of what are now
+      # four steps; ordering is not the property that matters here, being
+      # unskippable is.)
       - name: Pause-menu mode-parity (replay-desync gate)
         run: python3 tools/harness/menu_mode_parity_check.py
       - name: Save-payload extractor tests (untrusted input)
