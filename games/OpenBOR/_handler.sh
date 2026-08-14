@@ -315,6 +315,30 @@ if [ -f /tmp/openbor_recmode ]; then
             # stale, and the extension whitelist that decides which files are
             # allowed to land is a security control, not something to express in
             # shell quoting.
+            # Script-saves come from YOUR OWN savestates, never from the take.
+            #
+            # A .sNN is re-executable OpenBOR script -- loadScriptFile compiles
+            # and runs it -- so the payload whitelist refuses one (see
+            # mrec_snap_ext_ok). That closed a root RCE from a shared take, but
+            # taken alone it also emptied savestates for every replay, so a PAK
+            # that stores progression this way (TMNT-RP and other multi-set PAKs)
+            # replayed with NO unlocks: a different load-menu shape, recorded
+            # navigation landing on a different item, guaranteed desync.
+            #
+            # Seeding from the LOCAL savestates gives that back without trusting
+            # anyone: this is the same copy REC does, of a file this machine
+            # wrote, that the engine executes during ordinary play anyway. Your
+            # own take replays against your own unlocks and stays in sync. A
+            # take someone SENT you replays against yours rather than theirs --
+            # which can still desync, visibly, and is the honest behaviour: we
+            # will not take progression out of a stranger's file.
+            #
+            # Runs BEFORE extraction on purpose. The payload only ever supplies
+            # .sav/.hi into saves/, so it cannot overwrite this, and a REFUSED
+            # payload still leaves the local script-saves in place.
+            cp -f "/media/fat/savestates/$BINARY/$_PAK".s[0-9][0-9] "$_SCR/savestates/" 2>/dev/null
+            cp -f "/media/fat/savestates/$BINARY/$_PAK".scr         "$_SCR/savestates/" 2>/dev/null
+
             _EMB=0
             _SNAPFAIL=0
             if [ -n "$_INP" ] && [ -f "$_INP" ]; then
