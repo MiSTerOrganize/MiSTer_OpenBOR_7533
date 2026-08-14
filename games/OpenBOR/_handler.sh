@@ -93,7 +93,14 @@ REPSTATE="$REPLAYS/.snapshots"
 HAS_RECORDER=1
 [ "$BINARY" = "OpenBOR_4086" ] && HAS_RECORDER=0
 if [ "$HAS_RECORDER" = 1 ]; then
-    mkdir -p "$REPLAYS" "$REPSTATE" 2>/dev/null
+    # $REPSTATE is NOT created. Nothing writes it any more -- the engine's
+    # sidecar was removed once it was clear the take already carried those exact
+    # bytes -- and both remaining users cope with its absence: the fallback tests
+    # [ -d "$_SNAP" ], and the prune's glob simply matches nothing. Creating it
+    # would leave the same empty advertisement of a store that PICO-8's dead
+    # .snapshots was. It stays DEFINED because those two still reference the path
+    # to read legacy dirs.
+    mkdir -p "$REPLAYS" 2>/dev/null
 fi
 
 # Retire the pre-2026-08-02 location. rmdir (not rm -rf) is the whole point: it
