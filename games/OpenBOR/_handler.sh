@@ -79,27 +79,24 @@ esac
 # would silently snap back to games/OpenBOR/ and the user's takes would look gone.
 #
 # 🛑 ...but only for a build that HAS a recorder. 4086 never got one (deliberate
-# divergence -- it is archival), so creating its tree made an empty
-# replays/OpenBOR_4086/.snapshots appear on every 4086 launch, advertising a
-# feature that build does not have. The reasoning above is about not losing a
-# browse directory the user relies on; 4086 has no takes to browse.
+# divergence -- it is archival), so creating its tree put an empty
+# replays/OpenBOR_4086/ on the card at every 4086 launch, advertising a feature
+# that build does not have. The reasoning above is about not losing a browse
+# directory the user relies on; 4086 has no takes to browse.
 REPLAYS="/media/fat/replays/$BINARY"
-REPSTATE="$REPLAYS/.snapshots"
-# ONE flag, tested at every site that creates something under $REPLAYS. The
-# first version of this guard wrapped only the mkdir below and was defeated
-# three lines later by the .scratch mkdir, which re-created $REPLAYS as a
-# parent -- the directory reappeared on every 4086 launch with a different
-# hidden child. Guarding the PROPERTY needs the flag, not a local `if`.
+# ONE flag, tested at every site that creates something under $REPLAYS. Keeping
+# it a variable rather than repeating the test is what let the 4086 guard cover
+# the class instead of the instances -- its first version wrapped only the
+# .snapshots mkdir and was defeated three lines later by the .scratch one.
 HAS_RECORDER=1
 [ "$BINARY" = "OpenBOR_4086" ] && HAS_RECORDER=0
+# No .snapshots at all. The sidecar is gone from the engine, and the fallback
+# that read it was unreachable for every take that can exist: a pre-payload
+# take is container v1 and the reader rejects it at `_mr_cv==2u` before any of
+# this runs, while a v2 take always carries its payload -- v2 and the payload
+# shipped in the same binary, with no build between them. The .inp is the whole
+# take, exactly as on PICO-8.
 if [ "$HAS_RECORDER" = 1 ]; then
-    # $REPSTATE is NOT created. Nothing writes it any more -- the engine's
-    # sidecar was removed once it was clear the take already carried those exact
-    # bytes -- and both remaining users cope with its absence: the fallback tests
-    # [ -d "$_SNAP" ], and the prune's glob simply matches nothing. Creating it
-    # would leave the same empty advertisement of a store that PICO-8's dead
-    # .snapshots was. It stays DEFINED because those two still reference the path
-    # to read legacy dirs.
     mkdir -p "$REPLAYS" 2>/dev/null
 fi
 
@@ -120,32 +117,9 @@ rmdir "$GAMEDIR/Replays" 2>/dev/null
 # Cheap and safe for normal launches too, since nothing outside a session
 # ever reads it. The user's real saves are never touched.
 
-# Keep only the 20 newest per-take snapshots. Nothing pruned these before, so
-# they accumulated one directory per Stop Recording, forever, under saves/.
-# Everything else in this project auto-prunes (see the log rotation below).
-#
-# This is rm -rf, so the shape matters more than the cleverness. Two rules:
-#
-#   1. The candidate list comes from a SHELL GLOB, never from find. A glob
-#      yields children only. "find $REPSTATE -maxdepth 1" evaluates the start
-#      point at depth 0, and ".snapshots" matches "*.*" -- find's -name has no
-#      dotfile rule -- so the directory ITSELF becomes a delete candidate, and
-#      lands in the tail whenever 20 children are newer. Verified: it deletes
-#      the whole snapshot tree.
-#   2. Read whole lines. "xargs" splits on whitespace, so "my take.deadbeef"
-#      would be rm -rf'd as "my" and "take.deadbeef" -- the second RELATIVE to
-#      cd "$GAMEDIR", i.e. inside the user's PAK library. "IFS= read -r" takes
-#      the line verbatim, so a space is simply part of the name.
-#
-# A GNU pipeline (find -printf | sort -z | tail -z | cut -z) was tried here and
-# was wrong twice over: BusyBox has none of -printf, tail -z or cut -z, so on
-# the device it printed usage to a discarded stderr and pruned NOTHING, and had
-# it worked it would have hit rule 1. Keep this POSIX. The log prune below uses
-# the same idiom for the same reason.
+# The keep-20 snapshot prune is gone with the store it pruned. The LOG prune
+# further down still uses this idiom, and the reasoning is recorded there.
 if [ "$HAS_RECORDER" = 1 ]; then
-    ls -dt "$REPSTATE"/*.* 2>/dev/null | tail -n +21 | while IFS= read -r _snap; do
-        [ -n "$_snap" ] && rm -rf "$_snap"
-    done
     rm -rf "$REPLAYS/.scratch" 2>/dev/null
     mkdir -p "$REPLAYS/.scratch/saves" "$REPLAYS/.scratch/savestates" 2>/dev/null
 fi
@@ -331,13 +305,6 @@ if [ -f /tmp/openbor_recmode ]; then
             # which is the honest answer.
             #
             # This said 277 and "magic 5" until 2026-08-02. The magic shrank
-            # 5 -> 4 without this moving, so it read three bytes early, every
-            # snapshot name mismatched, and PLAY always reported "no save
-            # snapshot for this take" -- for every take, on every PAK. If a
-            # header field is ever added or resized, MREC_OFF_SEED in
-            # apply_patches.py moves and THIS NUMBER MUST MOVE WITH IT.
-            _SEED=$(dd if="$_INP" bs=1 skip=280 count=8 2>/dev/null | od -An -tx1 | tr -d ' \n')
-            _SNAP="$REPSTATE/$(basename "${_INP%.inp}").$_SEED"
             # A SHARED take carries its saves inside the .inp; a locally-recorded
             # one also has a seed-keyed snapshot dir beside it. Try the embedded
             # payload FIRST -- it is the only source that travels between
@@ -372,23 +339,7 @@ if [ -f /tmp/openbor_recmode ]; then
                 [ "${_EMB:-0}" -gt 0 ] && echo "[REC] restored $_EMB save file(s) from inside: $_INP" >> "$_RECLOG"
             fi
             if [ "${_EMB:-0}" -gt 0 ]; then
-                :   # embedded payload won; leave the local snapshot alone
-            elif [ -n "$_INP" ] && [ -d "$_SNAP" ]; then
-                cp -f "$_SNAP/saves/"* "$_SCR/saves/" 2>/dev/null
-                cp -f "$_SNAP/savestates/"* "$_SCR/savestates/" 2>/dev/null
-                # Count what LANDED. The old line printed "restored" whenever the
-                # directory merely EXISTED -- an empty or unreadable snapshot, or a
-                # cp that failed into 2>/dev/null, all reported success.
-                _N=$(find "$_SCR/saves" "$_SCR/savestates" -maxdepth 1 -type f 2>/dev/null | wc -l)
-                if [ "${_N:-0}" -gt 0 ]; then
-                    echo "[REC] restored $_N save file(s) for: $_INP" >> "$_RECLOG"
-                else
-                    echo "[REC] snapshot for this take is empty or unreadable -- starting empty" >> "$_RECLOG"
-                    # A snapshot EXISTS but nothing landed: the take carries state
-                    # the run will not have. Distinct from "carries none", and the
-                    # log was the only place either was ever said.
-                    printf %s "Could not restore the save data in this take" > /tmp/openbor_recwarn
-                fi
+                :   # the take's own payload restored; nothing else to try
             elif [ "${_SNAPFAIL:-0}" -eq 1 ]; then
                 echo "[REC] this take's payload was refused -- not playing" >> "$_RECLOG"
                 printf %s "Could not restore the save data in this take" > /tmp/openbor_recwarn
@@ -399,7 +350,7 @@ if [ -f /tmp/openbor_recmode ]; then
                 # exactly as the "could not prepare saves" branch above does.
                 rm -f /tmp/openbor_recmode /tmp/openbor_playfile 2>/dev/null
             else
-                echo "[REC] no save snapshot for this take -- starting empty" >> "$_RECLOG"
+                echo "[REC] this take carries no save payload -- starting empty" >> "$_RECLOG"
                 printf %s "This take carries no save data" > /tmp/openbor_recwarn
             fi
             ;;
