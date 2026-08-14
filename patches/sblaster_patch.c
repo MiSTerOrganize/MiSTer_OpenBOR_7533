@@ -11,14 +11,23 @@
  * all three sample-read sites. The wrapper resampler matches the
  * engine kernel character (NN) at near-zero cost.
  *
- * Architectural parity with OpenBOR_4086 (same kernel, byte-for-byte
- * identical Stage 2 loop body).
- *
  * Implementation rules:
- *   - uint32_t accum (always positive — no negative-shift UB)
- *   - No cross-tick state (each tick self-contained, accum starts 0)
+ *   - uint32_t accum (always positive -- no negative-shift UB)
+ *   - THE PHASE CARRIES ACROSS TICKS, and so does any unread frame.
+ *     This rule is the REVERSE of what it used to say ("no cross-tick
+ *     state, accum starts 0"), because that self-contained tick was the
+ *     bug: 256 outputs need 235.2 inputs, the fixed request of 236 could
+ *     not be fractional, and the leftover was advanced past by the
+ *     stateful mixer and lost. Simulated at 44250 Hz effective against
+ *     44100 emitted -- 0.34% fast, as a discontinuity at every tick
+ *     boundary, 187.5 times a second.
  *   - STEP shift via uint64_t intermediate (avoids int32 overflow at
- *     rate >= 32768 — the 2026-05-15 "loud buzzing" trap)
+ *     rate >= 32768 -- the 2026-05-15 "loud buzzing" trap)
+ *
+ * DIVERGES FROM OpenBOR_4086, which still has the self-contained tick.
+ * 4086 is archived and takes no further updates, so this is a recorded
+ * divergence rather than a parity gap; the loop bodies are no longer
+ * byte-for-byte identical and are not expected to be.
  *
  * Copyright (C) 2026 MiSTer Organize -- GPL-3.0
  */
@@ -49,9 +58,21 @@ extern void update_sample(unsigned char *buf, int size);
 #define MISTER_AUDIO_CHUNK   256                      /* output frames per tick (48 kHz)   */
 #define MISTER_CHUNK_BYTES   (MISTER_AUDIO_CHUNK * 4) /* stereo S16                          */
 
-/* 256 output × 44100/48000 = 235.2 input frames needed per tick.
- * Request 236 (ceil) so the last src index (~235) stays in-bounds. */
-#define IN_FRAMES_PER_TICK   236
+/* 256 output x 44100/48000 = 235.2 input frames per tick -- a FRACTION, which
+ * is the whole problem. The engine mixer is STATEFUL: update_sample(n) advances
+ * it by n frames whether or not we read them, so frames requested and not read
+ * are generated and thrown away.
+ *
+ * Requesting a fixed 236 (ceil) and resetting the phase each tick dropped
+ * exactly one frame per tick, forever: the highest index reached at i=255 is
+ * (255*STEP)>>16 = 234, so frame 235 was never read. Simulated over 2000 ticks:
+ * the mixer advanced 236.0 frames/tick = 44250.0 Hz effective against the
+ * 44100 Hz we emit -- a 0.34% clock error delivered as a discontinuity at the
+ * tick boundary, 187.5 times a second.
+ *
+ * The buffer is now sized to hold a tick's worth plus the frame that can be
+ * carried over; the per-tick count is computed from the live phase. */
+#define IN_BUF_FRAMES        240
 
 static int              started;
 static int              voicevol = 15;
@@ -67,7 +88,12 @@ static void audio_sleep_us(long us) {
 
 static void *audio_thread_fn(void *arg) {
     (void)arg;
-    static int16_t in_buf[IN_FRAMES_PER_TICK * 2];   /* stereo S16 @ 44.1 kHz from engine */
+    static int16_t in_buf[IN_BUF_FRAMES * 2];        /* stereo S16 @ 44.1 kHz from engine */
+    /* 🛑 BOTH PERSIST ACROSS TICKS. accum is the 16.16 phase into in_buf and
+     * have is how many frames it still holds; resetting either reintroduces the
+     * dropped-frame bug this pair exists to fix. */
+    static uint32_t accum = 0;
+    static int      have  = 0;
     static int16_t out_buf[MISTER_AUDIO_CHUNK * 2];  /* stereo S16 @ 48 kHz for DDR3      */
 
     /* Step J (affinity INVERSION 2026-06-13): pin audio thread to core 1. */
@@ -95,22 +121,48 @@ static void *audio_thread_fn(void *arg) {
             continue;
         }
 
-        /* Pull IN_FRAMES_PER_TICK fresh frames from the engine's stateful mixer. */
-        update_sample((unsigned char *)in_buf, IN_FRAMES_PER_TICK * 4);
+        /* Ask the mixer for exactly what this tick's phase will reach, and no
+         * more. The highest index used is (accum + 255*STEP)>>16, so that plus
+         * one is the frame count; anything beyond it would be advanced past and
+         * discarded. `have` is what already sits in the buffer, carried from
+         * last tick. */
+        {
+            int need = (int)((accum + (uint32_t)(MISTER_AUDIO_CHUNK - 1) * STEP) >> 16) + 1;
+            if (need > IN_BUF_FRAMES) need = IN_BUF_FRAMES;   /* cannot happen; bound anyway */
+            if (need > have) {
+                update_sample((unsigned char *)(in_buf + 2 * have), (need - have) * 4);
+                have = need;
+            }
+        }
 
         /* Zero-order hold (nearest-neighbor) resample 44100 -> 48000 Hz.
          * Mirrors engine character per feedback_audio_type_from_engine_source.md
          * (engine/source/gamelib/soundmix.c at lines 483/527/552 uses
          * sptr16[FIX_TO_INT(fp_pos)] = shift-truncation NN at all three
-         * sample-read sites). Architectural parity with OpenBOR_4086. */
-        uint32_t accum = 0;
+         * sample-read sites). */
         int i;
         for (i = 0; i < MISTER_AUDIO_CHUNK; i++) {
             int ip = (int)(accum >> 16);
-            if (ip >= IN_FRAMES_PER_TICK) ip = IN_FRAMES_PER_TICK - 1;
+            if (ip >= have) ip = have - 1;
             out_buf[2 * i + 0] = in_buf[2 * ip + 0];
             out_buf[2 * i + 1] = in_buf[2 * ip + 1];
             accum += STEP;
+        }
+
+        /* Retire the whole frames the phase passed, keep the remainder for the
+         * next tick, and rebase the phase onto what is left. This is what makes
+         * the input stream continuous across the boundary -- without it the
+         * fractional 0.2 of a frame was dropped every tick. At most one frame
+         * ever moves, so the memmove is a few bytes. */
+        {
+            int consumed = (int)(accum >> 16);
+            if (consumed > have) consumed = have;
+            if (consumed > 0) {
+                memmove(in_buf, in_buf + 2 * consumed,
+                        (size_t)(have - consumed) * 2 * sizeof(int16_t));
+                have -= consumed;
+                accum -= (uint32_t)consumed << 16;
+            }
         }
 
         NativeAudioWriter_Submit(out_buf, MISTER_AUDIO_CHUNK);

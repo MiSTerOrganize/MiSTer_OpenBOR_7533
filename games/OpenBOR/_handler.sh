@@ -176,13 +176,35 @@ _RECLOG="/tmp/openbor_recboot.log"
 # save files is neither. Prefer the loud failure.
 if [ -f /tmp/openbor_recmode ] && [ ! -f /tmp/openbor_reset_marker ]; then
     echo "[REC] stale recmode marker with no reset marker -- discarding, not arming" >> "$_RECLOG"
-    # recwarn too. It is the only one of these four that produces a
-    # USER-VISIBLE message, and the engine consumes it unconditionally at
-    # openborMain entry -- so a handler that writes it and is then killed
-    # before the binary starts leaves it for the next launch, of any PAK,
-    # with no take involved. Same leftover-marker class as the guard above.
-    rm -f /tmp/openbor_recmode /tmp/openbor_recslot /tmp/openbor_playfile \
-          /tmp/openbor_recwarn 2>/dev/null
+    rm -f /tmp/openbor_recmode /tmp/openbor_recslot /tmp/openbor_playfile 2>/dev/null
+fi
+
+# ── Stale recwarn ────────────────────────────────────────────────────
+# recwarn gets its OWN rule, keyed on the markers rather than on recmode.
+#
+# It is the only one of these that produces a USER-VISIBLE message, and the
+# engine consumes it unconditionally at openborMain entry, so a leftover is
+# shown on the next launch of ANY Pak with no take involved.
+#
+# Keying it on recmode did not cover it. The branch below that fails to prepare
+# the saves writes recwarn and DELETES recmode -- deliberately, so the recorder
+# does not arm -- which makes the recmode-based guard structurally unable to
+# ever see it. Killed anywhere between that write and the exec (the settle sleep
+# is in that window) it orphaned permanently.
+#
+# The right key is the marker, because a recwarn that is legitimately WAITING
+# for this launch always arrives with one:
+#   reset   -> pausemenu writes recwarn, then /tmp/openbor_reset_marker
+#   hotswap -> the swap thread writes /tmp/openbor_hotswap_marker (sdlport:160)
+#              BEFORE its recwarn (sdlport:203)
+# Neither marker present means nothing legitimate is pending, so anything here
+# is a leftover.
+#
+# 🛑 Must stay ABOVE both the branches that write recwarn themselves and the
+# marker consumption further down -- it is asking "what did the PREVIOUS process
+# leave", and either of those would change the answer.
+if [ ! -f /tmp/openbor_reset_marker ] && [ ! -f /tmp/openbor_hotswap_marker ]; then
+    rm -f /tmp/openbor_recwarn 2>/dev/null
 fi
 if [ -f /tmp/openbor_recmode ]; then
     _MODE=$(cat /tmp/openbor_recmode 2>/dev/null)
