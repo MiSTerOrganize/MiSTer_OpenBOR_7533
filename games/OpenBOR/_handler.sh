@@ -77,9 +77,17 @@ esac
 # starts at the core's games/ home, and Selected_S[] only remembers a different
 # directory while that directory still EXISTS. If this vanished, "Load Replay"
 # would silently snap back to games/OpenBOR/ and the user's takes would look gone.
+#
+# 🛑 ...but only for a build that HAS a recorder. 4086 never got one (deliberate
+# divergence -- it is archival), so creating its tree made an empty
+# replays/OpenBOR_4086/.snapshots appear on every 4086 launch, advertising a
+# feature that build does not have. The reasoning above is about not losing a
+# browse directory the user relies on; 4086 has no takes to browse.
 REPLAYS="/media/fat/replays/$BINARY"
 REPSTATE="$REPLAYS/.snapshots"
-mkdir -p "$REPLAYS" "$REPSTATE" 2>/dev/null
+if [ "$BINARY" != "OpenBOR_4086" ]; then
+    mkdir -p "$REPLAYS" "$REPSTATE" 2>/dev/null
+fi
 
 # Retire the pre-2026-08-02 location. rmdir (not rm -rf) is the whole point: it
 # refuses on a non-empty directory, so anyone holding takes in there keeps them
