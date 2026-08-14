@@ -85,7 +85,14 @@ esac
 # browse directory the user relies on; 4086 has no takes to browse.
 REPLAYS="/media/fat/replays/$BINARY"
 REPSTATE="$REPLAYS/.snapshots"
-if [ "$BINARY" != "OpenBOR_4086" ]; then
+# ONE flag, tested at every site that creates something under $REPLAYS. The
+# first version of this guard wrapped only the mkdir below and was defeated
+# three lines later by the .scratch mkdir, which re-created $REPLAYS as a
+# parent -- the directory reappeared on every 4086 launch with a different
+# hidden child. Guarding the PROPERTY needs the flag, not a local `if`.
+HAS_RECORDER=1
+[ "$BINARY" = "OpenBOR_4086" ] && HAS_RECORDER=0
+if [ "$HAS_RECORDER" = 1 ]; then
     mkdir -p "$REPLAYS" "$REPSTATE" 2>/dev/null
 fi
 
@@ -128,11 +135,13 @@ rmdir "$GAMEDIR/Replays" 2>/dev/null
 # the device it printed usage to a discarded stderr and pruned NOTHING, and had
 # it worked it would have hit rule 1. Keep this POSIX. The log prune below uses
 # the same idiom for the same reason.
-ls -dt "$REPSTATE"/*.* 2>/dev/null | tail -n +21 | while IFS= read -r _snap; do
-    [ -n "$_snap" ] && rm -rf "$_snap"
-done
-rm -rf "$REPLAYS/.scratch" 2>/dev/null
-mkdir -p "$REPLAYS/.scratch/saves" "$REPLAYS/.scratch/savestates" 2>/dev/null
+if [ "$HAS_RECORDER" = 1 ]; then
+    ls -dt "$REPSTATE"/*.* 2>/dev/null | tail -n +21 | while IFS= read -r _snap; do
+        [ -n "$_snap" ] && rm -rf "$_snap"
+    done
+    rm -rf "$REPLAYS/.scratch" 2>/dev/null
+    mkdir -p "$REPLAYS/.scratch/saves" "$REPLAYS/.scratch/savestates" 2>/dev/null
+fi
 
 # Seed the scratch so a session can start from YOUR progress.
 #
