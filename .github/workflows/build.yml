@@ -119,8 +119,20 @@ jobs:
           # binary is for research only and MUST NOT land on main (where DB rebuild would
           # pick up its hash and ship it via db.json to end users). Binary still uploads
           # as workflow artifact below for manual deploy testing.
-          if grep -rqE "TEMPORARY PROFILE|TEMPORARY DIAG|TEMPORARY SUB-PROFILE|REVERT AFTER MEASURED" .github/scripts/apply_patches.py patches/ src/ 2>/dev/null; then
-            echo "[CI gate] Diagnostic markers detected in apply_patches.py / patches/ / src/ — SKIPPING binary commit-back."
+          # Scope is .github/scripts/ ENTIRE, not apply_patches.py alone:
+          # patch_sdl_dummy.py injects the DDR3 mmap, the keepalive thread and the
+          # frame writer into SDL's dummy driver and is linked into the shipped
+          # binary, but was outside the gate -- the same omission that let a
+          # 60-line PPM frame-capture diagnostic through in 2026-05-22.
+          #
+          # And no 2>/dev/null: grep exits 2 on a missing path, which `if` reads
+          # exactly like "no markers found", so a rename would turn this gate into
+          # a silent pass. Assert the paths exist, then let grep speak.
+          for p in .github/scripts patches src; do
+            [ -e "$p" ] || { echo "::error::diagnostic gate cannot scan '$p' (missing) — refusing to commit blind"; exit 1; }
+          done
+          if grep -rqE "TEMPORARY PROFILE|TEMPORARY DIAG|TEMPORARY SUB-PROFILE|REVERT AFTER MEASURED" .github/scripts patches src; then
+            echo "[CI gate] Diagnostic markers detected in .github/scripts/ / patches/ / src/ — SKIPPING binary commit-back."
             echo "[CI gate] Binary built successfully and uploads as workflow artifact for manual deploy."
             echo "[CI gate] Will commit binary back automatically once diagnostic markers are removed."
             exit 0

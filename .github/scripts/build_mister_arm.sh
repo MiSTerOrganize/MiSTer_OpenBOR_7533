@@ -198,6 +198,19 @@ cd /tmp
 git clone --filter=blob:none https://github.com/DCurrent/openbor.git
 cd openbor
 git checkout v7533
+# 🛑 The ONLY dependency fetch that had no guard, under `set +e`. Every tarball
+# above is proven with fetch_verify + require_file + require_dir; the upstream
+# ENGINE -- the thing we are actually building -- was taken on trust. A failed
+# clone leaves cwd wrong and dies confusingly later in apply_patches.py; worse,
+# a failed CHECKOUT silently builds openbor MASTER instead of v7533, producing a
+# wrong-engine binary that looks completely normal. Prove both.
+require_dir engine "openbor clone/checkout failed -- no engine/ directory"
+_want=$(git rev-parse "v7533^{commit}" 2>/dev/null)
+_got=$(git rev-parse HEAD 2>/dev/null)
+if [ -z "$_want" ] || [ "$_got" != "$_want" ]; then
+    echo "ERROR: not on v7533 (HEAD=$_got want=$_want) -- refusing to build a different engine" >&2
+    exit 1
+fi
 cd engine
 
 # ── Set version ──────────────────────────────────────────────────
