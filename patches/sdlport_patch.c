@@ -743,6 +743,23 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
             || fread(&edl,4,1,f)!=1 || edl > 8u*1024u*1024u) { refused = 1; break; }
         name[enl] = 0;
 
+        /* 🛑 Re-apply the WHITELIST too, for exactly the reason the comment
+         * above gives about the length bounds -- and it was left out of the
+         * same fix. Pass 1 rejects a path separator, "..", and any extension
+         * outside the whitelist; pass 2 re-derived `dot` and trusted all of
+         * that to hold, i.e. rested the security property on the inherited
+         * invariant the paragraph above refuses to rest two integers on.
+         *
+         * It holds only while the file cannot change between the passes. The
+         * takes directory is a plain folder a user can share into, and the
+         * MiSTer mounts network shares, so "the same fd re-reads the same
+         * bytes" is an assumption about the world, not about this code.
+         * With local_stem empty -- which happens whenever .s0 is unreadable,
+         * since the handler still passes an empty argv[4] -- `out` is then
+         * built from the attacker's raw name. One call deletes the argument. */
+        if (strchr(name, '/') || strchr(name, '\\') || strstr(name, "..")
+            || !mrec_snap_ext_ok(name)) { refused = 1; break; }
+
         dot = strrchr(name, '.');
 
         /* Route by extension. The payload is FLAT -- the writer walks

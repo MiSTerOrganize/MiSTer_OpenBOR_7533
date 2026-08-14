@@ -101,16 +101,28 @@ rmdir "$GAMEDIR/Replays" 2>/dev/null
 # Keep only the 20 newest per-take snapshots. Nothing pruned these before, so
 # they accumulated one directory per Stop Recording, forever, under saves/.
 # Everything else in this project auto-prunes (see the log rotation below).
-# NUL-delimited. The old form was ls | tail | xargs, which splits on
-# whitespace: a snapshot dir named "my take.deadbeef" is NOT removed (silent
-# prune failure) and the fragments "my" and "take.deadbeef" are each rm -rf'd
-# -- the second RELATIVE to cd "$GAMEDIR", i.e. inside the user's PAK library.
-# Unreachable today because snapshot names are built from the sanitised
-# content id, so no space can appear; but this is rm -rf, and the sanitiser
-# is one edit away from being the only thing standing between a filename and
-# a recursive delete in the wrong directory.
-find "$REPSTATE" -maxdepth 1 -name "*.*" -printf "%T@ %p\0" 2>/dev/null \
-    | sort -zrn | tail -z -n +21 | cut -z -d" " -f2- | xargs -0 -r rm -rf
+#
+# This is rm -rf, so the shape matters more than the cleverness. Two rules:
+#
+#   1. The candidate list comes from a SHELL GLOB, never from find. A glob
+#      yields children only. "find $REPSTATE -maxdepth 1" evaluates the start
+#      point at depth 0, and ".snapshots" matches "*.*" -- find's -name has no
+#      dotfile rule -- so the directory ITSELF becomes a delete candidate, and
+#      lands in the tail whenever 20 children are newer. Verified: it deletes
+#      the whole snapshot tree.
+#   2. Read whole lines. "xargs" splits on whitespace, so "my take.deadbeef"
+#      would be rm -rf'd as "my" and "take.deadbeef" -- the second RELATIVE to
+#      cd "$GAMEDIR", i.e. inside the user's PAK library. "IFS= read -r" takes
+#      the line verbatim, so a space is simply part of the name.
+#
+# A GNU pipeline (find -printf | sort -z | tail -z | cut -z) was tried here and
+# was wrong twice over: BusyBox has none of -printf, tail -z or cut -z, so on
+# the device it printed usage to a discarded stderr and pruned NOTHING, and had
+# it worked it would have hit rule 1. Keep this POSIX. The log prune below uses
+# the same idiom for the same reason.
+ls -dt "$REPSTATE"/*.* 2>/dev/null | tail -n +21 | while IFS= read -r _snap; do
+    [ -n "$_snap" ] && rm -rf "$_snap"
+done
 rm -rf "$REPLAYS/.scratch" 2>/dev/null
 mkdir -p "$REPLAYS/.scratch/saves" "$REPLAYS/.scratch/savestates" 2>/dev/null
 
