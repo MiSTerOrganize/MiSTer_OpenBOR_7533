@@ -715,6 +715,32 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
           refused = 1; break; }
         if (fseek(f, (long)edl, SEEK_CUR) != 0) { refused = 1; break; }
     }
+
+    /* 🛑 The pass cannot end PAST the end of the file.
+     *
+     * Seeking beyond EOF is legal and SUCCEEDS on POSIX -- the same trap the
+     * frame block above fixes explicitly and this loop then reused unfixed. For
+     * every record but the last it is masked: an over-seek leaves the next
+     * record's fread reading nothing, which refuses. The LAST record has no
+     * successor, so a payload whose final entry declares more data than the file
+     * holds validated clean, and the failure surfaced later as "write failed
+     * after N file(s)" -- blaming the write for a source that was truncated.
+     *
+     * The invariant did hold, because the write pass then failed and the cleanup
+     * wiped both leaves; but it was being kept by the error path rather than by
+     * the validation that claims to keep it. One comparison makes the claim true.
+     * Cheaper than threading a file size through the loop, and it covers every
+     * record at once. */
+    if (!refused)
+    {
+        long endpos = ftell(f);
+        if (endpos < 0 || fseek(f, 0, SEEK_END) != 0 || ftell(f) < endpos)
+        {
+            printf("[SNAP] %s is truncated -- the payload ends past the file\n", inp);
+            refused = 1;
+        }
+    }
+
     if (refused || payload_start < 0 || fseek(f, payload_start, SEEK_SET) != 0)
     {
         printf("[SNAP] payload rejected -- nothing restored\n");

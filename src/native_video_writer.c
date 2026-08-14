@@ -40,6 +40,7 @@
 #include "native_video_writer.h"
 
 #include <fcntl.h>
+#include <pthread.h>
 #include <sched.h>
 #include <stdio.h>
 #include <string.h>
@@ -534,8 +535,29 @@ void NativeVideoWriter_NoticeRepaint(void) {
     nv_notice_painted_gen[1] = 0;
 }
 
+/* 🛑 SERIALIZES WRITERS. The barriers further down order this publish against
+ * a READER; they do nothing between two concurrent WRITERS, and there are two
+ * threads here: the engine thread (pause menu, recorder, hot-swap) and the swap
+ * thread (the .s1 pick and every refusal inside mrec_arm_slot_play, reached
+ * from the OSD poll). Two overlapping calls interleave the byte-by-byte copy
+ * into nv_notice_text and splice the two messages together.
+ *
+ * Worse than cosmetic: the line count measured from that text is the band
+ * height every frame-copy path skips, so a spliced message can leave the
+ * skipped band and the painted text disagreeing -- a stale strip, or a notice
+ * clipped mid-word.
+ *
+ * WRITER-SIDE ONLY, deliberately. The per-frame draw is not locked: the
+ * generation counter already makes a repaint follow a completed publish, and
+ * putting a lock in the frame path would put contention on the hot loop to
+ * close a one-frame, self-correcting window. No caller is a signal handler and
+ * Notice() never re-enters itself, so a plain non-recursive mutex cannot
+ * deadlock here. */
+static pthread_mutex_t nv_notice_lock = PTHREAD_MUTEX_INITIALIZER;
+
 void NativeVideoWriter_Notice(const char* msg, int seconds) {
     if (!msg) { nv_notice_until_ms = 0; return; }
+    pthread_mutex_lock(&nv_notice_lock);
     size_t i = 0;
     while (msg[i] && i < sizeof(nv_notice_text) - 1) {
         char c = msg[i];
@@ -571,7 +593,8 @@ void NativeVideoWriter_Notice(const char* msg, int seconds) {
             q += take;
             lines++;
         }
-        if (lines == 0) { nv_notice_until_ms = 0; return; }
+        if (lines == 0) { nv_notice_until_ms = 0;
+                          pthread_mutex_unlock(&nv_notice_lock); return; }
         {   /* clamp in a LOCAL, publish once: nv_notice_rows is volatile,
              * so a two-step store makes the unclamped value observable. */
             int r = lines * 9 + 6;
@@ -604,6 +627,7 @@ void NativeVideoWriter_Notice(const char* msg, int seconds) {
      * new height. Skip 0 on wrap -- 0 means "this buffer holds no notice". */
     __sync_synchronize();
     if (++nv_notice_gen == 0) nv_notice_gen = 1;
+    pthread_mutex_unlock(&nv_notice_lock);
 }
 
 /* Solid backing panel for the notice text.

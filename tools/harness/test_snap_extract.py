@@ -287,6 +287,32 @@ def main():
         rc, out, _ = run(exe, p, os.path.join(work, "d_trunc"))
         check("refuse: truncated mid-file", rc == 1, out.strip())
 
+        # 🛑 The LAST record specifically. A mid-payload over-seek is caught for
+        # free by the NEXT record's fread returning nothing -- which is why the
+        # case above passed long before pass 1 could detect truncation at all.
+        # The final entry has no successor, so a payload whose last entry
+        # declares more data than the file holds validated CLEAN and only failed
+        # later in the write pass, surfacing as "write failed after N file(s)":
+        # the write blamed for a source that was short. Chop the tail off the
+        # last entry's data and nothing else.
+        p = take("lasttrunc.inp", pak="TestPak", frames=4,
+                 payload=[("TestPak.sav", b"A" * 32), ("TestPak.hi", b"B" * 256)])
+        with open(p, "r+b") as fh:
+            fh.seek(0, 2)
+            fh.truncate(fh.tell() - 200)   # last entry claims 256 bytes, has 56
+        rc, out, landed = run(exe, p, os.path.join(work, "d_lasttrunc"))
+        # 🛑 Assert the REASON, not just rc. Verified with snap_eof_negtest.py:
+        # with the guard REMOVED this still returns rc=1 and lands nothing,
+        # because the write pass fails and the cleanup wipes both leaves. So an
+        # rc-only assertion passes either way and tests nothing. What the guard
+        # actually changes is that VALIDATION refuses -- before any mkdir -- and
+        # names truncation, instead of the write blaming itself for a short
+        # source. The invariant was already held; it was being held by the error
+        # path rather than by the pass that claims to hold it.
+        check("refuse: truncated LAST payload entry",
+              rc == 1 and not landed and "ends past the file" in out,
+              "rc=%d landed=%s out=%s" % (rc, landed, out.strip()))
+
         # ---- absent payload is not corruption --------------------------------
         p = take("nopay.inp", pak="TestPak", frames=4, payload=[])
         rc, out, landed = run(exe, p, os.path.join(work, "d_nopay"))
