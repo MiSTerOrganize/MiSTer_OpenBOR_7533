@@ -488,8 +488,18 @@ mv -f "$LOGDIR/ScriptLog.txt"    "$LOGDIR/ScriptLog.prev.txt"    2>/dev/null
 # Per CLAUDE.md "hybrid-core handlers must auto-prune log history" —
 # without this, /media/fat/logs/$BINARY/ accumulates one timestamped
 # copy per launch and grows unbounded over months of use.
-ls -t "$LOGDIR"/OpenBorLog.[0-9]*.txt 2>/dev/null | tail -n +11 | xargs -r rm -f
-ls -t "$LOGDIR"/ScriptLog.[0-9]*.txt  2>/dev/null | tail -n +11 | xargs -r rm -f
+# Same idiom as the snapshot prune above, for the reason stated there: xargs
+# splits on whitespace, so a path containing a space reaches `rm -f` as two
+# fragments -- the second resolved relative to `cd "$GAMEDIR"`, i.e. inside the
+# user's PAK library. Safe today only because $LOGDIR and these generated names
+# happen to contain none, which makes it correct by accident rather than by the
+# rule this file states two hundred lines earlier.
+ls -t "$LOGDIR"/OpenBorLog.[0-9]*.txt 2>/dev/null | tail -n +11 | while IFS= read -r _old; do
+    [ -n "$_old" ] && rm -f "$_old"
+done
+ls -t "$LOGDIR"/ScriptLog.[0-9]*.txt 2>/dev/null | tail -n +11 | while IFS= read -r _old; do
+    [ -n "$_old" ] && rm -f "$_old"
+done
 
 echo "OpenBOR handler: dispatching to $BINARY (RBF=$MISTER_RBF)" > "$LOGDIR/OpenBOR.log"
 [ -s "$_RECLOG" ] && cat "$_RECLOG" >> "$LOGDIR/OpenBOR.log"
