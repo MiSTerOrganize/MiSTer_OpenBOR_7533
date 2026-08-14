@@ -569,11 +569,15 @@ static void *mister_swap_thread(void *arg)
  * number, so a multi-set PAK has .s00, .s01, ... one per set. Matching only .s00
  * would silently drop every set past the first.
  *
- * ONE implementation, because two things need this answer: the extension
- * whitelist, and the router that decides whether an entry belongs in
- * .scratch/savestates or .scratch/saves. Two copies of a rule is how the value a
- * thing is CHECKED against drifts from the value it is USED for -- the shape
- * behind every recorder bug found on 2026-08-07. Takes the dot, not the name. */
+ * Used by the ROUTER only, as of round 14 -- the extension whitelist below now
+ * REFUSES .sNN outright, so nothing extracted can be one and the router's
+ * savestates branch is unreachable by construction. It is kept rather than
+ * folded away for two reasons: it is the one place the .sNN naming rule is
+ * written down in code, and if a signed-payload scheme ever makes shared script-
+ * saves safe, the routing must already be correct -- putting a .sNN in
+ * .scratch/saves is the exact bug found on 2026-08-07, where the file landed
+ * somewhere nothing reads and the replay booted without its progression.
+ * Takes the dot, not the name. */
 static int mrec_snap_is_script_save(const char *dot)
 {
     return dot
@@ -583,13 +587,41 @@ static int mrec_snap_is_script_save(const char *dot)
         && dot[4] == 0;
 }
 
+/* 🛑 A .sNN IS a .scr. NEVER accept one out of a take. NEVER re-add it here.
+ *
+ * saveScriptFile emits RE-EXECUTABLE OpenBOR SCRIPT, and loadScriptFile does
+ * Script_AppendText -> Script_Compile -> Script_Execute on whatever it finds at
+ * getBasePath("SaveStates")/<pak>.sNN. Under a replay that path is rewritten to
+ * .scratch/savestates, which is exactly where the router below puts an extracted
+ * entry. So accepting .sNN here let a take supply code that the engine then ran
+ * AS ROOT -- and the OSD "Load Replay" slot exists precisely so a user can play a
+ * take a STRANGER sent them.
+ *
+ * The rule was already written down as "never widen the reader to accept .scr".
+ * It was satisfied in letter and broken in substance: the whitelist rejected the
+ * string ".scr" while accepting .sNN, and .scr is only the TEMPLATE name --
+ * saveScriptFile overwrites the last two chars with the set number, so .sNN is
+ * what actually lands on disk. Rejecting the template while accepting the
+ * artifact blocks nothing. Found round 14, 2026-08-14.
+ *
+ * WHAT THIS COSTS, so nobody "fixes" it back: a take no longer carries script-
+ * saves, so replaying one on a PAK that stores progression that way (TMNT-RP and
+ * other multi-set PAKs) starts without those unlocks. The load menu then has a
+ * different shape than it did while recording, the recorded navigation picks a
+ * different item, and the replay desyncs -- VISIBLY, ending in take-over. A
+ * visible desync is the failure mode this project already accepts everywhere
+ * else; executing a stranger's script is not.
+ *
+ * If shared progression is ever wanted back it needs a SIGNATURE over the
+ * payload, or a parser that validates the script -- not another whitelist entry.
+ * The writer stops embedding .sNN too, so nothing we produce trips this; the
+ * check is here for takes made before the fix and for hostile ones. */
 static int mrec_snap_ext_ok(const char *name)
 {
     const char *dot = strrchr(name, '.');
     if (!dot || dot == name) return 0;
     if (strcasecmp(dot, ".sav") == 0) return 1;
     if (strcasecmp(dot, ".hi")  == 0) return 1;
-    if (mrec_snap_is_script_save(dot)) return 1;
     return 0;
 }
 

@@ -4061,22 +4061,23 @@ extern int mrec_isolate;
             "                                  if(_mr_dot && _mr_dot != _mr_e->d_name)\n"
             "                                  { if(strcasecmp(_mr_dot, \".sav\") == 0) _mr_okx = 1;\n"
             "                                    else if(strcasecmp(_mr_dot, \".hi\") == 0) _mr_okx = 1;\n"
-            # CASE, to match the reader. mrec_snap_is_script_save accepts
-            # (dot[1] == 's' || dot[1] == 'S'); this tested lowercase only, so a
-            # <pak>.S00 in the scratch was silently NOT embedded while the reader
-            # would have accepted it. The card is exFAT -- case-preserving -- and
-            # OpenBOR writes ONE script-save PER LEVEL SET, so the cost is a take
-            # that restores partial progression: a load/continue menu with a
-            # different shape, and the recorded navigation lands on a different
-            # item. A desync with no error anywhere.
+            # 🛑 .sNN IS DELIBERATELY NOT EMBEDDED. Do not add it back.
             #
-            # Writer narrower than reader, which is why nothing refused and nothing
-            # logged. Fixed on the WRITER; the reader is the security boundary and
-            # is not widened to make the writer's output legal.
-            "                                    else if(_mr_dot[0]=='.' && (_mr_dot[1]=='s' || _mr_dot[1]=='S')\n"
-            "                                            && _mr_dot[2]>='0' && _mr_dot[2]<='9'\n"
-            "                                            && _mr_dot[3]>='0' && _mr_dot[3]<='9'\n"
-            "                                            && _mr_dot[4]==0) _mr_okx = 1; }\n"
+            # A .sNN is a script-save: saveScriptFile emits re-executable OpenBOR
+            # script and loadScriptFile COMPILES AND EXECUTES it. The reader now
+            # refuses to extract one (mrec_snap_ext_ok in sdlport_patch.c -- the
+            # full reasoning lives there), so embedding one would only ship the
+            # user's own script bytes inside a file they hand to strangers, to be
+            # refused on the far side. Both ends drop it: the reader because it is
+            # the security boundary, the writer so nothing we produce trips it.
+            #
+            # This block previously matched .sNN case-insensitively, added because
+            # the writer was NARROWER than the reader and a <pak>.S00 was silently
+            # not embedded. That divergence is now resolved in the other
+            # direction: both refuse it. The cost -- a replay that starts without
+            # the progression a multi-set PAK stores this way, and desyncs
+            # visibly -- is stated in full at the reader.
+            "                                  }\n"
             "                                  if(!_mr_okx) continue; }\n"
             "                                snprintf(_mr_fp,sizeof(_mr_fp), \"%s/%s\", _mr_sd2, _mr_e->d_name);\n"
             "                                _mr_sf = fopen(_mr_fp, \"rb\");\n"
@@ -7016,6 +7017,19 @@ extern int mrec_isolate;
                 # the path that needs it only runs when the board is already out
                 # of memory -- so nothing routine would ever notice its removal.
                 'mrec_mode==1 && _mr_buf && _mr_len < _mr_cap',
+                # 🛑 The PAYLOAD had no coverage at all until round 14, and
+                # tonight's .snapshots removal deleted code ADJACENT to it. Had
+                # the payload writer been swept up the same way 5c89107 swept a
+                # write(), the gate would have reported 34/34 while every take
+                # shipped with no save data -- replays running against whatever
+                # saves happened to exist, desyncing silently. That is the exact
+                # class this gate exists for, sitting uncovered next to an edit.
+                'opendir(_mr_sd2)',                                # the payload writer's enumeration
+                '#include <dirent.h>',                             # ...and the include it needs (its own justification)
+                'mrec_crc32(_mr_buf',                              # take integrity is actually computed
+                # Two security controls, neither previously asserted.
+                '_mr_cv==2u',                                      # container gate: a v1 take cannot partially restore
+                'mrec_isolate = 0',                                # isolation is RESTORED on refusal (else a refused take leaves saves redirected)
             ],
             # 🛑 sdl/sdlport.c was not checked AT ALL. Its whole contribution is
             # a single literal-marker splice: if that marker drifts, the entire
@@ -7037,6 +7051,7 @@ extern int mrec_isolate;
                 'if (mrec_slot >= 1)',                              # ...and only when the slot MEANS something (not a clamped 0). Form changed when the acquire fence moved ABOVE this read; the gate correctly refused the stale signature.
                 '__sync_synchronize',                               # ...paired with the release in the recovery block (the gate STRIPS comments, so the signature must be comment-free)
                 'could not carry the slot -- not playing',          # ...and REFUSES rather than arming without it
+                'cont != 2u',                                      # the extractor's OWN container gate -- the guard that actually stops a v1 take in this process
             ],
             'source/gamelib/sprite.c': [
                 'has_remap_directive && !drawmethod->has_palette_directive',  # step 4 v2 gate
@@ -7072,6 +7087,30 @@ extern int mrec_isolate;
     # replaced with the code line it annotates, so the gate now proves the code
     # arrived. If you add a signature, add a CODE one.
 
+    # 🛑 SOME INVARIANTS ARE VIOLATED BY ADDING A LINE, NOT BY LOSING ONE.
+    #
+    # Every signature above asserts PRESENCE, which catches a dropped write. It
+    # cannot catch the opposite: re-widening the payload whitelist to accept
+    # .sNN is a one-line ADDITION, and every present-signature still passes.
+    # That is the round-14 RCE -- a take could carry a script-save, the reader
+    # extracted it to .scratch/savestates, and loadScriptFile compiled and
+    # EXECUTED it as root. Presence-only coverage would have watched it come
+    # back and reported 34/34.
+    #
+    # Keyed on the CALL, not on ".sNN" text: the helper legitimately still
+    # exists for the router, so its definition and its comments must not trip
+    # this. Comments are stripped before the test, so the reasoning written at
+    # the reader cannot satisfy or break it either.
+    _forbidden = {
+        'sdl/sdlport.c': [
+            ('if (mrec_snap_is_script_save(dot)) return 1;',
+             'the payload whitelist accepts .sNN again -- a .sNN IS a .scr, and '
+             'loadScriptFile COMPILES AND EXECUTES it as root. See the rule at '
+             'mrec_snap_ext_ok. Shared progression needs a signature or a parser, '
+             'never a whitelist entry.'),
+        ],
+    }
+
     _missing = []
     for _rel, _sigs in _required.items():
         try:
@@ -7081,6 +7120,14 @@ extern int mrec_isolate;
         for _sig in _sigs:
             if _sig not in _c:
                 _missing.append(f"{_rel}: MISSING load-bearing signature {_sig[:60]!r}")
+    for _rel, _bans in _forbidden.items():
+        try:
+            _c = _strip_c_comments(read(os.path.join(obor, _rel)))
+        except Exception as _e:
+            _missing.append(f"{_rel}: UNREADABLE ({_e})"); continue
+        for _sig, _why in _bans:
+            if _sig in _c:
+                _missing.append(f"{_rel}: FORBIDDEN pattern {_sig[:50]!r} -- {_why}")
     if _missing:
         raise RuntimeError(
             "POST-APPLY INTEGRITY GATE FAILED -- a load-bearing patch applied in memory "
