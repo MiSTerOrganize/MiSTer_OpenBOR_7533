@@ -62,7 +62,8 @@ apt-get clean
 # instability (DCurrent reverted past this version).
 echo "=== Building SDL 2.0.8 ==="
 cd /tmp
-fetch_verify SDL2-2.0.8.tar.gz https://www.libsdl.org/release/SDL2-2.0.8.tar.gz \n    https://github.com/libsdl-org/SDL/releases/download/release-2.0.8/SDL2-2.0.8.tar.gz
+fetch_verify SDL2-2.0.8.tar.gz https://www.libsdl.org/release/SDL2-2.0.8.tar.gz \
+    https://github.com/libsdl-org/SDL/releases/download/release-2.0.8/SDL2-2.0.8.tar.gz
 require_file SDL2-2.0.8.tar.gz "SDL2 download failed"
 tar xzf SDL2-2.0.8.tar.gz
 require_dir SDL2-2.0.8 "SDL2 extraction failed (corrupt or truncated tarball)"
@@ -131,7 +132,8 @@ test -f $SDL_PREFIX/lib/libSDL2_gfx.a || { echo "ERROR: SDL2_gfx build/install f
 # ── Build libogg 1.3.5 ───────────────────────────────────────────
 echo "=== Building libogg ==="
 cd /tmp
-fetch_verify libogg-1.3.5.tar.gz https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz \n    https://github.com/xiph/ogg/releases/download/v1.3.5/libogg-1.3.5.tar.gz
+fetch_verify libogg-1.3.5.tar.gz https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz \
+    https://github.com/xiph/ogg/releases/download/v1.3.5/libogg-1.3.5.tar.gz
 require_file libogg-1.3.5.tar.gz "libogg download failed"
 tar xzf libogg-1.3.5.tar.gz
 require_dir libogg-1.3.5 "libogg extraction failed (corrupt or truncated tarball)"
@@ -143,7 +145,8 @@ make install --quiet
 # ── Build libvorbis 1.3.7 ────────────────────────────────────────
 echo "=== Building libvorbis ==="
 cd /tmp
-fetch_verify libvorbis-1.3.7.tar.gz https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz \n    https://github.com/xiph/vorbis/releases/download/v1.3.7/libvorbis-1.3.7.tar.gz
+fetch_verify libvorbis-1.3.7.tar.gz https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz \
+    https://github.com/xiph/vorbis/releases/download/v1.3.7/libvorbis-1.3.7.tar.gz
 require_file libvorbis-1.3.7.tar.gz "libvorbis download failed"
 tar xzf libvorbis-1.3.7.tar.gz
 require_dir libvorbis-1.3.7 "libvorbis extraction failed (corrupt or truncated tarball)"
@@ -159,7 +162,8 @@ rm -rf libogg-1.3.5 libogg-1.3.5.tar.gz
 # ── Build zlib 1.2.13 ────────────────────────────────────────────
 echo "=== Building zlib ==="
 cd /tmp
-fetch_verify zlib-1.2.13.tar.gz https://github.com/madler/zlib/releases/download/v1.2.13/zlib-1.2.13.tar.gz \n    https://zlib.net/fossils/zlib-1.2.13.tar.gz
+fetch_verify zlib-1.2.13.tar.gz https://github.com/madler/zlib/releases/download/v1.2.13/zlib-1.2.13.tar.gz \
+    https://zlib.net/fossils/zlib-1.2.13.tar.gz
 if [ ! -f zlib-1.2.13.tar.gz ]; then echo "ERROR: zlib download failed"; exit 1; fi
 tar xzf zlib-1.2.13.tar.gz
 require_dir zlib-1.2.13 "zlib extraction failed (corrupt or truncated tarball)"
@@ -171,7 +175,8 @@ make install --quiet
 # ── Build libpng 1.6.39 ──────────────────────────────────────────
 echo "=== Building libpng ==="
 cd /tmp
-fetch_verify libpng-1.6.39.tar.gz https://download.sourceforge.net/libpng/libpng-1.6.39.tar.gz \n    https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.39.tar.gz
+fetch_verify libpng-1.6.39.tar.gz https://download.sourceforge.net/libpng/libpng-1.6.39.tar.gz \
+    https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.39.tar.gz
 require_file libpng-1.6.39.tar.gz "libpng download failed"
 tar xzf libpng-1.6.39.tar.gz
 require_dir libpng-1.6.39 "libpng extraction failed (corrupt or truncated tarball)"

@@ -521,7 +521,7 @@ endif
         '#ifdef MISTER_NATIVE_VIDEO\n'
         '\t/* Bypass SDL2 renderer chain (saves ~15ms/frame on Cortex-A9).\n'
         '\t * NativeVideoWriter_WriteFrame writes directly to DDR3 with\n'
-        '\t * anisotropic NN squish to 320×224 (Sega CD V28 NTSC). */\n'
+        '\t * anisotropic NN squish to 320x224 (Sega CD V28 NTSC). */\n'
         '\tNativeVideoWriter_WriteFrame(surface->data,\n'
         '\t                              surface->width, surface->height,\n'
         '\t                              surface->pitch,\n'
@@ -872,7 +872,7 @@ endif
  * resetting a player's controls the moment they press Record would be a worse
  * problem than the one being solved.
  *
- * 🛑 <pak>.hi is NOT a residual risk any more. This paragraph used to end
+ * NOTE: <pak>.hi is NOT a residual risk any more. This paragraph used to end
  * "the residual risk is <pak>.hi -- a qualifying score can change whether an
  * initials-entry screen appears -- which is documented rather than fixed",
  * and the HighScores branch a dozen lines below now isolates exactly that,
@@ -2244,7 +2244,7 @@ extern int mrec_isolate;
         "                self->animating = 0;\n"
         "            }\n"
         "        }\n"
-        "        /* ── end Step 57 + 66 v2 + 69 ────────────────────────────── */\n"
+        "        /* -- end Step 57 + 66 v2 + 69 ------------------------------ */\n"
         "        \n"
         "\t\tif(self->toss_time <= _time)\n"
     )
@@ -2367,7 +2367,7 @@ extern int mrec_isolate;
         "            {\n"
         "                ent_set_anim(e, ANI_FALL, 0);\n"
         "            }\n"
-        "            /* ── end Step 45 ──────────────────────────────────────────── */\n"
+        "            /* -- end Step 45 -------------------------------------------- */\n"
         "            break;\n"
     )
     ob_s45 = strict_replace(ob_s45, s45c_old, s45c_new,
@@ -2405,13 +2405,13 @@ extern int mrec_isolate;
     s47_old = (
         "                ent_set_anim(e, ANI_FALL, 0);\n"
         "            }\n"
-        "            /* ── end Step 45 ──────────────────────────────────────────── */\n"
+        "            /* -- end Step 45 -------------------------------------------- */\n"
         "            break;\n"
     )
     s47_new = (
         "                ent_set_anim(e, ANI_FALL, 0);\n"
         "            }\n"
-        "            /* ── end Step 45 ──────────────────────────────────────────── */\n"
+        "            /* -- end Step 45 -------------------------------------------- */\n"
         "            /* MiSTer Step 47 + 51 (2026-05-30): assign common_trymove for  */\n"
         "            /* level-spawned aironly SUBTYPE_ARROW. Engine SUBTYPE_ARROW    */\n"
         "            /* init normally SKIPS trymove assignment. Without trymove,    */\n"
@@ -2425,7 +2425,7 @@ extern int mrec_isolate;
         "            {\n"
         "                e->trymove = common_trymove;\n"
         "            }\n"
-        "            /* ── end Step 47 + 51 ─────────────────────────────────────── */\n"
+        "            /* -- end Step 47 + 51 --------------------------------------- */\n"
         "            break;\n"
     )
     ob_s47 = read(ob_path_g)
@@ -2533,7 +2533,7 @@ extern int mrec_isolate;
         "                        /* MiSTer Step 46 (2026-05-30): aironly SUBTYPE_ARROW       */\n"
         "                        /* transitions ANI_FALL -> ANI_IDLE on landing + sets       */\n"
         "                        /* roll velocity = cart's speed.x (engine arrow_move        */\n"
-        "                        /* canon). Step 59 v2 reverted the fall-energy bonus —      */\n"
+        "                        /* canon). Step 59 v2 reverted the fall-energy bonus --      */\n"
         "                        /* cart spec doesn't include it; bonus diverges from PC.    */\n"
         "                        if (self->modeldata.subtype == SUBTYPE_ARROW\n"
         "                            && self->modeldata.aironly_directive_seen\n"
@@ -2546,14 +2546,14 @@ extern int mrec_isolate;
         "                                               ? -self->modeldata.speed.x\n"
         "                                               : self->modeldata.speed.x;\n"
         "                        }\n"
-        "                        /* ── end Step 46 ──────────────────────────────────── */\n"
+        "                        /* -- end Step 46 ------------------------------------ */\n"
         "\n"
         "                        // in case landing, set hithead to NULL\n"
         "                        self->hithead = NULL;\n"
     )
     ob_s46 = read(ob_path_g)
     ob_s46 = strict_replace(ob_s46, s46_old, s46_new,
-                             'Step 46: landing transition ANI_FALL → ANI_IDLE + roll vel.x')
+                             'Step 46: landing transition ANI_FALL -> ANI_IDLE + roll vel.x')
     write(ob_path_g, ob_s46)
     print("  Step 46: landing event transitions aironly SUBTYPE_ARROW to ANI_IDLE + sets roll vel.x")
 
@@ -3388,7 +3388,7 @@ extern int mrec_isolate;
             " * and Record then overwrites SLOT 1's take instead of the one the user\n"
             " * picked. Silently. So every caller must be able to REFUSE.\n"
             " *\n"
-            " * 🛑 fopen() succeeding is NOT the write succeeding. /tmp is tmpfs: on a\n"
+            " * NOTE: fopen() succeeding is NOT the write succeeding. /tmp is tmpfs: on a\n"
             " * full tmpfs the open works and the write fails, which is exactly the\n"
             " * scenario this guards -- so fprintf AND fclose are both checked. The\n"
             " * previous version tested only fopen and sat one layer above the failure.\n"
@@ -4360,7 +4360,7 @@ extern int mrec_isolate;
             "            for(_mr_p=0; _mr_p<MAX_PLAYERS && _mr_p<4; _mr_p++)\n"
             "            {\n"
             "                u64 _mr_k = playercontrolpointers[_mr_p]->keyflags;\n"
-            "                /* 🛑 DO NOT mask FLAG_START out of this test to make the menu's\n"
+            "                /* NOTE: DO NOT mask FLAG_START out of this test to make the menu's\n"
             "                 * 'Stop Playback' item reachable. Tried 2026-08-05, reverted the\n"
             "                 * same day: it stops the pause button working AT ALL during a\n"
             "                 * replay. Injection is the else-branch below, so a live press\n"
@@ -4484,7 +4484,7 @@ extern int mrec_isolate;
     # the force-assign so sprite->palette = newchar->palette consistently
     # across all frames — same as stock 7533.
     force_assign_old = "                            sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
-    force_assign_new = "                            // MiSTer v3.9 2026-05-20: skip force-assign for ATOV-style legacy `remap` PAKs.\n                            // Legacy PAKs keep per-sprite GIF palette (canonical per-frame); rendered via step 4 v2 bypass.\n                            // Modern PAKs keep stock force-assign: sprite->palette = newchar->palette = `palette FILE` master.\n                            // Render path: stock uses drawmethod->table (NOT step 4 v2 bypass — gated off for modern PAKs).\n                            if (!newchar->has_remap_directive) sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
+    force_assign_new = "                            // MiSTer v3.9 2026-05-20: skip force-assign for ATOV-style legacy `remap` PAKs.\n                            // Legacy PAKs keep per-sprite GIF palette (canonical per-frame); rendered via step 4 v2 bypass.\n                            // Modern PAKs keep stock force-assign: sprite->palette = newchar->palette = `palette FILE` master.\n                            // Render path: stock uses drawmethod->table (NOT step 4 v2 bypass -- gated off for modern PAKs).\n                            if (!newchar->has_remap_directive) sprite_map[index].node->sprite->palette = newchar->palette;\n                            sprite_map[index].node->sprite->pixelformat = pixelformat;"
     ob = strict_replace(ob, force_assign_old, force_assign_new, 'step 2: skip force-assign gated on newchar->has_remap_directive')
     print("  sprite->palette force-assign skipped ONLY for ATOV-style legacy PAKs")
 
@@ -4513,7 +4513,7 @@ extern int mrec_isolate;
                     }"""
     remap_load_new = """// PALETTE FIX (v3.6): skip inner palette load. Loading from `value`
                     // (first remap arg, e.g. run2.gif for Hugo) makes that GIF's
-                    // palette the model's master palette → overrides every sprite
+                    // palette the model's master palette -> overrides every sprite
                     // via drawmethod->table. Skip it so auto-palette code at line
                     // ~16895 loads from the first ANIM frame (idle01.gif for Hugo,
                     // idle00.gif for Vice/Playa) = CANONICAL palette per character.
@@ -4528,7 +4528,7 @@ extern int mrec_isolate;
         ob = ob.replace(remap_load_old, remap_load_new)
         print("  CMD_MODEL_REMAP inner palette load skipped (auto-loads from first anim frame)")
     else:
-        raise RuntimeError("openbor.c: CMD_MODEL_REMAP palette load pattern not found — moved?")
+        raise RuntimeError("openbor.c: CMD_MODEL_REMAP palette load pattern not found -- moved?")
 
     # v3.6 (2026-05-20): Step 3b (pre-scan) REMOVED — no longer needed.
     # The pre-scan was set has_legacy_remaps before the parse loop because
