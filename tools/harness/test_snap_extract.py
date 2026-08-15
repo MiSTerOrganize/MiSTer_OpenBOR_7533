@@ -383,12 +383,28 @@ def main():
         check("empty payload: accepted, nothing written",
               rc == 0 and not landed, "rc=%d landed=%s" % (rc, landed))
 
-        # ---- identity is carried, and a take may decline to vouch ------------
+        # ---- identity: a take that declines to vouch may not restore files ----
+        #
+        # 🛑 THIS CHECK USED TO ASSERT THE OPPOSITE, and the old behaviour was
+        # the finding. ic > 1 is refused and ic == 1 is hash-verified, so ic == 0
+        # skipped the content guard entirely -- one hostile take worked against
+        # ANY PAK, which is what made the round-14 payload hole universal rather
+        # than targeted. A take may still decline to vouch (the writer emits 0
+        # for an unhashable PAK) and still PLAY; what it may not do is write a
+        # stranger's files into the scratch on nobody's authority.
         p = take("noid.inp", pak="TestPak", frames=4, content_hash=None,
                  payload=[("TestPak.sav", b"S")])
         rc, out, landed = run(exe, p, os.path.join(work, "d_noid"))
-        check("unverifiable take (0 identity entries) still extracts",
-              rc == 0 and len(landed) == 1, "rc=%d landed=%s" % (rc, landed))
+        check("refuse: unverifiable take (0 identity entries) with a payload",
+              rc == 1 and not landed, "rc=%d landed=%s" % (rc, landed))
+
+        # ...but an EMPTY payload has nothing to be wrong about, so an
+        # unverifiable take is not turned into an error by this rule alone.
+        p = take("noid_empty.inp", pak="TestPak", frames=4, content_hash=None,
+                 payload=[])
+        rc, out, landed = run(exe, p, os.path.join(work, "d_noid_empty"))
+        check("accept: unverifiable take with NO payload",
+              rc == 0 and not landed, "rc=%d landed=%s" % (rc, landed))
 
     finally:
         if keep:

@@ -910,6 +910,29 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
     { printf("[SNAP] %s is truncated -- no payload count\n", inp); fclose(f); return 1; }
     if (cnt > 4096u) { printf("[SNAP] payload claims %u files -- refusing\n", cnt); fclose(f); return 1; }
 
+    /* 🛑 A TAKE THAT DOES NOT SAY WHICH PAK IT IS MAY NOT RESTORE FILES.
+     *
+     * ic > 1 is refused above and ic == 1 carries a content hash; ic == 0 means
+     * the take declines to vouch, and NOTHING then compares it against the
+     * loaded PAK. Playing such a take is survivable -- unverified input drives
+     * only the frame stream and the worst case is a visible desync -- but its
+     * payload is FILES, chosen by whoever made it, written where the engine
+     * will load them, against a PAK nothing matched. That is what made the
+     * round-14 hole universal rather than targeted.
+     *
+     * The probe refuses this case before the reset, so a normal path never
+     * reaches here. This is the second half deliberately: the probe protects
+     * the DECISION to play, this protects the WRITE, and only this one is in
+     * the process that creates the files. An empty payload is unaffected --
+     * there is nothing to be wrong about. */
+    if (ic != 1 && cnt > 0u)
+    {
+        printf("[SNAP] %s carries %u file(s) but does not identify the PAK it was "
+               "recorded from -- refusing the payload\n", inp, cnt);
+        fclose(f);
+        return 1;
+    }
+
     /* TWO PASSES: validate every record, THEN write.
      *
      * The single-pass version wrote each file as it went and stopped at the first
