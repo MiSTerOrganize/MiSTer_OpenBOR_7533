@@ -68,6 +68,11 @@ jobs:
       # the grammar itself, cut from the emitted C.
       - name: Script-save grammar (a payload may carry a PROGRAM)
         run: python3 tools/harness/test_snap_script.py
+      # The guard walks a VARIABLE-LENGTH identity section to find the payload
+      # count; a computed offset landed inside the recorder stem. Only running
+      # it against real takes at several stem lengths can tell the difference.
+      - name: Probe refuses an unidentified take carrying a payload
+        run: python3 tools/harness/test_probe_novouch.py
       # The suite above can only observe the READER, so a writer emitting
       # something its own reader refuses has no case that can see it. That blind
       # spot held two live bugs at once (the .scr embed, the unbounded identity

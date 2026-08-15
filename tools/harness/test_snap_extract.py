@@ -4,10 +4,11 @@
 WHAT THIS TESTS AND WHY IT CAN BE TRUSTED
 -----------------------------------------
 mrec_extract_snap() turns bytes written by a stranger into filenames on the
-recipient's root filesystem. Design note O1 accepts that a shared take can carry
-re-executable engine script (.sNN), which makes the extension whitelist the
-load-bearing control -- not a nicety. A control like that should be machine-
-checked forever, not hand-tested once.
+recipient's root filesystem, and one allowed kind (.sNN) is re-executable engine
+script that loadScriptFile COMPILES AND EXECUTES. TWO controls make that safe --
+the extension whitelist decides what may land, and mrec_snap_script_ok decides
+whether a program may run -- and neither substitutes for the other. Controls like
+that should be machine-checked forever, not hand-tested once.
 
 So this does NOT reimplement the parser and test the reimplementation. It:
 
@@ -50,12 +51,17 @@ NATIVE_COPIES = ["native_video_writer.c", "native_video_writer.h",
 TEST_MAIN = r"""
 /* Test driver: calls the extractor exactly as main() does.
  *
- * Exit codes are DISTINCT on purpose. This driver returns 2 for a usage error,
- * while the extractor returns 0 (accepted) or 1 (refused). The first version
- * used `argc < 4`, so every no-stem call bailed with 2 before reaching the
- * parser -- and because the refusal checks only asserted "rc != 0", eleven of
- * them passed while testing nothing at all. Refusal checks now demand rc == 1
- * specifically, so a driver error can never again read as a refusal.
+ * Exit codes are DISTINCT on purpose:
+ *
+ *   0  accepted          2  THIS DRIVER's usage error
+ *   1  payload refused   3  not a container-v2 take (no payload can exist)
+ *
+ * The first version used `argc < 4`, so every no-stem call bailed with 2 before
+ * reaching the parser -- and because the refusal checks only asserted "rc != 0",
+ * eleven of them passed while testing nothing at all. Every check now demands a
+ * SPECIFIC code, so neither a driver error nor the wrong refusal can pass as
+ * the right one. 3 exists because "there cannot be a payload" and "the payload
+ * was refused" are different answers, and the handler tells the user which.
  */
 int main(int argc, char **argv)
 {
@@ -85,9 +91,9 @@ PROLOGUE = r"""
 # PROGRAM the engine compiles and executes), so every .sNN used here has to be
 # real script or the extension cases below start failing for the wrong reason.
 # The grammar itself is exercised by test_snap_script.py; this file only cares
-# that the extractor CONSULTS it. Byte-cap constant duplicated from the reader's
-# MREC_SCRIPT_MAX_BYTES -- if it changes, the over-cap case below stops testing
-# the cap and starts testing nothing, which is why it is named, not inlined.
+# that the extractor CONSULTS it. The byte cap is asserted against the emitted
+# #define at run time (see check_cap): a re-typed constant that drifts would
+# leave the over-cap case UNDER the real cap, silently testing nothing.
 SCRIPT_OK = b'void main() {\n    setglobalvar("unlocked_raph", 1);\n}\n'
 SCRIPT_BAD = b'void main() {\n    savefilestream("/media/fat/linux/user-startup.sh", 0);\n}\n'
 SCRIPT_MAX_BYTES = 65536
@@ -123,6 +129,19 @@ def build_tree(work):
         print(r.stdout[-3000:]); print(r.stderr[-3000:])
         raise SystemExit("apply_patches.py failed")
     return eng
+
+
+def check_cap(eng):
+    """The reader's byte cap, read from the source rather than trusted."""
+    src = open(os.path.join(eng, "sdl", "sdlport.c"),
+               encoding="utf-8", errors="replace").read()
+    m = re.search(r"#define\s+MREC_SCRIPT_MAX_BYTES\s+(\d+)", src)
+    if not m:
+        raise SystemExit("MREC_SCRIPT_MAX_BYTES not in the emitted C")
+    if int(m.group(1)) != SCRIPT_MAX_BYTES:
+        raise SystemExit("this suite's SCRIPT_MAX_BYTES (%d) no longer matches the "
+                         "shipped cap (%s) -- the over-cap case would be UNDER it "
+                         "and test nothing" % (SCRIPT_MAX_BYTES, m.group(1)))
 
 
 def cut_functions(eng):
@@ -197,6 +216,7 @@ def main():
     print("workdir:", work)
     try:
         eng = build_tree(work)
+        check_cap(eng)
         exe = compile_probe(work, cut_functions(eng))
         print("extractor compiled natively from the emitted C\n")
 
@@ -328,17 +348,34 @@ def main():
               "rc=%d landed=%s" % (rc, landed))
 
         # ---- container guards ------------------------------------------------
+        #
+        # 🛑 These assert rc == 3, not rc == 1, and the distinction is the point.
+        # 1 means "a payload was found and REFUSED"; 3 means "this file cannot
+        # contain one". Collapsed together, a take that predates the payload
+        # feature was reported to the user as having had its payload refused --
+        # a decision nobody made about data that never existed.
+        #
+        # 3 rather than 2 because the driver above returns 2 for its own usage
+        # errors. Asserting the SPECIFIC code is what keeps these honest: a
+        # driver mistake cannot masquerade as either verdict.
         p = take("newer.inp", pak="TestPak", frames=2, container=3)
         rc, out, _ = run(exe, p, os.path.join(work, "d_new"))
-        check("refuse: newer container", rc == 1, out.strip())
+        check("refuse: newer container (rc=3, not a v2 take)", rc == 3, out.strip())
 
         p = take("older.inp", pak="TestPak", frames=2, container=1)
         rc, out, _ = run(exe, p, os.path.join(work, "d_old"))
-        check("refuse: older container", rc == 1, out.strip())
+        check("refuse: older container (rc=3, not a v2 take)", rc == 3, out.strip())
 
         p = take("magic.inp", pak="TestPak", frames=2, bad_magic=True)
         rc, out, _ = run(exe, p, os.path.join(work, "d_magic"))
-        check("refuse: bad magic", rc == 1, out.strip())
+        check("refuse: bad magic (rc=3, not a v2 take)", rc == 3, out.strip())
+
+        # ...and a REFUSAL still reports 1, so the two cannot drift together.
+        p = take("refused.inp", pak="TestPak", frames=2,
+                 payload=[("../evil.sav", b"X")])
+        rc, out, _ = run(exe, p, os.path.join(work, "d_ref"))
+        check("a refused payload is still rc=1, distinct from rc=3", rc == 1,
+              "rc=%d" % rc)
 
         # A ~290-byte header claiming two million frames allocated 144 MB before
         # the read failed -- on a 1 GB board shared with the FPGA.

@@ -864,7 +864,16 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
         || fseek(f,8,SEEK_CUR)!=0                  /* seed */
         || fread(&n32,4,1,f)!=1
         || fread(&crc,4,1,f)!=1)
-    { printf("[SNAP] %s is not a v2 recording\n", inp); fclose(f); return 1; }
+    /* 🛑 EXIT 3, NOT 1 -- "there cannot BE a payload here" is a different answer
+     * from "the payload was refused", and the handler tells the user which.
+     * Collapsed into 1, a take that predates the payload feature entirely was
+     * reported as "this take's payload was refused", which names a decision
+     * nobody made about data that never existed.
+     *
+     * 3 and not 2: the test driver already returns 2 for its OWN usage errors,
+     * and reusing it is how eleven refusal checks once passed while executing
+     * nothing. Every code in this space has to stay distinguishable. */
+    { printf("[SNAP] %s is not a v2 recording\n", inp); fclose(f); return 3; }
 
     /* identity section: entry (optional) then the recorder's stem */
     stem[0] = 0;

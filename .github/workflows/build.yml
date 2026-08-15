@@ -82,6 +82,8 @@ jobs:
         run: python3 tools/harness/test_snap_extract.py
       - name: Gate - script-save grammar (a payload may carry a PROGRAM)
         run: python3 tools/harness/test_snap_script.py
+      - name: Gate - probe refuses an unidentified take carrying a payload
+        run: python3 tools/harness/test_probe_novouch.py
       - name: Gate - writer/reader agreement
         run: python3 tools/harness/test_writer_reader_agree.py
       - name: Set up QEMU

@@ -69,9 +69,11 @@ esac
 # around with defensive checks; now it simply does not exist. Nothing of the
 # user's is under this tree, so rm -rf on it is always safe.
 #
-# The per-take snapshots and scratch are DOT-directories so the OSD "Load Replay"
-# picker never lists them -- that was the original reason for keeping them out of
-# the takes folder, and hiding them solves it without a second location.
+# The session's working directories -- .scratch, and .armsnap at arm time -- are
+# DOT-directories so the OSD "Load Replay" picker never lists them; that was the
+# original reason for keeping them out of the takes folder, and hiding them
+# solves it without a second location. (There are no per-take snapshots any
+# more: a take carries its save data inside the .inp.)
 #
 # 🛑 mkdir -p on EVERY launch is load-bearing, not tidiness: MiSTer's browser
 # starts at the core's games/ home, and Selected_S[] only remembers a different
@@ -84,18 +86,26 @@ esac
 # that build does not have. The reasoning above is about not losing a browse
 # directory the user relies on; 4086 has no takes to browse.
 REPLAYS="/media/fat/replays/$BINARY"
-# ONE flag, tested at every site that creates something under $REPLAYS. Keeping
-# it a variable rather than repeating the test is what let the 4086 guard cover
-# the class instead of the instances -- its first version wrapped only the
-# .snapshots mkdir and was defeated three lines later by the .scratch one.
+# ONE flag, tested at every site that creates something under $REPLAYS -- and
+# tested at the BLOCK, not the mkdir, wherever a block contains several. That
+# distinction is the whole lesson: the guard was beaten three times in a row
+# (.snapshots, then .scratch, then .armsnap) because each fix wrapped the one
+# statement it had just found, and the next thing added inside the same block
+# was unguarded again. Wrap the region, not the line.
 HAS_RECORDER=1
 [ "$BINARY" = "OpenBOR_4086" ] && HAS_RECORDER=0
 # No .snapshots at all. The sidecar is gone from the engine, and the fallback
-# that read it was unreachable for every take that can exist: a pre-payload
-# take is container v1 and the reader rejects it at `_mr_cv==2u` before any of
-# this runs, while a v2 take always carries its payload -- v2 and the payload
+# that read it was unreachable for every take that can exist: a pre-payload take
+# is container v1, and a v2 take always carries its payload -- v2 and the payload
 # shipped in the same binary, with no build between them. The .inp is the whole
 # take, exactly as on PICO-8.
+#
+# 🛑 The guard that makes that true HERE is mrec_extract_snap's own `cont != 2u`:
+# it returns non-zero on a v1 take, the PLAY branch sets _SNAPFAIL=1, and the
+# elif short-circuits. An earlier version of this note cited `_mr_cv==2u`
+# instead -- which is real, but lives in the BINARY's replay path, in a process
+# this handler has not exec'd yet. Conclusion right, mechanism wrong, and the
+# mechanism is what the next person removing something reasons from.
 if [ "$HAS_RECORDER" = 1 ]; then
     mkdir -p "$REPLAYS" 2>/dev/null
 fi
@@ -112,13 +122,15 @@ rmdir "$GAMEDIR/Replays" 2>/dev/null
 # COPY_ROOT_PATH in source/utils.c), so both runs boot from identical
 # persistent state -- otherwise a <pak>.sav written while recording is still
 # present when the replay boots, and the two runs start in different worlds.
-# Wiped on EVERY launch: Record and Play each reset the PAK through this
-# handler, so wiping here is what guarantees the two starting states match.
+# Wiped on every launch OF A BUILD THAT HAS A RECORDER: Record and Play each
+# reset the PAK through this handler, so wiping here is what guarantees the two
+# starting states match. (4086 has no recorder and creates none of this.)
 # Cheap and safe for normal launches too, since nothing outside a session
 # ever reads it. The user's real saves are never touched.
 
-# The keep-20 snapshot prune is gone with the store it pruned. The LOG prune
-# further down still uses this idiom, and the reasoning is recorded there.
+# (The keep-20 snapshot prune that used to sit here went with the store it
+# pruned. Nothing replaced it; the log prune further down is a different thing
+# that happens to share the idiom.)
 if [ "$HAS_RECORDER" = 1 ]; then
     rm -rf "$REPLAYS/.scratch" 2>/dev/null
     mkdir -p "$REPLAYS/.scratch/saves" "$REPLAYS/.scratch/savestates" 2>/dev/null
@@ -204,7 +216,25 @@ fi
 if [ ! -f /tmp/openbor_reset_marker ] && [ ! -f /tmp/openbor_hotswap_marker ]; then
     rm -f /tmp/openbor_recwarn 2>/dev/null
 fi
-if [ -f /tmp/openbor_recmode ]; then
+# 🛑 A BUILD WITH NO RECORDER HAS NO BUSINESS IN HERE AT ALL.
+#
+# The guard is hoisted to the whole block rather than added at the one site that
+# was missing it, because that site was the THIRD of this class: the flag was
+# beaten first by .scratch, then by .armsnap, and each fix guarded the mkdir it
+# had just found. Everything below creates or copies under $REPLAYS, so the
+# question "does this build have a recorder" belongs once, here, where it cannot
+# be missed by the next thing added inside.
+#
+# A recmode marker on a no-recorder build is a leftover from the OTHER build --
+# /tmp is shared and survives an RBF swap -- so it is DISCARDED rather than
+# ignored: leaving it would hand a stale arm to the next 7533 launch, which is
+# the exact "armed unrequested, then wiped real saves" failure the stale-marker
+# guard above exists to prevent.
+if [ "$HAS_RECORDER" != 1 ] && [ -f /tmp/openbor_recmode ]; then
+    echo "[REC] recmode marker on a build with no recorder -- discarding" >> "$_RECLOG"
+    rm -f /tmp/openbor_recmode /tmp/openbor_recslot /tmp/openbor_playfile 2>/dev/null
+fi
+if [ "$HAS_RECORDER" = 1 ] && [ -f /tmp/openbor_recmode ]; then
     _MODE=$(cat /tmp/openbor_recmode 2>/dev/null)
     _SCR="$REPLAYS/.scratch"
     # The loaded PAK's stem, needed by BOTH branches: REC copies your real saves
@@ -335,6 +365,7 @@ if [ -f /tmp/openbor_recmode ]; then
             # else's. An empty savestates scratch is the honest state.
             _EMB=0
             _SNAPFAIL=0
+            _SNAPOLD=0
             if [ -n "$_INP" ] && [ -f "$_INP" ]; then
                 # $_PAK is the locally-loaded PAK's stem: entries are renamed to
                 # it, because the engine derives .sav/.hi/.sNN from getPakName and
@@ -343,8 +374,18 @@ if [ -f /tmp/openbor_recmode ]; then
                 # reads .sav/.hi from saves/ and script-saves (.sNN) from
                 # savestates/, so the binary routes each entry by extension.
                 # Passing "$_SCR/saves" put every .sNN where nothing reads it.
-                if ./"$BINARY" --extract-snap "$_INP" "$_SCR" "$_PAK" >> "$_RECLOG" 2>&1; then
+                ./"$BINARY" --extract-snap "$_INP" "$_SCR" "$_PAK" >> "$_RECLOG" 2>&1
+                _XRC=$?
+                if [ "$_XRC" -eq 0 ]; then
                     _EMB=$(find "$_SCR/saves" "$_SCR/savestates" -maxdepth 1 -type f 2>/dev/null | wc -l)
+                elif [ "$_XRC" -eq 3 ]; then
+                    # 🛑 NOT a refusal. 3 means the file is not a container-v2
+                    # take, so there cannot BE a payload in it -- it predates the
+                    # feature. Lumped in with 1, such a take was told "this
+                    # take's payload was refused", naming a decision nobody made
+                    # about data that never existed. The engine refuses a v1 take
+                    # on its own terms; this only has to stop misdescribing it.
+                    _SNAPOLD=1
                 else
                     # Non-zero means the extractor REFUSED a payload it found --
                     # a bad name, a disallowed extension, a short read -- and it
@@ -358,6 +399,15 @@ if [ -f /tmp/openbor_recmode ]; then
             fi
             if [ "${_EMB:-0}" -gt 0 ]; then
                 :   # the take's own payload restored; nothing else to try
+            elif [ "${_SNAPOLD:-0}" -eq 1 ]; then
+                echo "[REC] this take predates embedded save data -- re-record it" >> "$_RECLOG"
+                printf %s "Recorded by an older core - re-record it" > /tmp/openbor_recwarn
+                # Same wording the engine uses for a version mismatch, because it
+                # is the same situation from the player's side and the same thing
+                # to do about it. It refuses for the same reason the branch below
+                # does: replaying against saves that were never carried is a
+                # certain desync.
+                rm -f /tmp/openbor_recmode /tmp/openbor_playfile 2>/dev/null
             elif [ "${_SNAPFAIL:-0}" -eq 1 ]; then
                 echo "[REC] this take's payload was refused -- not playing" >> "$_RECLOG"
                 printf %s "Could not restore the save data in this take" > /tmp/openbor_recwarn
@@ -464,7 +514,7 @@ mv -f "$LOGDIR/ScriptLog.txt"    "$LOGDIR/ScriptLog.prev.txt"    2>/dev/null
 # Per CLAUDE.md "hybrid-core handlers must auto-prune log history" —
 # without this, /media/fat/logs/$BINARY/ accumulates one timestamped
 # copy per launch and grows unbounded over months of use.
-# Same idiom as the snapshot prune above, for the reason stated there: xargs
+# The idiom is a read loop rather than xargs, for the reason below: xargs
 # splits on whitespace, so a path containing a space reaches `rm -f` as two
 # fragments -- the second resolved relative to `cd "$GAMEDIR"`, i.e. inside the
 # user's PAK library. Safe today only because $LOGDIR and these generated names
