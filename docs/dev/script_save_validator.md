@@ -1,9 +1,23 @@
 # Script-save validator — restoring exact shared-take fidelity, safely
 
-**Status: DESIGNED + CODE WRITTEN, NOT WIRED.** Shipped behaviour today is
-`f5a1928` + `678e438`: a payload `.sNN` is REFUSED, and script-saves are seeded
-from the *local* savestates instead. That is safe and is what runs now. This
-document is the plan to go further.
+**Status: WIRED AND GATED.** A payload `.sNN` is admitted by name and then
+parsed against the grammar below before anything is written; the writer runs the
+same parser, so nothing this build produces is something its own reader refuses.
+The local-savestates seed that stood in for this (`678e438`) is REMOVED — a
+replay reads nothing off the receiver's card.
+
+Where the pieces live:
+
+| | |
+|---|---|
+| the parser | `patches/sdlport_patch.c`, `mrec_snap_script_ok` |
+| reader gate | same file, pass 2 of `mrec_extract_snap` — buffered and validated BEFORE the file exists |
+| writer gate | `.github/scripts/apply_patches.py`, the payload embed loop (externs the same function) |
+| build gate | `apply_patches.py` required signatures (both halves) + a FORBIDDEN list on filesystem calls |
+| tests | `tools/harness/test_snap_script.py` (the grammar, cut from the emitted C), `test_snap_extract.py` (the extractor consults it), `test_writer_reader_agree.py` (one parser, one byte cap) |
+
+The rest of this document is the reasoning and the corpus survey, which stay
+current: **re-run the survey before widening the grammar.**
 
 ## The problem this exists to solve
 
@@ -59,197 +73,49 @@ Everything that made the hole exploitable — `savefilestream`, `openfilestream`
 anything with filesystem or spawn reach — has **no production in this grammar**
 and cannot appear. The validator rejects; it never sanitises or rewrites.
 
-## Remaining work (the hard part)
+## How it landed (and the two traps)
 
 1. **Wiring.** `mrec_snap_ext_ok` sees only a NAME; validating needs CONTENT,
-   which exists only mid-write in pass 2 of the extractor. Pass 1 must accept
-   `.sNN` by name again, and pass 2 must buffer a `.sNN` entry (bounded by
-   `MREC_SCRIPT_MAX_BYTES`) and validate BEFORE writing, refusing the whole
-   payload on failure. Do not stream a script straight to disk and validate
-   after — that is a window where the file exists.
-2. **The forbidden-gate entry changes.** `apply_patches.py` currently bans
-   `if (mrec_snap_is_script_save(dot)) return 1;`. Once wired, the ban must
-   instead assert that acceptance is *conditional on the validator* — otherwise
-   the gate blocks the fix.
-3. **Tests (`tools/harness/test_snap_script.py`), non-negotiable.** Cut
-   `mrec_snap_script_ok` out of the SHIPPED source, compile it natively, and
-   drive it. Accept: all 15 corpus files. Refuse, at minimum: `savefilestream`,
-   `openfilestream`, `system`, a second function definition, a nested call, a
-   backslash escape, an embedded NUL, a high-bit byte, unbalanced braces,
-   trailing content after `}`, a statement count over the cap, and a file over
-   the byte cap. Distinct exit codes; every refusal asserts `rc == 1`, never
-   `rc != 0`.
-4. **Register it in `#Debugging_Tools/preflight.py`** — an unregistered checker
-   does not exist.
+   which exists only mid-write in pass 2 of the extractor. Pass 1 accepts
+   `.sNN` by name and bounds its size; pass 2 buffers the entry, validates, and
+   only then writes. It does NOT stream to disk and validate after -- that is a
+   window in which a stranger's program sits at the path `loadScriptFile`
+   compiles and executes.
+2. **The forbidden-gate entry moved.** It used to ban accepting `.sNN` at all.
+   That is now REQUIRED (a take must carry its unlocks), paired in the gate with
+   the validator call that makes it safe; what is banned instead is a
+   filesystem call gaining a production in the grammar.
+3. **The writer validates too.** One bad entry refuses the WHOLE payload, so a
+   take carrying a script this build's own reader rejects would lose its `.sav`
+   and `.hi` as well. The writer externs the SAME function -- never a copy --
+   and `test_writer_reader_agree.py` asserts there is exactly one definition and
+   one byte cap.
+4. **The statement cap had to be made reachable.** At 4096 it could never fire:
+   the shortest statement the grammar admits is 19 bytes, so a file at the
+   64 KiB byte cap holds ~3450. A bound that cannot fire is decoration. 2048.
+
+## Verified
+
+- `test_snap_script.py` 41/41 -- the grammar, cut from the emitted C
+- `test_snap_extract.py` 35/35 -- the extractor consults it (hostile script
+  refuses the whole payload; a valid one lands in `savestates/`)
+- `test_writer_reader_agree.py` 22/22 -- one parser, one cap
+- negative-tested: widening the grammar turns the suite red (40/41), and adding
+  `savefilestream` fails the build gate by name. Restored from a byte snapshot.
+
+**Owed:** the hardware test -- TMNT-RP, record with unlocks, replay, confirm the
+roster. That is the acceptance test for a self-contained `.inp`, and the
+stronger form is a take carried to a MiSTer that never had those unlocks.
 
 ## The code
 
-Written and reviewed, not yet wired. `-Werror` fails an unused `static`, so it
-cannot land until step 1 is done.
+🛑 **Not reproduced here.** It lived in this file while it was a proposal; now
+that it ships, a copy in a document is a second version to keep in step, and the
+copy is always the one that rots. The source of truth is
+`patches/sdlport_patch.c` (`mrec_snap_script_ok` and its `mrec_sv_*` helpers),
+which carries the same reasoning as comments and is what
+`tools/harness/test_snap_script.py` cuts, compiles and drives.
 
-```c
-/* ---------------------------------------------------------------------------
- * Script-save validator.
- *
- * A .sNN is a PROGRAM: saveScriptFile emits it and loadScriptFile compiles and
- * EXECUTES it. That is how OpenBOR persists unlocked characters, so a take
- * cannot reproduce a sender's roster without running their code -- the unlocks
- * ARE the code. Refusing .sNN outright (round 14) closed a root RCE but broke
- * exactly that: a shared take replayed against the receiver's unlocks, so any
- * recording that navigates an unlock-dependent roster diverged.
- *
- * This restores it without trusting the sender, by whitelisting the LANGUAGE
- * rather than the file. A payload .sNN is accepted only if it is EXACTLY:
- *
- *     void main() {
- *         setglobalvar(STR|NUM, NUM);
- *         changemodelproperty(STR, NUM, NUM);
- *         ...
- *     }
- *
- * and nothing else. Anything unrecognised refuses the whole payload.
- *
- * The grammar is not a guess. Every .sNN on the dev card was surveyed --
- * 15 files, 124..1691 bytes, across TMNT-RP / He-Man / JLL / Avengers /
- * Double Dragon / PDC2 and 6 more. Result: 248 calls, exactly TWO distinct
- * functions, four distinct line shapes, zero bytes outside printable ASCII.
- * Re-run that survey before widening anything here.
- *
- * Why these two calls are safe to permit:
- *   setglobalvar        -- sets a script variable. Pure state, no reach.
- *   changemodelproperty -- switch-dispatched on the property index
- *                          (openborscript.c), so an out-of-range index falls
- *                          through instead of indexing anything.
- * The functions that made the original hole exploitable -- savefilestream,
- * openfilestream, and everything else with filesystem or spawn reach -- simply
- * have no production in this grammar and cannot appear.
- *
- * 🛑 DO NOT add a call here to make some PAK work. A new production is a new
- * thing a stranger may run as root. Re-run the corpus survey, and if a call is
- * genuinely needed, establish that it cannot touch the filesystem, spawn, or
- * index memory from its arguments -- and add a hostile case for it to
- * test_snap_script.py, which drives THIS function compiled from THIS source.
- *
- * Rejects rather than sanitises: no rewriting, no "clean it up and run it".
- * Returns 1 = safe to write into .scratch/savestates, 0 = refuse.
- * -------------------------------------------------------------------------*/
-#define MREC_SCRIPT_MAX_BYTES 65536
-#define MREC_SCRIPT_MAX_STMTS 4096
-
-static const char *mrec_sv_ws(const char *p)
-{
-    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-    return p;
-}
-
-/* A bare double-quoted run. NO escapes are permitted -- the corpus has none,
- * and allowing a backslash means reasoning about what the engine's lexer does
- * with it. Simpler is the point. */
-static const char *mrec_sv_str(const char *p)
-{
-    if (*p != '"') return NULL;
-    p++;
-    while (*p && *p != '"')
-    {
-        if (*p == '\\') return NULL;
-        if ((unsigned char)*p < 0x20 || (unsigned char)*p > 0x7e) return NULL;
-        p++;
-    }
-    return (*p == '"') ? p + 1 : NULL;
-}
-
-static const char *mrec_sv_num(const char *p)
-{
-    const char *s = p;
-    if (*p == '-') p++;
-    if (*p < '0' || *p > '9') return NULL;
-    while (*p >= '0' && *p <= '9') p++;
-    if (*p == '.')
-    {
-        p++;
-        if (*p < '0' || *p > '9') return NULL;
-        while (*p >= '0' && *p <= '9') p++;
-    }
-    return (p > s) ? p : NULL;
-}
-
-/* One argument: a string, or a number. */
-static const char *mrec_sv_arg(const char *p, int allow_str)
-{
-    const char *q;
-    p = mrec_sv_ws(p);
-    if (*p == '"')
-        return allow_str ? mrec_sv_str(p) : NULL;
-    q = mrec_sv_num(p);
-    return q;
-}
-
-static const char *mrec_sv_lit(const char *p, const char *lit)
-{
-    size_t n = strlen(lit);
-    p = mrec_sv_ws(p);
-    return strncmp(p, lit, n) == 0 ? p + n : NULL;
-}
-
-/* text must be NUL-terminated. len is the byte count before the NUL. */
-static int mrec_snap_script_ok(const char *text, long len)
-{
-    const char *p = text;
-    long i;
-    int stmts = 0;
-
-    if (!text || len <= 0 || len > MREC_SCRIPT_MAX_BYTES) return 0;
-
-    /* Whole-file byte class first: one pass, so nothing below has to wonder
-     * about embedded NULs, control bytes or high-bit sequences. */
-    for (i = 0; i < len; i++)
-    {
-        unsigned char c = (unsigned char)text[i];
-        if (c == '\t' || c == '\n' || c == '\r') continue;
-        if (c < 0x20 || c > 0x7e) return 0;
-    }
-    if ((long)strlen(text) != len) return 0;      /* no embedded NUL */
-
-    if (!(p = mrec_sv_lit(p, "void")))   return 0;
-    if (!(p = mrec_sv_lit(p, "main")))   return 0;
-    if (!(p = mrec_sv_lit(p, "(")))      return 0;
-    if (!(p = mrec_sv_lit(p, ")")))      return 0;
-    if (!(p = mrec_sv_lit(p, "{")))      return 0;
-
-    for (;;)
-    {
-        const char *q;
-        p = mrec_sv_ws(p);
-        if (*p == '}') { p++; break; }
-        if (++stmts > MREC_SCRIPT_MAX_STMTS) return 0;
-
-        if ((q = mrec_sv_lit(p, "setglobalvar")))
-        {
-            if (!(q = mrec_sv_lit(q, "(")))     return 0;
-            if (!(q = mrec_sv_arg(q, 1)))       return 0;   /* name: str or num */
-            if (!(q = mrec_sv_lit(q, ",")))     return 0;
-            if (!(q = mrec_sv_arg(q, 0)))       return 0;   /* value: num only */
-            if (!(q = mrec_sv_lit(q, ")")))     return 0;
-            if (!(q = mrec_sv_lit(q, ";")))     return 0;
-            p = q; continue;
-        }
-        if ((q = mrec_sv_lit(p, "changemodelproperty")))
-        {
-            if (!(q = mrec_sv_lit(q, "(")))     return 0;
-            if (!(q = mrec_sv_arg(q, 1)))       return 0;   /* model name */
-            if (!(q = mrec_sv_lit(q, ",")))     return 0;
-            if (!(q = mrec_sv_arg(q, 0)))       return 0;   /* property index */
-            if (!(q = mrec_sv_lit(q, ",")))     return 0;
-            if (!(q = mrec_sv_arg(q, 0)))       return 0;   /* value */
-            if (!(q = mrec_sv_lit(q, ")")))     return 0;
-            if (!(q = mrec_sv_lit(q, ";")))     return 0;
-            p = q; continue;
-        }
-        return 0;                                  /* anything else: refuse */
-    }
-
-    p = mrec_sv_ws(p);
-    return *p == 0;                                /* nothing may follow main() */
-}
-
-```
+This section previously held a snapshot with `MREC_SCRIPT_MAX_STMTS 4096` --
+already wrong by the time it shipped, because that value cannot fire under the
+byte cap. One document, one week, one stale constant: that is the argument.

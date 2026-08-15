@@ -62,6 +62,12 @@ jobs:
         run: python3 tools/harness/menu_mode_parity_check.py
       - name: Save-payload extractor tests (untrusted input)
         run: python3 tools/harness/test_snap_extract.py
+      # A .sNN in a payload is re-executable OpenBOR script that
+      # loadScriptFile COMPILES AND EXECUTES as root. The extractor suite
+      # above proves the extractor CONSULTS the grammar; this one drives
+      # the grammar itself, cut from the emitted C.
+      - name: Script-save grammar (a payload may carry a PROGRAM)
+        run: python3 tools/harness/test_snap_script.py
       # The suite above can only observe the READER, so a writer emitting
       # something its own reader refuses has no case that can see it. That blind
       # spot held two live bugs at once (the .scr embed, the unbounded identity

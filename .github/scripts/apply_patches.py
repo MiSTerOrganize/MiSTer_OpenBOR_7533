@@ -4061,23 +4061,26 @@ extern int mrec_isolate;
             "                                  if(_mr_dot && _mr_dot != _mr_e->d_name)\n"
             "                                  { if(strcasecmp(_mr_dot, \".sav\") == 0) _mr_okx = 1;\n"
             "                                    else if(strcasecmp(_mr_dot, \".hi\") == 0) _mr_okx = 1;\n"
-            # 🛑 .sNN IS DELIBERATELY NOT EMBEDDED. Do not add it back.
+            # .sNN IS embedded -- a take must be FULLY SELF-CONTAINED, and the
+            # stage/character unlocks live in script-saves. It is NOT embedded on
+            # trust: the block immediately below parses the CONTENT against the
+            # whitelisted grammar (mrec_snap_script_ok, defined in sdlport.c)
+            # before a single byte reaches the take, and the reader parses it
+            # again on the far side. Round 14 refused .sNN outright at both ends
+            # to close a root RCE; that closed the hole and broke the promise,
+            # and the two are not in fact a trade -- see the full argument at
+            # mrec_snap_ext_ok in patches/sdlport_patch.c.
             #
-            # A .sNN is a script-save: saveScriptFile emits re-executable OpenBOR
-            # script and loadScriptFile COMPILES AND EXECUTES it. The reader now
-            # refuses to extract one (mrec_snap_ext_ok in sdlport_patch.c -- the
-            # full reasoning lives there), so embedding one would only ship the
-            # user's own script bytes inside a file they hand to strangers, to be
-            # refused on the far side. Both ends drop it: the reader because it is
-            # the security boundary, the writer so nothing we produce trips it.
-            #
-            # This block previously matched .sNN case-insensitively, added because
-            # the writer was NARROWER than the reader and a <pak>.S00 was silently
-            # not embedded. That divergence is now resolved in the other
-            # direction: both refuse it. The cost -- a replay that starts without
-            # the progression a multi-set PAK stores this way, and desyncs
-            # visibly -- is stated in full at the reader.
-            "                                  }\n"
+            # CASE, to match the reader: mrec_snap_is_script_save accepts
+            # (dot[1] == 's' || dot[1] == 'S'), and this tested lowercase only
+            # once before, so a <pak>.S00 on the case-preserving exFAT card was
+            # silently not embedded while the reader would have taken it. Writer
+            # narrower than reader logs nothing and refuses nothing; it just
+            # ships a take with partial progression.
+            "                                    else if(_mr_dot[0]=='.' && (_mr_dot[1]=='s' || _mr_dot[1]=='S')\n"
+            "                                            && _mr_dot[2]>='0' && _mr_dot[2]<='9'\n"
+            "                                            && _mr_dot[3]>='0' && _mr_dot[3]<='9'\n"
+            "                                            && _mr_dot[4]==0) _mr_okx = 1; }\n"
             "                                  if(!_mr_okx) continue; }\n"
             "                                snprintf(_mr_fp,sizeof(_mr_fp), \"%s/%s\", _mr_sd2, _mr_e->d_name);\n"
             "                                _mr_sf = fopen(_mr_fp, \"rb\");\n"
@@ -4087,6 +4090,37 @@ extern int mrec_isolate;
             "                                /* 8 MB per entry is far above any real .sav/.hi/.sNN and keeps a\n"
             "                                 * stray large file from bloating a take that is meant to be shared. */\n"
             "                                if(_mr_fl < 0 || _mr_fl > 8*1024*1024 || fseek(_mr_sf,0,SEEK_SET)!=0){ fclose(_mr_sf); continue; }\n"
+            # 🛑 EMBED ONLY WHAT THE READER WILL ACCEPT -- and for a script-save
+            # the reader's answer depends on the CONTENT, not the name. One bad
+            # entry refuses the WHOLE payload, so shipping a .sNN this build's
+            # own reader would reject does not cost the unlocks, it costs the
+            # .sav and .hi too. That is the .scr divergence of 2026-08-13
+            # repeating with a worse blast radius, so the writer runs the SAME
+            # parser the reader runs -- the real one, extern, never a copy.
+            #
+            # A refusal here is not a failure: the take is still written, still
+            # carries progress, and simply does not claim to carry unlocks it
+            # could not validate. It says so in the log rather than surfacing on
+            # someone else's machine as "payload rejected".
+            #
+            # 65536 must equal MREC_SCRIPT_MAX_BYTES at the reader; the writer
+            # cannot see that #define across the TU boundary, so the two are
+            # compared mechanically by tools/harness/test_writer_reader_agree.py
+            # -- the same treatment the identity-name bound already gets.
+            "                                { const char *_mr_sx = strrchr(_mr_e->d_name, '.');\n"
+            "                                  extern int mrec_snap_script_ok(const char *_t, long _l);\n"
+            "                                  if(_mr_sx && (_mr_sx[1]=='s' || _mr_sx[1]=='S')\n"
+            "                                     && _mr_sx[2]>='0' && _mr_sx[2]<='9'\n"
+            "                                     && _mr_sx[3]>='0' && _mr_sx[3]<='9' && _mr_sx[4]==0)\n"
+            "                                  { char *_mr_sb = NULL; int _mr_sok = 0;\n"
+            "                                    if(_mr_fl > 0 && _mr_fl <= 65536)\n"
+            "                                    { _mr_sb = (char *)malloc((size_t)_mr_fl + 1);\n"
+            "                                      if(_mr_sb && fread(_mr_sb,1,(size_t)_mr_fl,_mr_sf) == (size_t)_mr_fl)\n"
+            "                                      { _mr_sb[_mr_fl] = 0; _mr_sok = mrec_snap_script_ok(_mr_sb, _mr_fl); } }\n"
+            "                                    if(_mr_sb) free(_mr_sb);\n"
+            "                                    if(!_mr_sok || fseek(_mr_sf,0,SEEK_SET)!=0)\n"
+            "                                    { printf(\"[REC] not embedding %s -- a script-save may only be setglobalvar/changemodelproperty calls in void main()\\n\", _mr_e->d_name);\n"
+            "                                      fclose(_mr_sf); continue; } } }\n"
             "                                _mr_nl2 = (unsigned int)strlen(_mr_e->d_name);\n"
             "                                _mr_dl  = (unsigned int)_mr_fl;\n"
             "                                if(fwrite(&_mr_nl2,4,1,_mr_wf)!=1\n"
@@ -7030,6 +7064,13 @@ extern int mrec_isolate;
                 # Two security controls, neither previously asserted.
                 '_mr_cv==2u',                                      # container gate: a v1 take cannot partially restore
                 'mrec_isolate = 0',                                # isolation is RESTORED on refusal (else a refused take leaves saves redirected)
+                # The WRITER half of the script-save pair asserted at
+                # sdl/sdlport.c below. A writer that stops embedding .sNN makes
+                # every take silently lose its unlocks; a writer that embeds
+                # without validating ships takes its OWN reader refuses, and one
+                # refused entry costs the whole payload -- .sav and .hi with it.
+                '_mr_dot[4]==0) _mr_okx = 1;',                     # unlocks are embedded at all
+                'mrec_snap_script_ok(_mr_sb, _mr_fl)',             # ...and only after the same parser the reader uses says yes
             ],
             # 🛑 sdl/sdlport.c was not checked AT ALL. Its whole contribution is
             # a single literal-marker splice: if that marker drifts, the entire
@@ -7052,6 +7093,15 @@ extern int mrec_isolate;
                 '__sync_synchronize',                               # ...paired with the release in the recovery block (the gate STRIPS comments, so the signature must be comment-free)
                 'could not carry the slot -- not playing',          # ...and REFUSES rather than arming without it
                 'cont != 2u',                                      # the extractor's OWN container gate -- the guard that actually stops a v1 take in this process
+                # 🛑 THE SCRIPT-SAVE PAIR. Self-containment and "never run a
+                # stranger's code" are BOTH invariants here, and each of these
+                # two lines holds one of them. Losing the first silently drops
+                # unlocks out of every take (a fidelity regression that shows up
+                # only as a desync on someone else's machine); losing the second
+                # turns the first back into the round-14 root RCE. Neither is
+                # safe to have without the other, so both are asserted.
+                'mrec_snap_is_script_save(dot)) return 1;',         # a take MAY carry unlocks -- the self-contained .inp requirement
+                'mrec_snap_script_ok(sbuf, (long)edl)',             # ...and only after the CONTENT is parsed, before the file exists
             ],
             'source/gamelib/sprite.c': [
                 'has_remap_directive && !drawmethod->has_palette_directive',  # step 4 v2 gate
@@ -7090,24 +7140,41 @@ extern int mrec_isolate;
     # 🛑 SOME INVARIANTS ARE VIOLATED BY ADDING A LINE, NOT BY LOSING ONE.
     #
     # Every signature above asserts PRESENCE, which catches a dropped write. It
-    # cannot catch the opposite: re-widening the payload whitelist to accept
-    # .sNN is a one-line ADDITION, and every present-signature still passes.
-    # That is the round-14 RCE -- a take could carry a script-save, the reader
-    # extracted it to .scratch/savestates, and loadScriptFile compiled and
-    # EXECUTED it as root. Presence-only coverage would have watched it come
-    # back and reported 34/34.
+    # cannot catch the opposite: WIDENING something is an ADDITION, and every
+    # present-signature still passes while the new line does the damage. That is
+    # how the round-14 RCE would have come back -- re-accepting .sNN in the
+    # payload whitelist is one line, and the gate reported 34/34 either way.
     #
-    # Keyed on the CALL, not on ".sNN" text: the helper legitimately still
-    # exists for the router, so its definition and its comments must not trip
-    # this. Comments are stripped before the test, so the reasoning written at
-    # the reader cannot satisfy or break it either.
+    # 🛑 THE BAN MOVED WHEN THE FIX DID. It used to forbid accepting .sNN at
+    # all, which is now REQUIRED (a take must carry its unlocks to be
+    # self-contained) and is instead paired above with the validator call that
+    # makes it safe. Leaving the old ban in place would have blocked the real
+    # fix and pushed the next person toward dropping self-containment again --
+    # which is the mistake this whole area keeps making.
+    #
+    # What remains forbidden is the thing that actually made the hole
+    # exploitable: a production in the permitted grammar for anything with
+    # filesystem or spawn reach. Neither name appears anywhere in this file's
+    # code today, so a hit means somebody widened mrec_snap_script_ok -- the one
+    # edit that turns a parser back into an RCE. savefilestream is the exact
+    # call round 14 traced to an unsanitised path argument and an arbitrary
+    # write as root.
+    #
+    # Comments are stripped before the test, so the reasoning written at the
+    # validator (which names both calls, deliberately) cannot trip this.
     _forbidden = {
         'sdl/sdlport.c': [
-            ('if (mrec_snap_is_script_save(dot)) return 1;',
-             'the payload whitelist accepts .sNN again -- a .sNN IS a .scr, and '
-             'loadScriptFile COMPILES AND EXECUTES it as root. See the rule at '
-             'mrec_snap_ext_ok. Shared progression needs a signature or a parser, '
-             'never a whitelist entry.'),
+            ('savefilestream',
+             'the script-save grammar has grown a filesystem call. savefilestream '
+             "takes an UNSANITISED path and the core runs as root -- this is the "
+             'exact round-14 chain (take -> payload -> loadScriptFile -> '
+             'Script_Execute -> arbitrary write). Widening the grammar is not a '
+             'compatibility fix; re-run the corpus survey and read the rule at '
+             'mrec_snap_script_ok.'),
+            ('openfilestream',
+             'the script-save grammar has grown a filesystem call -- see the '
+             'savefilestream entry. A permitted production is a thing a stranger '
+             'may run as root.'),
         ],
     }
 

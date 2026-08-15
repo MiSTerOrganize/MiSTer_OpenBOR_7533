@@ -315,30 +315,24 @@ if [ -f /tmp/openbor_recmode ]; then
             # stale, and the extension whitelist that decides which files are
             # allowed to land is a security control, not something to express in
             # shell quoting.
-            # Script-saves come from YOUR OWN savestates, never from the take.
+            # 🛑 NOTHING IS SEEDED FROM THIS CARD ON PLAY. The take is the only
+            # source, and that is the requirement, not a preference: a .inp must
+            # be FULLY SELF-CONTAINED -- inputs, progress, stage AND character
+            # unlocks -- and reproduce the same screen on ANY MiSTer.
             #
-            # A .sNN is re-executable OpenBOR script -- loadScriptFile compiles
-            # and runs it -- so the payload whitelist refuses one (see
-            # mrec_snap_ext_ok). That closed a root RCE from a shared take, but
-            # taken alone it also emptied savestates for every replay, so a PAK
-            # that stores progression this way (TMNT-RP and other multi-set PAKs)
-            # replayed with NO unlocks: a different load-menu shape, recorded
-            # navigation landing on a different item, guaranteed desync.
+            # There WAS a `cp` here (678e438) copying /media/fat/savestates into
+            # the scratch. It existed for one week, as the stopgap for refusing
+            # .sNN in the payload, and it made a replay depend on the RECEIVER's
+            # unlocks: your own takes stayed in sync and a take someone sent you
+            # silently ran against your roster instead of theirs. Removed once
+            # the payload could carry script-saves safely (validated content --
+            # see mrec_snap_script_ok), which is what closed the requirement.
             #
-            # Seeding from the LOCAL savestates gives that back without trusting
-            # anyone: this is the same copy REC does, of a file this machine
-            # wrote, that the engine executes during ordinary play anyway. Your
-            # own take replays against your own unlocks and stays in sync. A
-            # take someone SENT you replays against yours rather than theirs --
-            # which can still desync, visibly, and is the honest behaviour: we
-            # will not take progression out of a stranger's file.
-            #
-            # Runs BEFORE extraction on purpose. The payload only ever supplies
-            # .sav/.hi into saves/, so it cannot overwrite this, and a REFUSED
-            # payload still leaves the local script-saves in place.
-            cp -f "/media/fat/savestates/$BINARY/$_PAK".s[0-9][0-9] "$_SCR/savestates/" 2>/dev/null
-            cp -f "/media/fat/savestates/$BINARY/$_PAK".scr         "$_SCR/savestates/" 2>/dev/null
-
+            # 🛑 Do not add it back as a "fallback" for a take that carries no
+            # script-saves. Falling back to local data is precisely the failure
+            # this requirement names: it turns a visible, diagnosable gap into a
+            # replay that looks right on YOUR machine and diverges on everyone
+            # else's. An empty savestates scratch is the honest state.
             _EMB=0
             _SNAPFAIL=0
             if [ -n "$_INP" ] && [ -f "$_INP" ]; then

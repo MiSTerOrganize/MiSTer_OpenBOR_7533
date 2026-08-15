@@ -553,10 +553,12 @@ static void *mister_swap_thread(void *arg)
  * over the cart's ROM before the first frame.
  *
  * .sNN stays IN because those are script-saves holding unlocks and progression,
- * so determinism genuinely needs them (design note O1) -- and they are
- * re-executable OpenBOR script, which loadScriptFile() executes. That is an
- * accepted, documented risk: a shared take can run script inside the recipient's
- * engine. The README says so plainly. Do not silently widen this list.
+ * so a take genuinely needs them to be self-contained -- but it is NOT accepted
+ * on trust. A .sNN is re-executable OpenBOR script that loadScriptFile()
+ * compiles and EXECUTES, so it is admitted only after mrec_snap_script_ok()
+ * has parsed the CONTENT against a whitelisted grammar (see that function).
+ * The extension whitelist decides where a byte stream may land; the grammar
+ * decides whether a program may run. Do not silently widen either.
  *
  * Stem remapping: save names derive from getPakName, so a recipient whose file
  * is named differently has an engine looking for names the payload does not
@@ -569,14 +571,11 @@ static void *mister_swap_thread(void *arg)
  * number, so a multi-set PAK has .s00, .s01, ... one per set. Matching only .s00
  * would silently drop every set past the first.
  *
- * Used by the ROUTER only, as of round 14 -- the extension whitelist below now
- * REFUSES .sNN outright, so nothing extracted can be one and the router's
- * savestates branch is unreachable by construction. It is kept rather than
- * folded away for two reasons: it is the one place the .sNN naming rule is
- * written down in code, and if a signed-payload scheme ever makes shared script-
- * saves safe, the routing must already be correct -- putting a .sNN in
- * .scratch/saves is the exact bug found on 2026-08-07, where the file landed
- * somewhere nothing reads and the replay booted without its progression.
+ * Used in three places, all of which need the same answer: the extension
+ * whitelist (may this name be admitted at all), the content gate (must this
+ * entry be parsed as a program before it is written), and the ROUTER -- putting
+ * a .sNN in .scratch/saves is the exact bug found on 2026-08-07, where the file
+ * landed somewhere nothing reads and the replay booted without its progression.
  * Takes the dot, not the name. */
 static int mrec_snap_is_script_save(const char *dot)
 {
@@ -587,41 +586,228 @@ static int mrec_snap_is_script_save(const char *dot)
         && dot[4] == 0;
 }
 
-/* 🛑 A .sNN IS a .scr. NEVER accept one out of a take. NEVER re-add it here.
+/* ---------------------------------------------------------------------------
+ * Script-save validator -- what makes a .inp SELF-CONTAINED without running a
+ * stranger's code.
  *
- * saveScriptFile emits RE-EXECUTABLE OpenBOR SCRIPT, and loadScriptFile does
- * Script_AppendText -> Script_Compile -> Script_Execute on whatever it finds at
- * getBasePath("SaveStates")/<pak>.sNN. Under a replay that path is rewritten to
- * .scratch/savestates, which is exactly where the router below puts an extracted
- * entry. So accepting .sNN here let a take supply code that the engine then ran
- * AS ROOT -- and the OSD "Load Replay" slot exists precisely so a user can play a
- * take a STRANGER sent them.
+ * A .sNN is a PROGRAM: saveScriptFile emits it and loadScriptFile compiles and
+ * EXECUTES it. That is how OpenBOR persists unlocked characters and stages, so
+ * a take cannot reproduce a sender's roster without running their code -- the
+ * unlocks ARE the code. Refusing .sNN outright (round 14) closed a root RCE and
+ * cost exactly that: a shared take replayed against the RECEIVER's unlocks, so
+ * any recording that navigates an unlock-dependent roster diverged.
  *
- * The rule was already written down as "never widen the reader to accept .scr".
- * It was satisfied in letter and broken in substance: the whitelist rejected the
- * string ".scr" while accepting .sNN, and .scr is only the TEMPLATE name --
- * saveScriptFile overwrites the last two chars with the set number, so .sNN is
- * what actually lands on disk. Rejecting the template while accepting the
- * artifact blocks nothing. Found round 14, 2026-08-14.
+ * 🛑 THOSE TWO GOALS ARE NOT A TRADE. Every time this tension has surfaced the
+ * tempting move has been to drop one of them, and it has been wrong both times.
+ * The resolution is to whitelist the LANGUAGE rather than the file. A payload
+ * .sNN is accepted only if it is EXACTLY:
  *
- * WHAT THIS COSTS, so nobody "fixes" it back: a take no longer carries script-
- * saves, so replaying one on a PAK that stores progression that way (TMNT-RP and
- * other multi-set PAKs) starts without those unlocks. The load menu then has a
- * different shape than it did while recording, the recorded navigation picks a
- * different item, and the replay desyncs -- VISIBLY, ending in take-over. A
- * visible desync is the failure mode this project already accepts everywhere
- * else; executing a stranger's script is not.
+ *     void main() {
+ *         setglobalvar(STR|NUM, NUM);
+ *         changemodelproperty(STR, NUM, NUM);
+ *         ...
+ *     }
  *
- * If shared progression is ever wanted back it needs a SIGNATURE over the
- * payload, or a parser that validates the script -- not another whitelist entry.
- * The writer stops embedding .sNN too, so nothing we produce trips this; the
- * check is here for takes made before the fix and for hostile ones. */
+ * and nothing else. Anything unrecognised refuses the WHOLE payload.
+ *
+ * The grammar is not a guess. Every .sNN on the dev card was surveyed --
+ * 15 files, 124..1691 bytes, across TMNT-RP / He-Man / JLL / Avengers /
+ * Double Dragon / PDC2 and 6 more. Result: 248 calls, exactly TWO distinct
+ * functions, four distinct line shapes, zero bytes outside printable ASCII.
+ * Re-run that survey before widening anything here; the command is in
+ * docs/dev/script_save_validator.md.
+ *
+ * Why these two calls are safe to permit:
+ *   setglobalvar        -- sets a script variable. Pure state, no reach.
+ *   changemodelproperty -- switch-dispatched on the property index
+ *                          (openborscript.c), so an out-of-range index falls
+ *                          through instead of indexing anything.
+ * The functions that made the original hole exploitable -- savefilestream,
+ * openfilestream, and everything else with filesystem or spawn reach -- simply
+ * have no production in this grammar and cannot appear. That is why the fix is
+ * a parser and not another whitelist entry.
+ *
+ * 🛑 DO NOT add a call here to make some PAK work. A new production is a new
+ * thing a stranger may run as root. Re-run the corpus survey, and if a call is
+ * genuinely needed, establish that it cannot touch the filesystem, spawn, or
+ * index memory from its arguments -- and add a hostile case for it to
+ * tools/harness/test_snap_script.py, which drives THIS function compiled from
+ * THIS source.
+ *
+ * Rejects rather than sanitises: no rewriting, no "clean it up and run it".
+ * Returns 1 = safe to write into .scratch/savestates, 0 = refuse.
+ *
+ * NOT static, and declared just above its definition: the WRITER calls it too,
+ * from openbor.c, so nothing we produce can be something this reader refuses --
+ * the .scr embed of 2026-08-13 is what a writer/reader divergence costs. The
+ * prototype keeps -Wmissing-prototypes quiet if it is ever switched on.
+ * -------------------------------------------------------------------------*/
+/* 🛑 THE TWO CAPS ARE RELATED, AND THE SECOND MUST STAY REACHABLE.
+ *
+ * The largest file in the corpus is 1691 bytes; 64 KiB is ~38x that. The
+ * shortest statement this grammar admits is 19 bytes ("setglobalvar(0,0);" and
+ * a newline), so a file at the byte cap holds at most ~3450 statements -- which
+ * means a statement cap of 4096 could NEVER fire, and an assertion that cannot
+ * fire is not a bound, it is decoration that reads like one. 2048 is ~40x the
+ * largest observed statement count and IS reachable, so
+ * tools/harness/test_snap_script.py can prove it fires. Raise the byte cap and
+ * this stays honest; raise this one past ~3450 and it goes dead again. */
+#define MREC_SCRIPT_MAX_BYTES 65536
+#define MREC_SCRIPT_MAX_STMTS 2048
+
+int mrec_snap_script_ok(const char *text, long len);
+
+static const char *mrec_sv_ws(const char *p)
+{
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+    return p;
+}
+
+/* A bare double-quoted run. NO escapes are permitted -- the corpus has none,
+ * and allowing a backslash means reasoning about what the engine's lexer does
+ * with it. Simpler is the point. */
+static const char *mrec_sv_str(const char *p)
+{
+    if (*p != '"') return NULL;
+    p++;
+    while (*p && *p != '"')
+    {
+        if (*p == '\\') return NULL;
+        if ((unsigned char)*p < 0x20 || (unsigned char)*p > 0x7e) return NULL;
+        p++;
+    }
+    return (*p == '"') ? p + 1 : NULL;
+}
+
+static const char *mrec_sv_num(const char *p)
+{
+    const char *s = p;
+    if (*p == '-') p++;
+    if (*p < '0' || *p > '9') return NULL;
+    while (*p >= '0' && *p <= '9') p++;
+    if (*p == '.')
+    {
+        p++;
+        if (*p < '0' || *p > '9') return NULL;
+        while (*p >= '0' && *p <= '9') p++;
+    }
+    return (p > s) ? p : NULL;
+}
+
+/* One argument: a string, or a number. */
+static const char *mrec_sv_arg(const char *p, int allow_str)
+{
+    p = mrec_sv_ws(p);
+    if (*p == '"')
+        return allow_str ? mrec_sv_str(p) : NULL;
+    return mrec_sv_num(p);
+}
+
+static const char *mrec_sv_lit(const char *p, const char *lit)
+{
+    size_t n = strlen(lit);
+    p = mrec_sv_ws(p);
+    return strncmp(p, lit, n) == 0 ? p + n : NULL;
+}
+
+/* text must be NUL-terminated. len is the byte count before the NUL. */
+int mrec_snap_script_ok(const char *text, long len)
+{
+    const char *p = text;
+    long i;
+    int stmts = 0;
+
+    if (!text || len <= 0 || len > MREC_SCRIPT_MAX_BYTES) return 0;
+
+    /* Whole-file byte class first: one pass, so nothing below has to wonder
+     * about embedded NULs, control bytes or high-bit sequences. */
+    for (i = 0; i < len; i++)
+    {
+        unsigned char c = (unsigned char)text[i];
+        if (c == '\t' || c == '\n' || c == '\r') continue;
+        if (c < 0x20 || c > 0x7e) return 0;
+    }
+    if ((long)strlen(text) != len) return 0;      /* no embedded NUL */
+
+    if (!(p = mrec_sv_lit(p, "void")))   return 0;
+    if (!(p = mrec_sv_lit(p, "main")))   return 0;
+    if (!(p = mrec_sv_lit(p, "(")))      return 0;
+    if (!(p = mrec_sv_lit(p, ")")))      return 0;
+    if (!(p = mrec_sv_lit(p, "{")))      return 0;
+
+    for (;;)
+    {
+        const char *q;
+        p = mrec_sv_ws(p);
+        if (*p == '}') { p++; break; }
+        if (++stmts > MREC_SCRIPT_MAX_STMTS) return 0;
+
+        /* Each literal is followed by a REQUIRED '(' , so this cannot be
+         * satisfied by a longer identifier that merely starts the same way:
+         * "setglobalvarX(" fails at the '(' test and refuses. */
+        if ((q = mrec_sv_lit(p, "setglobalvar")))
+        {
+            if (!(q = mrec_sv_lit(q, "(")))     return 0;
+            if (!(q = mrec_sv_arg(q, 1)))       return 0;   /* name: str or num */
+            if (!(q = mrec_sv_lit(q, ",")))     return 0;
+            if (!(q = mrec_sv_arg(q, 0)))       return 0;   /* value: num only */
+            if (!(q = mrec_sv_lit(q, ")")))     return 0;
+            if (!(q = mrec_sv_lit(q, ";")))     return 0;
+            p = q; continue;
+        }
+        if ((q = mrec_sv_lit(p, "changemodelproperty")))
+        {
+            if (!(q = mrec_sv_lit(q, "(")))     return 0;
+            if (!(q = mrec_sv_arg(q, 1)))       return 0;   /* model name */
+            if (!(q = mrec_sv_lit(q, ",")))     return 0;
+            if (!(q = mrec_sv_arg(q, 0)))       return 0;   /* property index */
+            if (!(q = mrec_sv_lit(q, ",")))     return 0;
+            if (!(q = mrec_sv_arg(q, 0)))       return 0;   /* value */
+            if (!(q = mrec_sv_lit(q, ")")))     return 0;
+            if (!(q = mrec_sv_lit(q, ";")))     return 0;
+            p = q; continue;
+        }
+        return 0;                                  /* anything else: refuse */
+    }
+
+    p = mrec_sv_ws(p);
+    return *p == 0;                                /* nothing may follow main() */
+}
+
+/* 🛑 A .sNN IS a .scr, and .scr is ONLY the template name -- saveScriptFile
+ * overwrites the last two chars with the level-set number, so .sNN is what
+ * actually lands on disk. Round 14 found this whitelist rejecting the string
+ * ".scr" while accepting .sNN: satisfied in LETTER, broken in SUBSTANCE, and a
+ * root RCE (a take supplied script, loadScriptFile compiled and EXECUTED it,
+ * and the script could call savefilestream, whose path argument is unsanitised).
+ * Any rule written about .scr must be tested against .sNN.
+ *
+ * 🛑 THIS FUNCTION DECIDES NAMES, NOT PROGRAMS. Admitting .sNN here is NOT what
+ * makes a script-save safe -- mrec_snap_script_ok() parsing the CONTENT is, and
+ * pass 2 refuses the whole payload if it fails. Never accept a .sNN on the
+ * strength of this predicate alone; the two controls are load-bearing together
+ * and neither substitutes for the other.
+ *
+ * WHY .sNN IS ADMITTED AT ALL, so nobody "closes the hole" by deleting the
+ * line: a .inp must be FULLY SELF-CONTAINED -- inputs, progress, stage AND
+ * character unlocks -- and replay identically on ANY MiSTer, reading nothing
+ * off the local card. Unlocks live in script-saves. Refusing them outright made
+ * a shared take replay against the RECEIVER's roster, so the load menu had a
+ * different shape than during recording and the recorded navigation picked a
+ * different item. That is a fidelity loss, not an accepted cost, and it is not
+ * forced: the grammar is small enough (2 functions, measured across the whole
+ * corpus) to validate totally.
+ *
+ * The other extensions carry no code -- .sav is progress, .hi is a score table
+ * -- so they need no content gate. Do not widen this list without asking what
+ * READS the file and what that reader will do with the bytes. */
 static int mrec_snap_ext_ok(const char *name)
 {
     const char *dot = strrchr(name, '.');
     if (!dot || dot == name) return 0;
     if (strcasecmp(dot, ".sav") == 0) return 1;
     if (strcasecmp(dot, ".hi")  == 0) return 1;
+    if (mrec_snap_is_script_save(dot)) return 1;   /* CONTENT-gated in pass 2 */
     return 0;
 }
 
@@ -745,6 +931,16 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
             || !mrec_snap_ext_ok(name))
         { printf("[SNAP] refusing entry '%s' -- not an allowed save file\n", name);
           refused = 1; break; }
+        /* A script-save is CONTENT-validated in pass 2, which has to buffer the
+         * whole entry to do it. Bound it HERE so an oversized one refuses during
+         * validation -- before any mkdir, before any file exists -- rather than
+         * being discovered mid-write, which is the failure shape this two-pass
+         * split exists to avoid. mrec_snap_script_ok enforces the same cap on
+         * its own, so this is the early half of one rule, not a second rule. */
+        if (mrec_snap_is_script_save(strrchr(name, '.')) && edl > MREC_SCRIPT_MAX_BYTES)
+        { printf("[SNAP] refusing entry '%s' -- script-save is %u bytes (max %d)\n",
+                 name, edl, MREC_SCRIPT_MAX_BYTES);
+          refused = 1; break; }
         if (fseek(f, (long)edl, SEEK_CUR) != 0) { refused = 1; break; }
     }
 
@@ -842,6 +1038,49 @@ static int mrec_extract_snap(const char *inp, const char *destdir, const char *l
                 snprintf(out, sizeof(out), "%s/%s/%s%s", destdir, leaf, local_stem, dot);
             else
                 snprintf(out, sizeof(out), "%s/%s/%s", destdir, leaf, name);
+        }
+
+        /* 🛑 A SCRIPT-SAVE IS PARSED BEFORE IT EXISTS.
+         *
+         * The entry is buffered whole, validated, and only then written. Do NOT
+         * "simplify" this into the streaming path below with a validate-after
+         * step: between the write and the check there is a window in which a
+         * stranger's program sits at .scratch/savestates/<pak>.sNN, which is
+         * exactly the path loadScriptFile compiles and EXECUTES. A file that
+         * must not exist must never be created, not created-and-removed.
+         *
+         * Bounded by pass 1 and re-checked here rather than inherited -- same
+         * doctrine as the length bounds above, and for the same reason. */
+        if (mrec_snap_is_script_save(dot))
+        {
+            char *sbuf;
+            int ok = 0;
+            if (edl > MREC_SCRIPT_MAX_BYTES) { refused = 1; break; }
+            sbuf = (char *)malloc((size_t)edl + 1);
+            if (sbuf && fread(sbuf, 1, edl, f) == edl)
+            {
+                sbuf[edl] = 0;
+                ok = mrec_snap_script_ok(sbuf, (long)edl);
+                if (!ok)
+                    printf("[SNAP] refusing '%s' -- a script-save may only be "
+                           "setglobalvar/changemodelproperty calls in void main()\n",
+                           name);
+            }
+            if (ok)
+            {
+                o = fopen(out, "wb");
+                if (!o) { printf("[SNAP] cannot write %s\n", out); ok = 0; }
+                else
+                {
+                    if (edl && fwrite(sbuf, 1, edl, o) != edl) ok = 0;
+                    if (fclose(o) != 0) ok = 0;
+                    if (!ok) remove(out);
+                }
+            }
+            free(sbuf);
+            if (!ok) { refused = 1; break; }   /* the rest is cleared below */
+            wrote++;
+            continue;
         }
 
         o = fopen(out, "wb");

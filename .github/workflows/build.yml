@@ -80,6 +80,8 @@ jobs:
         run: python3 tools/harness/menu_mode_parity_check.py
       - name: Gate - save-payload extractor (untrusted input)
         run: python3 tools/harness/test_snap_extract.py
+      - name: Gate - script-save grammar (a payload may carry a PROGRAM)
+        run: python3 tools/harness/test_snap_script.py
       - name: Gate - writer/reader agreement
         run: python3 tools/harness/test_writer_reader_agree.py
       - name: Set up QEMU

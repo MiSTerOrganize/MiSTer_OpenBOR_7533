@@ -216,6 +216,48 @@ with tempfile.TemporaryDirectory() as td:
               or len(re.findall(r"(?:nl|_mr_nl)\s*>=\s*sizeof", ob)) >= 1,
               "readers refuse nl >= sizeof(array), rather than only declaring it")
 
+    # ---- C. the script-save content gate -----------------------------------
+    #
+    # The third constraint this file's docstring anticipated. A .sNN is a
+    # PROGRAM, so the writer and reader must agree on TWO further things or the
+    # writer ships takes its own reader refuses -- and one refused entry costs
+    # the WHOLE payload, .sav and .hi included. That is the .scr divergence
+    # again with a bigger blast radius.
+    #
+    # C1. ONE parser, not two. The writer must CALL the reader's function, not
+    #     carry a copy: two copies drift, and the copy that drifts is the one
+    #     that decides what a stranger may run as root.
+    # 🛑 A DEFINITION, not a declaration -- the file deliberately carries a
+    # prototype above the body (so -Wmissing-prototypes stays quiet if it is
+    # ever switched on), and a pattern that cannot tell the two apart reports
+    # "2 definitions" for correct code. Require the opening brace.
+    _defs = re.findall(r"^int mrec_snap_script_ok\s*\([^;{]*\)\s*\n\{", sp, re.M)
+    check(len(_defs) == 1,
+          "the validator is DEFINED exactly once, in sdlport.c",
+          "found %d definitions" % len(_defs))
+    check(len(re.findall(r"^int mrec_snap_script_ok\s*\([^;{]*\)\s*;", sp, re.M)) == 1,
+          "...with the prototype that keeps it callable from openbor.c")
+    check("int mrec_snap_script_ok" not in ob.replace(
+              "extern int mrec_snap_script_ok", ""),
+          "openbor.c holds NO second copy of the validator -- it externs the real one")
+    check(re.search(r"extern int mrec_snap_script_ok\s*\(", ob) is not None,
+          "the writer declares the extern it calls")
+    check(re.search(r"mrec_snap_script_ok\s*\(\s*_mr_sb", ob) is not None,
+          "the writer actually CALLS it before embedding")
+
+    # C2. the same byte cap on both sides. The writer cannot see the reader's
+    #     #define across the TU boundary, so it carries a literal -- which is
+    #     precisely the shape that goes stale silently. Compared here, exactly
+    #     as the identity-name bound above is.
+    rcap = re.search(r"#define MREC_SCRIPT_MAX_BYTES\s+(\d+)", sp)
+    wcap = re.search(r"_mr_fl\s*<=\s*(\d+)", ob)
+    check(rcap is not None, "the reader declares a script byte cap")
+    check(wcap is not None, "the writer bounds the script buffer at all")
+    if rcap and wcap:
+        check(int(rcap.group(1)) == int(wcap.group(1)),
+              "writer script cap == reader MREC_SCRIPT_MAX_BYTES",
+              "writer=%s reader=%s" % (wcap.group(1), rcap.group(1)))
+
 print()
 print("%d/%d checks passed" % (checks - len(fails), checks))
 if fails:

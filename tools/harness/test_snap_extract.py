@@ -81,6 +81,17 @@ PROLOGUE = r"""
 #include <dirent.h>
 """
 
+# A script-save is the one payload entry whose CONTENT is parsed (it is a
+# PROGRAM the engine compiles and executes), so every .sNN used here has to be
+# real script or the extension cases below start failing for the wrong reason.
+# The grammar itself is exercised by test_snap_script.py; this file only cares
+# that the extractor CONSULTS it. Byte-cap constant duplicated from the reader's
+# MREC_SCRIPT_MAX_BYTES -- if it changes, the over-cap case below stops testing
+# the cap and starts testing nothing, which is why it is named, not inlined.
+SCRIPT_OK = b'void main() {\n    setglobalvar("unlocked_raph", 1);\n}\n'
+SCRIPT_BAD = b'void main() {\n    savefilestream("/media/fat/linux/user-startup.sh", 0);\n}\n'
+SCRIPT_MAX_BYTES = 65536
+
 RESULTS = []
 
 
@@ -197,7 +208,7 @@ def main():
         # ---- the allowed set -------------------------------------------------
         good = take("good.inp", pak="TestPak", frames=4, payload=[
             ("TestPak.sav", b"SAVE"), ("TestPak.hi", b"HI"),
-            ("TestPak.s00", b"SET0"), ("TestPak.s07", b"SET7"),
+            ("TestPak.s00", SCRIPT_OK), ("TestPak.s07", SCRIPT_OK),
         ])
         d_good = os.path.join(work, "d_good")
         rc, out, landed = run(exe, good, d_good)
@@ -262,6 +273,59 @@ def main():
         rc, out, landed = run(exe, p, d)
         check("refuse: one bad entry rejects the ENTIRE payload",
               rc == 1 and not landed, "landed=%s" % landed)
+
+        # ---- the CONTENT gate on script-saves --------------------------------
+        #
+        # 🛑 A .sNN is admitted by NAME and then judged by CONTENT. The name
+        # cases above cannot see that second control at all, so a build that
+        # accepted .sNN and never parsed it would pass every one of them --
+        # which is exactly the round-14 RCE (take -> .scratch/savestates ->
+        # loadScriptFile -> Script_Compile -> Script_Execute, as root).
+        #
+        # These assert the extractor CONSULTS the validator. The grammar itself
+        # is exercised call-by-call in test_snap_script.py, which cuts and runs
+        # mrec_snap_script_ok directly; duplicating that here would be a second
+        # copy to keep in step.
+        for label, blob in [
+            ("hostile script (savefilestream)", SCRIPT_BAD),
+            ("not script at all", b"SET0"),
+            ("a NUL inside otherwise-valid script",
+             b'void main() {\n    setglobalvar("a\x00b", 1);\n}\n'),
+            ("one byte over the script byte cap",
+             b"void main() {\n" + b'    setglobalvar("a", 1);\n' * 2900
+             + b"}\n" + b" " * SCRIPT_MAX_BYTES),
+        ]:
+            p = take("badscript.inp", pak="TestPak", frames=2,
+                     payload=[("TestPak.s00", blob)])
+            d = os.path.join(work, "d_badscript")
+            shutil.rmtree(d, ignore_errors=True)
+            rc, out, landed = run(exe, p, d)
+            check("refuse: %s" % label, rc == 1 and not landed,
+                  "rc=%d landed=%s out=%s" % (rc, landed, out.strip()))
+
+        # 🛑 AND IT COSTS THE WHOLE PAYLOAD, which is why the WRITER validates
+        # too (see test_writer_reader_agree.py). If a bad script only skipped
+        # its own entry the take would quietly lose its unlocks; refusing
+        # everything is the safer half of that trade, and it is what makes
+        # shipping a take this build's own reader rejects unacceptable.
+        p = take("mixedscript.inp", pak="TestPak", frames=2, payload=[
+            ("TestPak.sav", b"GOOD"), ("TestPak.s00", SCRIPT_BAD)])
+        d = os.path.join(work, "d_mixedscript")
+        shutil.rmtree(d, ignore_errors=True)
+        rc, out, landed = run(exe, p, d)
+        check("refuse: a hostile script rejects the ENTIRE payload",
+              rc == 1 and not landed, "landed=%s" % landed)
+
+        # ...and the mirror: a VALID script must not be collateral damage.
+        p = take("okscript.inp", pak="TestPak", frames=2, payload=[
+            ("TestPak.sav", b"GOOD"), ("TestPak.s00", SCRIPT_OK)])
+        d = os.path.join(work, "d_okscript")
+        shutil.rmtree(d, ignore_errors=True)
+        rc, out, landed = run(exe, p, d)
+        check("accept: a valid script lands alongside the save",
+              rc == 0 and len(landed) == 2
+              and leaf_of(d, "TestPak.s00") == "savestates",
+              "rc=%d landed=%s" % (rc, landed))
 
         # ---- container guards ------------------------------------------------
         p = take("newer.inp", pak="TestPak", frames=2, container=3)
