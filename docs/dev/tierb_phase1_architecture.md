@@ -7,9 +7,20 @@ Baseline tag: **`pre-tierb`** (+ branch `pre-tierb-stable`) = shipped ARM binary
 (`28a9d368a7454f7dcc891c477a770d29`). `git checkout pre-tierb` restores everything.
 
 This is a MAJOR architectural change (new RTL pipeline, new FPGA-ARM bridge, new memory
-map, new CDC paths). It therefore runs under the **iterative-audit-until-zero-concerns
-loop** — audits repeat until a full cycle reports zero bugs AND zero concerns across all
-19 verification domains, and only then does hardware verification begin.
+map, new CDC paths), so it ran under the iterative-audit loop.
+
+🛑 **THE REVIEW LOOP IS CLOSED AND THIS DOCUMENT IS FROZEN AS A REFERENCE (2026-08-15).**
+Seven rounds ran (R1-R6 have ledgers; round 7's corrections landed in `1049332`, `bb45cfd`,
+`ef0bd6f` without one). The 5-round cap now applies — **round 8 is a rule violation, not
+diligence** — and the loop was terminated by triage:
+**`docs/dev/tierb_reviews/TRIAGE_2026-08-15.md`**, which carries the Circuit Breaker
+Report, seven **LOCKED** claims that must not be re-litigated without new measurement, and
+the ruling that all remaining findings are `RESOLVED via Triage`.
+
+Do not open another review round against this document. Its prose is accepted as-is; its
+numeric spine re-derived exactly in all seven rounds. **Phase 2 is gated on the register in
+§14.2, not on this document** — and every register item is closed by building and measuring
+something, or by reading pristine v7533 source, never by another reviewer reading this.
 
 ---
 
@@ -1809,7 +1820,7 @@ items, two of them already closed, and omitted most of the real ones.
 | 5 | **The `LINEAR` source home.** 9.9.2 puts only fast-path SPRITES in the arena, but the background and parallax layers are per-frame cached-heap `s_screen`s with no FPGA-readable address | 9.7, 9.9.2 |
 | 6 | **ARM->FPGA register channel** for `compositor_disable` -- none exists today | 9.11.3, 11 |
 | 7 | Ring and per-slot **scratch sizing** -- a single 960x480 fallback is 921,600 B, **plus its coverage plane** (+57,600 B) | 9.11.4, 9.7 |
-| 7a | 🛑 **A THIRD FRAMEBUFFER (BUF2) is required**, not optional: the reader latches its buffer once per vsync, so publishing does not retire the old one and two buffers serialise the compositor behind scanout | 9.11.1 C1 |
+| 7a | 🛑 **A THIRD FRAMEBUFFER (BUF2) is required**, not optional: the reader latches its buffer once per vsync, so publishing does not retire the old one and two buffers serialise the compositor behind scanout. 🛑 **Propagated to the 2-bit target index (7.2), the throughput argument (9.11.1 C1) and this register — but NOT to §6's memory map, which still lists only BUF0/BUF1. That is deliberate as of the 2026-08-15 triage: §6 states every base is provisional pending item 9, so BUF2 cannot be placed before that enumeration. It is a DEPENDENT of item 9, and item 9 does not close until BUF2 has an address** | 9.11.1 C1, **item 9** |
 | 7b | **An arbiter-owned, always-alive FPGA->ARM `grant_idle` indication.** The respawn Init sequence and the arena-free rule both wait on it and it exists nowhere | 9.11.3 |
 | 7c | **Reader edits for phase 1c**: a `wants_bus` output ungated by `ddr_busy` (without it strict priority starves the reader every line), an `abandon` output, a `fifo_aclr` re-arm -- and a real swallow-timeout recovery, since `fifo_aclr` cannot cancel outstanding Avalon returns | 9.8 |
 | 7d | **`FILL`**: name the engine cases and add a colour operand, or delete the opcode | 7.2 |
@@ -1821,7 +1832,7 @@ items, two of them already closed, and omitted most of the real ones.
 | # | item | where |
 |---|---|---|
 | 8 | **The overdraw census RE-RUN** with the slow path included and T5's counters widened. 14.4.5's headroom claim is unsupported until this lands -- a prerequisite, not a nice-to-have | 14.5 |
-| 9 | **M11's DDR3 consumer enumeration** (`ascal` `vbuf`, `ddr_svc`/`ram2`, legacy `ddram`, the `0x3A000000` window) and their extents | 6, 9.14 |
+| 9 | **M11's DDR3 consumer enumeration** (`ascal` `vbuf`, `ddr_svc`/`ram2`, legacy `ddram`, the `0x3A000000` window) and their extents. 🛑 **Also carries BUF2's address** (item 7a) — this item does not close until §6 has a BUF2 row | 6, 9.14 |
 | 10 | **Arena write cost** -- population is one-time per PAK load, but into strongly-ordered memory | 9.9.4 |
 | 11 | **Uncached-write rasterise cost** for the fallback scratch | 9.14 M17 |
 | 12 | **M4 whole-frame-fallback frequency** -- if water/tint PAKs are common they lose the offload entirely. 🛑 **Partly answerable from data already in the repo, and the answer is not reassuring:** `pak_blendscan` gives **67 / 450 PAKs declaring `tint`** (1 declares `channel`), and He-Man's runtime line is `tint = 2734` of 12,779 blits = **21.4%**. 9.5's "the tint population must be measured, not assumed rare" is settled -- it is not rare | 9.14 M4, 9.5 |
