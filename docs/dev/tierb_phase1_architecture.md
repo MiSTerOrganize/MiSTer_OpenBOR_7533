@@ -1037,7 +1037,71 @@ Two further requirements the draft missed:
   and a **`fifo_aclr` re-arm** input. 🛑 Note `fifo_aclr` alone is NOT sufficient recovery
   for a swallow timeout -- it clears only the line FIFO (`:289`, `:693`) and cannot cancel
   outstanding Avalon returns, which still arrive and still increment `beat_count` (`:345`).
-  A real recovery needs the returns drained or the interface reset; **registered in 14.2**.
+  A real recovery needs the returns drained or the interface reset -- **now specified as the
+global outstanding-beat counter at 9.8.1(5)**, which is the reader's own prescription at
+`openbor_video_reader.sv:622-628`. Item 7c CLOSED; the edit itself remains gated on
+hardware test, because the single-bit version of it was tried and reverted for freezing
+the picture until a core reload.
+
+### 9.8.1 The reader-side prerequisite edits (item 7c) -- SPECIFIED
+
+Five edits, all in `openbor_video_reader.sv`, all of which must land **before any compositor
+RTL** -- without them the first co-existing burst corrupts video. Line numbers below are
+**current**, not the frozen doc's; several had drifted.
+
+**(1) `wants_bus` -- an output NOT gated on `ddr_busy`.**
+🛑 **The problem is wider than 9.8 recorded.** It cites two issue points; there are
+**twelve**: `:518, :530, :541, :552, :563, :580, :591, :686, :732, :771, :792`, plus the
+hold-only clear at `:426-427`. Every one has the shape
+`if (!ddr_busy) begin ... ddr_rd <= 1'b1; end`, so a masked reader never raises a request at
+all and strict priority is unimplementable.
+**Spec:** `wants_bus` is combinational **from the FSM state alone** -- asserted in every
+state that will issue on its next `!ddr_busy` cycle -- and is **never** a function of
+`ddr_busy`, `ddr_rd` or `ddr_we`. Deriving it from the existing request signals reproduces
+the bug it exists to fix.
+
+**(2) `abandon` -- one cycle, on every timeout exit.**
+Asserted when the FSM leaves a wait state on `timeout_cnt == TIMEOUT_MAX` (`:644`
+`ST_WAIT_CTRL`, `:702` `ST_WAIT_LINE`, plus the two new audio timeouts in (4)). It tells the
+arbiter those beats are **unclaimed rather than pending**, so it swallows them instead of
+feeding them to the next grantee -- the `beat_count` desync 9.8 exists to prevent.
+
+**(3) `fifo_aclr` re-arm -- a new input.**
+Today `fifo_aclr_cnt <= 4'd8` is set only from inside the FSM (`:667`, `:678`), with
+`fifo_aclr = reset | fifo_aclr_ddr_active` (`:367`). **Spec:** an external input that sets
+the same counter, so the arbiter can force the line FIFO clear during swallow recovery. The
+existing 8-cycle hold already satisfies 9.8's ">= 8 cycles".
+
+**(4) Timeouts for `ST_WAIT_AUDIO_WR` and `ST_WAIT_AUDIO_RING`.**
+✅ **Confirmed against the source, not assumed:** `timeout_cnt` appears in `ST_WAIT_CTRL`
+(`:644`) and `ST_WAIT_LINE` (`:702`) and in **neither** `ST_WAIT_AUDIO_WR` (`:740`) nor
+`ST_WAIT_AUDIO_RING` (`:779`). A dropped beat in either **hangs the whole FSM -- video and
+audio together** -- and adding a second master to the port is precisely what makes a dropped
+beat likely. Same `TIMEOUT_MAX` discipline, same `abandon` on exit.
+`ST_WAIT_DISPLAY` (`:725`) has no timeout and needs none: it waits on display timing, not on
+a DDR3 return.
+
+**(5) Swallow-timeout recovery -- a global OUTSTANDING-BEAT COUNTER.**
+This is the part 9.8 left genuinely open, and **the answer is already written in the reader**
+at `:622-628`:
+
+> *"A correct fix needs a global OUTSTANDING-BEAT COUNTER (incremented per requested beat,
+> decremented on every `ddr_dout_ready`, wherever it lands), because `ST_WAIT_LINE` and the
+> audio bursts abandon multi-beat reads whose beats surface here too -- a single bit cannot
+> represent that state."*
+
+**Spec:** a counter wide enough for the largest burst (80 beats -> 7 bits, matching
+`beat_count`'s `reg [6:0]` at `:268`), incremented by `burstcnt` at each issue and
+decremented on **every** `ddr_dout_ready` **regardless of current state**. This is what makes
+recovery real: `fifo_aclr` clears the FIFO but **cannot cancel outstanding Avalon returns**,
+which still arrive and still increment `beat_count` at `:433`.
+
+🛑 **This edit must NOT be merged on review alone.** The same comment records why it was
+deferred -- *"Until someone can hardware-test that, the self-healing hazard is the better of
+the two"* -- and that judgement stands. A single-bit version of this was already tried and
+**reverted for making the failure PERMANENT** (`:604-621`): the owed beat arrives somewhere
+else, the flag stays set, the genuine reply is discarded, `ctrl_word` never latches again and
+**the picture freezes until a core reload**. Specified here; gated on hardware test.
 
 ### 9.9 The arena is WRITE-ONLY from the ARM -- the C2 resolution
 
@@ -1414,7 +1478,10 @@ PAK load, hot-swap and `.s1` replay. **The ARM's own sequence numbering must als
 🛑 **Step 2 has no channel yet.** "Wait for the arbiter to report no grant outstanding"
 needs an arbiter-owned, always-alive FPGA->ARM indication; `status_word` carries no such
 bit, and a disabled compositor cannot write it anyway (that write would itself need a
-grant). Registered in 14.2 -- **the respawn sequence is unimplementable without it**. Both signals are DDR3
+grant). **Now specified at 9.11.3.1: the READER publishes it** in an `arb_status` qword on
+the once-per-frame write sequence it already runs -- always alive, never grant-gated, and
+already fed by the arbiter's existing outputs. Item 7b CLOSED, so the respawn sequence is
+implementable. Both signals are DDR3
 words polled by each side -- **there is no wire** (arch #22); the compositor polls once per
 band, not once per frame, so a quiesce costs at most one band, not up to 16.7 ms.
 
@@ -1451,6 +1518,64 @@ the ARM may free. Without that the ARM has no legal action on timeout -- it may 
 (no ack) and cannot prove reads have stopped.
 
 `enable` is NOT a quiesce trigger: it is `use_nv`, a constant `1'b1` (`OpenBOR.sv:489`).
+
+#### 9.11.3.1 The always-alive grant indication (item 7b) -- SPECIFIED
+
+9.11.3's respawn Init step 2 -- *"wait for the arbiter to report no grant outstanding"* --
+needs a channel that survives `compositor_disable` and does not itself need a grant.
+
+**Channels considered, and why three were rejected:**
+
+| candidate | verdict |
+|---|---|
+| `status_word` | **rejected in 9.11.3**: the compositor writes it, a disabled compositor cannot, and that write would itself need a grant |
+| **`h2f_gp` / `gp_in` spare bits** -- 8 genuinely free at `gp_in[23:16]` (`sys_top.v:234`) | 🛑 **REJECTED.** It lives in `sys/sys_top.v`, and **`DO NOT MODIFY sys/`** is a standing project rule. It is also gated behind `~gp_out[31] ? core_magic : gp_in` and shares a word MiSTer Main polls continuously for its io bus -- contending with Main for that channel is a worse failure than the one being fixed. **Recorded because it is the obvious-looking answer and someone will propose it again** |
+| the arbiter writes its own DDR3 qword | rejected on cost: it makes the arbiter a **third master** that must arbitrate its own writes against A and B, inside the very module whose correctness argument is *"only one master may have a burst in flight"* |
+| **the READER publishes it** | ✅ **ACCEPTED** |
+
+**Decision: the reader publishes the arbiter's state in a new `arb_status` qword, on the
+once-per-frame write sequence it already runs.**
+
+Every property this needs is **already true of the reader** -- none of it is new machinery:
+
+- **Always alive.** It is FPGA-side, and an ARM respawn does not reset the FPGA (9.11.3), so
+  it keeps writing straight through the respawn. `compositor_disable` disables the
+  compositor, not the reader.
+- **Never grant-gated.** It is the absolute-priority master, and 9.8's rule is that the
+  highest-priority master is never masked.
+- **Already a DDR3 writer on a fixed cadence.** `ST_WRITE_JOY0..JOY3` run once per frame off
+  `new_frame_pending` (`:498-500`) -- the same vsync event that latches `buf_base_addr`.
+- **Already fed by the arbiter**, which computes `o_bus_idle` and `o_a_active` **today**
+  (`fpga/rtl/tierb_ddr_arb.sv`).
+
+Cost: one extra single-beat write per frame on a path that already performs four, plus two
+wires. No new master, no `sys/` edit, no new clock domain.
+
+```
+  arb_status qword
+    [0]     grant_outstanding : a master holds a grant with beats in flight
+    [1]     swallowing        : draining an abandoned burst (9.8)
+    [2]     rdr_active        : arbiter o_a_active
+    [3]     bus_idle          : arbiter o_bus_idle
+    [15:8]  seq               : increments on every write
+    others  reserved, write 0
+```
+
+🛑 **`seq` is load-bearing, not decoration.** A respawned ARM cannot otherwise tell a stale
+word left by the previous session from a fresh one -- the identical bug class 9.11.3 already
+documents for `status_word`, where a stale `completed_seq` reads as new and publishes a
+framebuffer being `memset`. **The ARM must observe `seq` CHANGE before trusting the flags.**
+
+🛑 **The wait MUST be bounded and MUST proceed on timeout.** Respawn is the **dominant** path
+-- every PAK load, hot-swap and `.s1` replay -- so a wait that can hang breaks the core
+outright. Bound: two frames of cadence plus the arbiter's own swallow timeout
+(`TIMEOUT_MAX = 20'hF_FFFF` at 98.4375 MHz ~= **10.65 ms**), so ~50 ms is ample. On timeout:
+log and continue. Residual risk is one frame of garbage in a buffer being `memset`; the
+alternative is a permanent hang on the most frequent operation in the system.
+
+🛑 **A fixed sleep instead of polling was considered and rejected.** It cannot distinguish
+"settled" from "wedged", and it would pay the ~10.65 ms worst case on **every** respawn when
+the common case is sub-microsecond.
 
 #### 9.11.4 Ring, slots and fetch bounds
 
@@ -1870,9 +1995,10 @@ items, two of them already closed, and omitted most of the real ones.
 | 5 | **The `LINEAR` source home.** 9.9.2 puts only fast-path SPRITES in the arena, but the background and parallax layers are per-frame cached-heap `s_screen`s with no FPGA-readable address | 9.7, 9.9.2 |
 | 6 | **ARM->FPGA register channel** for `compositor_disable` -- none exists today | 9.11.3, 11 |
 | 7 | Ring and per-slot **scratch sizing** -- a single 960x480 fallback is 921,600 B, **plus its coverage plane** (+57,600 B) | 9.11.4, 9.7 |
-| 7a | 🛑 **A THIRD FRAMEBUFFER (BUF2) is required**, not optional: the reader latches its buffer once per vsync, so publishing does not retire the old one and two buffers serialise the compositor behind scanout. ✅ **CLOSED 2026-08-16 — BUF2 = `0x22000000`, 143,360 B**, now a real row in §6 with its derivation at §6.1. **Forced, not chosen:** no gap in the existing window fits it (largest is 131,072 B vs 143,360 needed), the natural stride slot `0x3A080040` IS cart data — the exact target of the unclamped RTL writer — and the 95 MB above the window is that writer's blast radius. Sits 8 MB above `ascal`'s measured top, page-aligned for the **second `mmap`** the ARM now owes. FPGA cost is one localparam plus the 2-bit selector `:211` already required. 🛑 **Placed, not implemented** — no RTL, no ARM code, no `files.qip` entry | 9.11.1 C1, **item 9 (closed)**, §6.1 |
-| 7b | **An arbiter-owned, always-alive FPGA->ARM `grant_idle` indication.** The respawn Init sequence and the arena-free rule both wait on it and it exists nowhere | 9.11.3 |
-| 7c | **Reader edits for phase 1c**: a `wants_bus` output ungated by `ddr_busy` (without it strict priority starves the reader every line), an `abandon` output, a `fifo_aclr` re-arm -- and a real swallow-timeout recovery, since `fifo_aclr` cannot cancel outstanding Avalon returns | 9.8 |
+| 7a | 🛑 **A THIRD FRAMEBUFFER (BUF2) is required**, not optional: the reader latches its buffer once per vsync, so publishing does not retire the old one and two buffers serialise the compositor behind scanout. ✅ **CLOSED 2026-08-16 — BUF2 = `0x22000000`, 143,360 B**, now a real row in §6 with its derivation at §6.1. **Forced, not chosen:** no gap in the existing window fits it (largest is 131,072 B vs 143,360 needed), the natural stride slot `0x3A080040` IS cart data — the exact target of the unclamped RTL writer — and the 95 MB above the window is that writer's blast radius. Sits 8 MB above `ascal`'s measured top, page-aligned for the **second `mmap`** the ARM now owes. FPGA cost is one localparam plus the 2-bit selector `:211` already required. 🛑 **Placed, not implemented** — no RTL, no ARM code, no `files.qip` entry. 🛑 **Scope of this closure: the ADDRESS only.** Placing BUF2 turned the latent return-path width gap into a live contradiction — **now item 7f**, raised rather than absorbed here | 9.11.1 C1, **item 9 (closed)**, §6.1 |
+| 7b | **An arbiter-owned, always-alive FPGA->ARM `grant_idle` indication.** ✅ **CLOSED 2026-08-16 — specified at §9.11.3.1.** The **reader** publishes it in a new `arb_status` qword on the once-per-frame write sequence it already runs (`:498-500`). Every required property is already true of the reader — always alive (FPGA-side, not reset by an ARM respawn), never grant-gated (absolute-priority master), already a DDR3 writer, and already fed by the arbiter's existing `o_bus_idle`/`o_a_active`. 🛑 **`h2f_gp`'s 8 free `gp_in` bits REJECTED** — it is in `sys/`, and `DO NOT MODIFY sys/` is standing; it also contends with the io bus MiSTer Main polls. Arbiter-as-third-master rejected on cost. `seq` field is mandatory (a respawn cannot otherwise tell a stale word from a fresh one), and the ARM's wait **must be bounded and proceed on timeout** — respawn is the dominant path | 9.11.3, **§9.11.3.1** |
+| 7c | **Reader edits for phase 1c.** ✅ **CLOSED 2026-08-16 — specified at §9.8.1**, five edits, all verified against current source (line numbers had drifted). 🛑 **Wider than recorded:** `wants_bus` must cover **twelve** `!ddr_busy`-gated issue points, not the two 9.8 cites, and must be combinational from FSM state alone. `abandon` on every timeout exit; `fifo_aclr` re-arm as an external input; and the two audio-state timeouts **confirmed missing** (`timeout_cnt` is absent from `ST_WAIT_AUDIO_WR :740` and `ST_WAIT_AUDIO_RING :779`), which today hangs video and audio together on one dropped beat. Swallow recovery = the **global outstanding-beat counter** the reader's own comment specifies (`:622-628`). 🛑 **Gated on hardware test, not review** — a single-bit version was already tried and reverted for freezing the picture until a core reload | 9.8, **§9.8.1** |
+| 7f | 🛑 **The FPGA->ARM buffer index is still 1 bit, and the publish idiom is two-buffer.** Raised 2026-08-16 by closing 7a: giving BUF2 an address made this live rather than latent. The ARM->FPGA target index WAS widened to 2 bits (`:271`), but nothing on the return path was: `status_word[0] completed_buf` is **1 bit** (`:1360`), the publish step is `active_buf = completed_buf ^ 1` (`:1314`) — an XOR that cannot cycle three — `ctrl_word` carries `(!active_buf) & 1`, and the reader selects with `ctrl_word[0] ? BUF1_ADDR : BUF0_ADDR` (`openbor_video_reader.sv:664`). **A three-buffer scheme cannot be expressed by any of them.** Needs: `completed_buf` -> `[1:0]` (shifting `completed_seq` to `[31:3]`, still one 32-bit word per C2), `ctrl_word`'s buffer field -> 2 bits, the reader's ternary -> a 3-way select, and the **`!active_buf` keepalive convention replaced by an explicit `published_buf`** — `!` IS xor-1. 🛑 **Not a typo fix.** It touches the `WriteFrame`/keepalive store interplay that the 2026-05-22 loading-bar-jitter fix settled (9.11.2), so it is a decision, not an edit | 7a, 9.11.1, 9.11.2 |
 | 7d | **`FILL`**: name the engine cases and add a colour operand, or delete the opcode | 7.2 |
 | 7e | **Doorbell retire semantics** -- nothing defines how a grant bit is cleared, or that the compositor observes it low between two lists in the same slot | 9.11.1 |
 | ~~7f~~ | **CLOSED (measured, 9.7).** Row 3 = **470 layer instances across 48 PAKs**; the `LINEAR` population is 5,394 of 20,264 layers (26.6%, 121 PAKs), and **77.8% of it is water-rasterised row 5**, not the indexed keyed path. Static upper bound; runtime frequency still wants a device trace | 9.7 |
