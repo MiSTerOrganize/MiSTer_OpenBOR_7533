@@ -1297,23 +1297,39 @@ a framebuffer and publish `ctrl_word` from stale private state during an FPGA fr
 
 Equally, the round-2 description of the keepalive was wrong in the other direction:
 `KeepaliveTick()` does **not** use private state -- it shares `frame_counter`/`active_buf`
-with `WriteFrame`, which is exactly the 2026-05-22 loading-bar-jitter fix. The convention it
-relies on is that `WriteFrame` **post-toggles** `active_buf`, so `!active_buf` always names
-the buffer most recently written.
+with `WriteFrame`, which is exactly the 2026-05-22 loading-bar-jitter fix.
 
-**That convention is what a naive Tier-B publish breaks.** On FPGA frames the ARM stops
-calling `WriteFrame`, so `active_buf` never toggles; a publish that writes `ctrl_word`
-directly for `completed_buf` is silently reverted 150 ms later by the next keepalive tick,
-which still emits `(!active_buf)` from the stale ARM-era value. Same failure mode as May,
-one level up.
+🛑 **UPDATED 2026-08-16 -- the convention has since changed, and the argument survives
+the change.** This paragraph used to say the keepalive relies on `WriteFrame`
+post-toggling `active_buf`, so `!active_buf` names the buffer most recently written.
+**That derivation was REMOVED**: it was the notice-flicker root cause (measured
+2026-08-05), because the keepalive is a separate pthread and `active_buf` could toggle
+between its read and its write. The keepalive now publishes an explicit
+`nv_last_published`, which `WriteFrame` sets only once a buffer is completely drawn
+(`native_video_writer.c:105-124`). Sharing state was never the same as synchronising it.
+
+**The Tier-B hazard is unchanged in shape.** On FPGA frames the ARM stops calling
+`WriteFrame`, so nothing updates that variable; a publish that writes `ctrl_word`
+directly for `completed_buf` is still silently reverted 150 ms later by the next
+keepalive tick, which re-emits the stale ARM-era `nv_last_published`. Only the name of
+the value changed -- the failure is the same one as May, one level up.
 
 **Resolution -- three normative rules:**
 
 1. 🛑 **Publish goes THROUGH the `native_video_writer.c` statics, never around them --
    and it uses the KEEPALIVE'S store, not `WriteFrame`'s.** The publish step is
    `active_buf = completed_buf ^ 1; frame_counter++;` then
-   `*ctrl = (frame_counter << 2) | ((!active_buf) & 1);` -- i.e. `KeepaliveTick`'s form
-   (`native_video_writer.c:746-748`), which emits `!active_buf`.
+   `*ctrl = (frame_counter << 2) | (nv_last_published & 1);` -- i.e. `KeepaliveTick`'s
+   form (`native_video_writer.c:1670`).
+   🛑 **CORRECTED 2026-08-16. This rule used to say `(!active_buf)` and that is now
+   FORBIDDEN in the code.** The derivation was the **notice-flicker root cause,
+   measured 2026-08-05**: the keepalive runs on its own pthread, so `active_buf` could
+   toggle between its read and its `ctrl` write, and it then published the buffer
+   `WriteFrame` was **about to fill** -- an undrawn buffer, carrying neither
+   publisher's tag, which is how it was identified. `native_video_writer.c:105-124`
+   now holds an explicit `nv_last_published`, written by `WriteFrame` only once that
+   buffer is completely drawn. Tier-B publish must use **that**, and 7f widens it
+   rather than reopening it (9.11.2.1).
    🛑 **It must NOT be `WriteFrame`'s store.** `WriteFrame` emits `(active_buf & 1)` and
    toggles **afterwards** (`:728-729`); an earlier revision said "the same store `WriteFrame`
    uses", which with the assignment first would publish `completed_buf ^ 1` -- **the buffer
@@ -1447,6 +1463,82 @@ Two rules that were previously unstated and are load-bearing:
 - **Publish suppression is part of quiesce.** A compositor finishing its last band during a
   quiesce must NOT report a completion the ARM would publish after it has taken over. Abandon
   means abandon (arch #5).
+
+#### 9.11.2.1 The three-buffer index (item 7f) -- SPECIFIED
+
+Placing BUF2 (7a, 6.1) made this live: the ARM->FPGA target index is 2 bits (`:271`), but
+nothing on the return path is. Below is the complete site list, read from **current** source.
+
+### What does NOT need to change -- two pleasant surprises
+
+**The wire format is already 2 bits.** `ctrl_word` reserves `[1:0]` for the buffer index --
+the reader's own header says `Control word (frame_counter[31:2], active_buffer[1:0])` and the
+ARM stores `(fc << 2) | buf`. **No protocol change, no re-negotiation with the reader's
+latch.** Only the endpoints mask to one bit.
+
+**The `!active_buf` derivation is already gone.** 9.11.2 describes the keepalive publishing
+`(!active_buf)`; **that description is STALE.** The code now uses an explicit
+`nv_last_published`, set by `NativeVideoWriter_NotePublished()`, and carries a 🛑 comment
+forbidding the derivation -- it was the **notice-flicker root cause, measured 2026-08-05**
+(the keepalive runs on its own pthread, so `active_buf` could toggle between its read and its
+write, publishing the buffer `WriteFrame` was about to fill). So 7f does **not** have to
+re-open that convention. It only has to widen it.
+
+### What must change
+
+**(1) Buffer-index masks, ARM** -- `& 1` -> `& (NV_BUF_COUNT - 1)`, at
+`:1035`, `:1039`, `:1633`, `:1638` (publish stores), `:1650` (`NotePublished`), `:1670`
+(keepalive store), `:968` (`CaptureDisplay`).
+
+**(2) The advance idiom** -- `active_buf ^= 1;` at `:1040` and `:1639`.
+🛑 **XOR *is* the two-buffer idiom**; it cannot cycle three. Replace with
+`active_buf = (active_buf + 1) % NV_BUF_COUNT`, which is N-agnostic.
+
+**(3) A second index->offset ternary** -- `CaptureDisplay` at `:960`:
+`((nv_last_published & 1) ? NV_BUF1_OFFSET : NV_BUF0_OFFSET)`. Same shape as the reader's
+select and equally two-valued. This is the pause-menu backdrop, so a wrong answer here
+freezes the WRONG frame behind the menu for the life of the menu.
+
+**(4) Per-buffer arrays sized `[2]` -> `[NV_BUF_COUNT]`** --
+`nv_notice_painted_gen[2]` (`:473`, plus its explicit resets at `:534-535`),
+`nv_fps_bak[2][H][W]` (`:739`) and `nv_fps_bak_valid[2]` (`:740`).
+
+🛑 **`nv_notice_painted_gen` is the load-bearing one, and missing it reintroduces a
+user-visible bug this core has already had twice.** It is the static-notice generation
+tracking: a notice is painted into each buffer **once**, and while it is live every publisher
+starts its per-frame copy **below** the band so nothing overwrites it. A third buffer that is
+not tracked never receives the paint -- so **the notice would be missing on every third
+frame**, which is precisely the flicker the static-notice design eliminated (audit item 22,
+reported on OpenBOR 2026-08-05 and PICO-8 2026-08-06).
+
+**(5) `Init` must memset BUF2** -- `:165-166` memsets BUF0 and BUF1 only. Without a third
+memset, BUF2's first publish shows **uninitialised DDR3**, i.e. whatever the previous core
+left there. 9.11.3's normative respawn sequence must likewise read *"all three
+framebuffers"*, not *"both"*. BUF2 is a **second `mmap`** (6.1), so `Init` must map it before
+it can clear it -- and must treat that mapping failing as **fall back to two-buffer
+operation**, not as a fatal error.
+
+**(6) Reader select** -- `:664`
+`buf_base_addr <= ctrl_word[0] ? BUF1_ADDR : BUF0_ADDR;` becomes a 3-way select on
+`ctrl_word[1:0]` with `BUF2_ADDR = 29'h04400000` (6.1).
+🛑 **Encoding `2'd3` MUST be defined, not left to a latch.** An undefined encoding on a
+corrupt ctrl word is a black screen with nothing to diagnose. **Spec: `2'd3 -> BUF0`** --
+deterministic and testable. Do **not** "hold the previous value": a hold is
+indistinguishable from a frozen picture, which is the exact signature the reader's timeout
+machinery already exists to avoid confusing.
+
+**(7) `status_word`** -- `[31:2] completed_seq, [1] abort, [0] completed_buf` becomes
+`[31:3] completed_seq, [2] abort, [1:0] completed_buf`. Still **one 32-bit word**, so C2's
+atomicity requirement is untouched. `completed_seq` drops 30 -> 29 bits: ~103 days at 60 Hz
+before wrap, and it is compared for **change**, so wrapping is benign.
+
+**(8) Introduce `NV_BUF_COUNT`** so none of the above is a magic number and a fourth
+framebuffer is a one-line change rather than another audit.
+
+🛑 **Gated on hardware test, not review.** Two of the mechanisms this touches have live
+regression histories **on this core**: the keepalive/`WriteFrame` store interplay (2026-05-22
+loading-bar jitter, then 2026-08-05 notice flicker) and the static-notice generation
+tracking. Both were found on hardware; neither would have been found by reading the code.
 
 #### 9.11.3 Quiesce, and a disable the ARM can assert unilaterally
 
@@ -1849,7 +1941,8 @@ reintroduce exactly the stall Tier-B exists to remove.
 The `NativeVideoWriter_KeepaliveTick()` single-source-of-truth rule still applies: the
 keepalive and the publish step must share `frame_counter` and `active_buf` -- NOT the
 display-list sequence number, which the keepalive must never touch (9.11.1 rule 1). The
-state that matters is `active_buf`, because the keepalive publishes `!active_buf`. Not separate
+state that matters is `nv_last_published`, which the keepalive publishes directly (it used
+to derive `!active_buf`; see 9.11.2 rule 1 as corrected). Not separate
 counters. Two counters racing on one control word is the loading-bar-jitter bug class.
 
 ## 11. New CDC paths
@@ -1998,7 +2091,7 @@ items, two of them already closed, and omitted most of the real ones.
 | 7a | 🛑 **A THIRD FRAMEBUFFER (BUF2) is required**, not optional: the reader latches its buffer once per vsync, so publishing does not retire the old one and two buffers serialise the compositor behind scanout. ✅ **CLOSED 2026-08-16 — BUF2 = `0x22000000`, 143,360 B**, now a real row in §6 with its derivation at §6.1. **Forced, not chosen:** no gap in the existing window fits it (largest is 131,072 B vs 143,360 needed), the natural stride slot `0x3A080040` IS cart data — the exact target of the unclamped RTL writer — and the 95 MB above the window is that writer's blast radius. Sits 8 MB above `ascal`'s measured top, page-aligned for the **second `mmap`** the ARM now owes. FPGA cost is one localparam plus the 2-bit selector `:211` already required. 🛑 **Placed, not implemented** — no RTL, no ARM code, no `files.qip` entry. 🛑 **Scope of this closure: the ADDRESS only.** Placing BUF2 turned the latent return-path width gap into a live contradiction — **now item 7f**, raised rather than absorbed here | 9.11.1 C1, **item 9 (closed)**, §6.1 |
 | 7b | **An arbiter-owned, always-alive FPGA->ARM `grant_idle` indication.** ✅ **CLOSED 2026-08-16 — specified at §9.11.3.1.** The **reader** publishes it in a new `arb_status` qword on the once-per-frame write sequence it already runs (`:498-500`). Every required property is already true of the reader — always alive (FPGA-side, not reset by an ARM respawn), never grant-gated (absolute-priority master), already a DDR3 writer, and already fed by the arbiter's existing `o_bus_idle`/`o_a_active`. 🛑 **`h2f_gp`'s 8 free `gp_in` bits REJECTED** — it is in `sys/`, and `DO NOT MODIFY sys/` is standing; it also contends with the io bus MiSTer Main polls. Arbiter-as-third-master rejected on cost. `seq` field is mandatory (a respawn cannot otherwise tell a stale word from a fresh one), and the ARM's wait **must be bounded and proceed on timeout** — respawn is the dominant path | 9.11.3, **§9.11.3.1** |
 | 7c | **Reader edits for phase 1c.** ✅ **CLOSED 2026-08-16 — specified at §9.8.1**, five edits, all verified against current source (line numbers had drifted). 🛑 **Wider than recorded:** `wants_bus` must cover **twelve** `!ddr_busy`-gated issue points, not the two 9.8 cites, and must be combinational from FSM state alone. `abandon` on every timeout exit; `fifo_aclr` re-arm as an external input; and the two audio-state timeouts **confirmed missing** (`timeout_cnt` is absent from `ST_WAIT_AUDIO_WR :740` and `ST_WAIT_AUDIO_RING :779`), which today hangs video and audio together on one dropped beat. Swallow recovery = the **global outstanding-beat counter** the reader's own comment specifies (`:622-628`). 🛑 **Gated on hardware test, not review** — a single-bit version was already tried and reverted for freezing the picture until a core reload | 9.8, **§9.8.1** |
-| 7f | 🛑 **The FPGA->ARM buffer index is still 1 bit, and the publish idiom is two-buffer.** Raised 2026-08-16 by closing 7a: giving BUF2 an address made this live rather than latent. The ARM->FPGA target index WAS widened to 2 bits (`:271`), but nothing on the return path was: `status_word[0] completed_buf` is **1 bit** (`:1360`), the publish step is `active_buf = completed_buf ^ 1` (`:1314`) — an XOR that cannot cycle three — `ctrl_word` carries `(!active_buf) & 1`, and the reader selects with `ctrl_word[0] ? BUF1_ADDR : BUF0_ADDR` (`openbor_video_reader.sv:664`). **A three-buffer scheme cannot be expressed by any of them.** Needs: `completed_buf` -> `[1:0]` (shifting `completed_seq` to `[31:3]`, still one 32-bit word per C2), `ctrl_word`'s buffer field -> 2 bits, the reader's ternary -> a 3-way select, and the **`!active_buf` keepalive convention replaced by an explicit `published_buf`** — `!` IS xor-1. 🛑 **Not a typo fix.** It touches the `WriteFrame`/keepalive store interplay that the 2026-05-22 loading-bar-jitter fix settled (9.11.2), so it is a decision, not an edit | 7a, 9.11.1, 9.11.2 |
+| 7f | **The FPGA->ARM buffer index is 1 bit and the publish idiom is two-buffer.** ✅ **CLOSED 2026-08-16 — specified at §9.11.2.1.** Two parts turned out already done: the **wire format is already 2 bits** (`ctrl_word[1:0]`, reader header + ARM's `fc << 2`), and the `!active_buf` derivation is **already gone** — replaced by an explicit `nv_last_published` when it was found to be the 2026-08-05 notice-flicker root cause, which makes 9.11.2's description of it STALE. Remaining: 7 index masks, the `active_buf ^= 1` advance (🛑 XOR *is* the 2-buffer idiom — use `% NV_BUF_COUNT`), a second index->offset ternary in `CaptureDisplay`, three per-buffer `[2]` arrays, an `Init` memset for BUF2, a 3-way reader select with `2'd3` **defined** not latched, and `status_word` -> `[31:3]/[2]/[1:0]`. 🛑 **`nv_notice_painted_gen[2]` is load-bearing** — an untracked third buffer means **the notice is missing on every third frame**, reintroducing the exact flicker audit item 22 fixed. 🛑 Gated on hardware test: both touched mechanisms have on-device regression histories | 7a, 9.11.1, 9.11.2, **§9.11.2.1** |
 | 7d | **`FILL`**: name the engine cases and add a colour operand, or delete the opcode | 7.2 |
 | 7e | **Doorbell retire semantics** -- nothing defines how a grant bit is cleared, or that the compositor observes it low between two lists in the same slot | 9.11.1 |
 | ~~7f~~ | **CLOSED (measured, 9.7).** Row 3 = **470 layer instances across 48 PAKs**; the `LINEAR` population is 5,394 of 20,264 layers (26.6%, 121 PAKs), and **77.8% of it is water-rasterised row 5**, not the indexed keyed path. Static upper bound; runtime frequency still wants a device trace | 9.7 |
