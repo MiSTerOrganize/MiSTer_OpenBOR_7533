@@ -32,14 +32,33 @@ require_dir()  { [ -d "$1" ] || { echo "ERROR: $2" >&2; exit 1; }; }
 # guard instead of the mirror. `tar tzf` lists without extracting, so it proves
 # gzip integrity in a few ms. Deletes the file on failure so require_file
 # reports it.
+#
+# 🛑 The mirror sweep is wrapped in a RETRY pass (added 2026-08-15). Sweeping the
+# mirrors once handles "this mirror is bad"; it does NOT handle "the network
+# blipped for two seconds", where every mirror fails in the same instant and the
+# build dies on a fault that would have cleared by itself. That is the failure
+# still visible on OpenBOR_4086's last CI run (`tar: Error is not recoverable`).
+# Three rounds with a short sleep, mirrors tried afresh each round.
+#
+# Deliberately extended IN PLACE rather than adding a second helper: a parallel
+# `fetch()` exists on the tierb probe branches, and importing it would leave two
+# download mechanisms and duplicate call sites in one script. One mechanism.
 fetch_verify() {
     _fv_out="$1"; shift
-    for _fv_url in "$@"; do
-        rm -f "$_fv_out"
-        if wget -q "$_fv_url" -O "$_fv_out" && tar tzf "$_fv_out" >/dev/null 2>&1; then
-            return 0
+    _fv_try=1
+    while [ $_fv_try -le 3 ]; do
+        for _fv_url in "$@"; do
+            rm -f "$_fv_out"
+            if wget -q "$_fv_url" -O "$_fv_out" && tar tzf "$_fv_out" >/dev/null 2>&1; then
+                return 0
+            fi
+            echo "WARN: $_fv_url did not yield a valid archive; trying the next mirror" >&2
+        done
+        if [ $_fv_try -lt 3 ]; then
+            echo "WARN: every mirror for $_fv_out failed on round $_fv_try; retrying" >&2
+            sleep 3
         fi
-        echo "WARN: $_fv_url did not yield a valid archive; trying the next mirror" >&2
+        _fv_try=$((_fv_try + 1))
     done
     rm -f "$_fv_out"
     return 1
