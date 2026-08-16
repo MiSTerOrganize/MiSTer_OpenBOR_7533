@@ -165,22 +165,38 @@ Pixels are 8-bit palette indices; index 0 is `TRANSPARENT_IDX`. On the 16-bit sh
 The core's existing window is at `0x3A000000` (control word, joysticks, cart control,
 audio ring pointers, BUF0/BUF1, cart data, audio ring). Tier-B adds three regions.
 
-> **The REGION is settled; the CONSUMERS are not.** `/proc/iomem` shows System RAM as
-> `00000000-1fefffff` (~511 MB), so roughly **513 MB** above `0x1FF00000` is outside
-> Linux's map -- not the 256 MB an earlier revision inferred from `rtl/ddram.sv`'s "256MB
-> at the end of 1GB" comment, which was **wrong** (9.9.4). What is still owed before any
-> allocation is M11's enumeration of every EXISTING consumer of that space (`ascal`'s
-> `vbuf` at `RAMBASE 0x20000000`, `ddr_svc`/`ram2`, the legacy `ddram` master, and the
-> core's own `0x3A000000` window) and their extents. All bases below are proposals
-> contingent on that enumeration.
+> **REGION settled, CONSUMERS enumerated, BASES now real** (2026-08-16, register item 9 --
+> `docs/dev/tierb_ddr3_consumer_map.md`). The kernel cmdline `mem=511M memmap=513M$511M`
+> withholds **513 MB at `0x1FF00000-0x3FFFFFFF`**, superseding both `/proc/iomem` inference
+> and `rtl/ddram.sv`'s "256MB at the end of 1GB" comment (which was wrong, 9.9.4). Existing
+> consumers and their **measured** extents: `ascal` = **24 MB at `0x20000000-0x217FFFFF`**
+> (`RAMSIZE` 8 MB x 3 buffers, and resolution-INDEPENDENT -- `avl_wadrs AND (RAMSIZE-1)`
+> masks writes into the buffer); the core window = **896 KB at `0x3A000000-0x3A0DFFFF`**
+> (terminated by the audio ring, which no earlier revision listed).
+>
+> **Tier-B therefore lives at `0x22000000-0x39FFFFFF`.** Two exclusions produced that:
+> `ascal` below it, plus an **8 MB guard** (one extra `RAMSIZE`, so a framework bump to a
+> 4th ascal buffer cannot reach us); and 🛑 the **95 MB above the core window is
+> DISQUALIFIED** -- the RTL cart writer (`openbor_video_reader.sv:470`) is
+> `CART_DATA_ADDR + ioctl_addr[26:3]` with no length check and no `ioctl_index` gate. It is
+> dormant (`CONF_STR` declares only `SC0,PAK`, a mounted image, so `ioctl_download` never
+> asserts for content) but its blast radius is exactly that region. **Nothing of ours goes
+> above `0x3A000000`.**
+>
+> 🛑 **Still contingent, and it is NOT an extent:** `LFB_BASE` is programmed by the HPS at
+> **runtime** (`sys_top.v:443`), and `ddr_svc`'s palette follows it at `LFB_BASE - 4096`. A
+> statically-safe base can still be handed to the HPS later, so Phase 2 owes a **runtime
+> assertion** that `LFB_BASE` falls outside `0x22000000-0x39FFFFFF`. Sizes for the arena,
+> ring and scratch remain open (9.9.3, 9.11.4); their **region** no longer is.
 
 | Region | Proposed base | Size | Written by | Read by |
 |---|---|---|---|---|
 | Sprite arena (RLE + palettes) | TBD | **sizing open** (9.9.3) | ARM (at PAK load) | FPGA |
 | CPU-fallback scratch (**per slot x3**) | TBD | **sizing open** (9.11.4) | ARM (per frame) | FPGA |
 | Display-list ring (**3 slots**) | TBD | **sizing open** (9.11.4) | ARM (per frame) | FPGA |
-| Existing window | `0x3A000000` | unchanged | both | both |
+| Existing window | `0x3A000000` | 896 KB (measured) | both | both |
 | Output framebuffer BUF0/BUF1 | `0x3A000040` / `0x3A040040` | unchanged | **FPGA on FPGA frames, ARM on CPU frames** | FPGA scanout |
+| **Output framebuffer BUF2 (new)** | **`0x22000000`** | **143,360 B** (35 pages; 256 KB slot reserved to `0x2203FFFF`, mirroring the BUF0->BUF1 stride) | **FPGA on FPGA frames, ARM on CPU frames** -- same contract as BUF0/BUF1 | FPGA scanout |
 | Compositor `status_word` (new) | TBD | 8 B | FPGA, **and the ARM on a respawn** (9.11.3) | ARM (9.11.1) |
 | **Slot-grant word (new)** | TBD | 8 B | ARM | FPGA -- the doorbell; one bit per slot plus the list base (9.11.1) |
 | **`quiesce_req` (new)** | TBD | 8 B | ARM | FPGA (9.11.3). `quiesce_ack` rides in `status_word`'s upper half |
@@ -189,14 +205,48 @@ audio ring pointers, BUF0/BUF1, cart data, audio ring). Tier-B adds three region
 🛑 **The sprite arena is a DUPLICATE, not a relocation** (9.9.3): the CPU keeps its
 ordinary cached sprite -- it must, because uncached reads measured **22.2x** slower -- and
 the arena holds a second copy of only the fast-path-eligible subset. Phase 0 finding 2's
-"relocation, not duplication" claim is WITHDRAWN, and **every base address and size in the
-table above is provisional** until the consumer enumeration of M11 is done (`ascal` is
-instantiated with `RAMBASE 0x20000000` in `sys_top.v:717`, so the space is genuinely
-contested). Region evidence comes from `/proc/iomem`, not from `ddram.sv`. The ARM
+"relocation, not duplication" claim is WITHDRAWN. **The bases are no longer provisional**
+-- M11's enumeration closed 2026-08-16 (register item 9), `ascal` is measured at 24 MB
+from `RAMBASE 0x20000000`, and Tier-B's region is `0x22000000-0x39FFFFFF`. **The SIZES
+still are** (arena 9.9.3, ring and scratch 9.11.4), so those rows keep TBD bases only
+because nothing can be laid out before it is sized. Region evidence comes from the kernel
+cmdline, not from `/proc/iomem` inference and not from `ddram.sv`. The ARM
 reaches it by `mmap`ing `/dev/mem` exactly as `native_video_writer.c` already does for
 `0x3A000000`, and runs an allocator inside it (**with free/reuse -- NOT a bump allocator**; `model_cache[]` entries unload, see 14.4.4). If the pool is exhausted or the mapping
 fails, sprite allocation falls back to `malloc` and those sprites are marked CPU-only —
 a defense-in-depth gate, not an error path.
+
+### 6.1 Why BUF2 is at `0x22000000` and not beside BUF0/BUF1
+
+**It cannot be beside them. There is no gap in the existing window large enough** -- this is
+arithmetic, not preference (BUF = 143,360 B):
+
+| candidate gap | span | size | verdict |
+|---|---|---|---|
+| below BUF0 | `0x3A000000-0x3A00003F` | 64 B | too small |
+| BUF1 end -> cart data | `0x3A063040-0x3A07FFFF` | 118,720 B | **too small by 24,640 B** |
+| audio-ring end -> end of the ARM's 1 MB map | `0x3A0E0000-0x3A0FFFFF` | 131,072 B | **too small by 12,288 B** |
+
+The natural third stride slot, `0x3A080040`, is **cart data** -- and cart data is precisely
+where the unclamped RTL writer aims, so that is the worst address in the map, not merely an
+occupied one. Extending the window upward instead lands in the same blast radius. So BUF2
+goes below, in Tier-B's region.
+
+**What this costs, and it is not free:** the ARM currently `mmap`s one 1 MB region at
+`0x3A000000` (`native_video_writer.c:57,150`). BUF2 needs a **second `mmap`** at
+`0x22000000`. The base is 4 KB-aligned (35 pages exactly) because `mmap` requires a
+page-aligned offset. Precedent exists -- two mappings of the same physical region are already
+handled (`:829`).
+
+**What it costs the FPGA: nothing.** The reader selects with
+`buf_base_addr <= ctrl_word[0] ? BUF1_ADDR : BUF0_ADDR` (`openbor_video_reader.sv:664`) over
+two **independent** localparams. A third is `localparam [28:0] BUF2_ADDR = 29'h04400000;`
+plus the 2-bit selector already required by `:211`. Scanout is
+`buf_base_addr + display_line * LINE_STRIDE` (`:690`), so a distant base behaves identically.
+
+🛑 **BUF2 is placed, NOT implemented.** No RTL, no ARM code, and no `files.qip` entry exists
+for it -- consistent with Tier-B having zero compiled surface. This closes the address
+question (register 7a) and nothing else.
 
 ## 7. Frame header and display-list encoding
 
@@ -1820,7 +1870,7 @@ items, two of them already closed, and omitted most of the real ones.
 | 5 | **The `LINEAR` source home.** 9.9.2 puts only fast-path SPRITES in the arena, but the background and parallax layers are per-frame cached-heap `s_screen`s with no FPGA-readable address | 9.7, 9.9.2 |
 | 6 | **ARM->FPGA register channel** for `compositor_disable` -- none exists today | 9.11.3, 11 |
 | 7 | Ring and per-slot **scratch sizing** -- a single 960x480 fallback is 921,600 B, **plus its coverage plane** (+57,600 B) | 9.11.4, 9.7 |
-| 7a | 🛑 **A THIRD FRAMEBUFFER (BUF2) is required**, not optional: the reader latches its buffer once per vsync, so publishing does not retire the old one and two buffers serialise the compositor behind scanout. ✅ **UNBLOCKED 2026-08-16** — item 9 closed, so BUF2's 143,360 B is placeable inside the 392 MB arena region (`0x2180_0000–0x39FF_FFFF`). It is still **not placed**: §6's memory map assigns no address, and Phase 2 must do that together with the arena AND the runtime `LFB_BASE` check (consumer map finding (a)), since a statically-safe base can still be handed to the HPS later | 9.11.1 C1, **item 9 (closed)** |
+| 7a | 🛑 **A THIRD FRAMEBUFFER (BUF2) is required**, not optional: the reader latches its buffer once per vsync, so publishing does not retire the old one and two buffers serialise the compositor behind scanout. ✅ **CLOSED 2026-08-16 — BUF2 = `0x22000000`, 143,360 B**, now a real row in §6 with its derivation at §6.1. **Forced, not chosen:** no gap in the existing window fits it (largest is 131,072 B vs 143,360 needed), the natural stride slot `0x3A080040` IS cart data — the exact target of the unclamped RTL writer — and the 95 MB above the window is that writer's blast radius. Sits 8 MB above `ascal`'s measured top, page-aligned for the **second `mmap`** the ARM now owes. FPGA cost is one localparam plus the 2-bit selector `:211` already required. 🛑 **Placed, not implemented** — no RTL, no ARM code, no `files.qip` entry | 9.11.1 C1, **item 9 (closed)**, §6.1 |
 | 7b | **An arbiter-owned, always-alive FPGA->ARM `grant_idle` indication.** The respawn Init sequence and the arena-free rule both wait on it and it exists nowhere | 9.11.3 |
 | 7c | **Reader edits for phase 1c**: a `wants_bus` output ungated by `ddr_busy` (without it strict priority starves the reader every line), an `abandon` output, a `fifo_aclr` re-arm -- and a real swallow-timeout recovery, since `fifo_aclr` cannot cancel outstanding Avalon returns | 9.8 |
 | 7d | **`FILL`**: name the engine cases and add a colour operand, or delete the opcode | 7.2 |
