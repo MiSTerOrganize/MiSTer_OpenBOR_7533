@@ -5050,6 +5050,433 @@ extern int mrec_isolate;
                         'Step 14: B+E entity-collision optimization (filter non-collidable + 256px rect cull)')
     print("  Step 14: B+E entity-collision cull -- expected 5-10x speedup on arrange bucket")
 
+    # -- TEMPORARY DIAG 2026-07-28 (REVERT AFTER MEASURED) -- [ARR] arrange bucket.
+    #
+    # Answers ONE question before the collision spatial grid earns an engine
+    # patch: how big is the arrange bucket on TODAY's engine, and at what live
+    # entity count? collision_bench says a grid is worth 3.91x on the pass, but
+    # the pass's share of the frame is unmeasured POST-Step-14 -- the historical
+    # "28-42% of entity-tick" figure predates Step 14's B+E cull, which already
+    # claimed 5-10x on this bucket, so it CANNOT be reused.
+    #
+    # Measures arrange_ents() (which CONTAINS check_entity_collision_for) once
+    # per tick at ms resolution, accumulated over ~5 s, plus the live entity
+    # count -- ent_max is what maps the measurement onto the bench's N curve.
+    # Deliberately does NOT try to time check_entity_collision_for alone: that
+    # is per-entity microseconds against a 1 ms clock, and hoisting it out of
+    # ent_post_update to time it would reorder gravity/collision/move and change
+    # behaviour. arrange_ents total is a clean upper bound and a sufficient
+    # go/no-go (collision is a subset of it).
+    arr_globals_old = "void arrange_ents()"
+    arr_globals_new = (
+        "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [ARR] arrange bucket. */\n"
+        "unsigned int _mister_arr_ms = 0;\n"
+        "unsigned int _mister_arr_ticks = 0;\n"
+        "unsigned int _mister_arr_ent_peak = 0;\n"
+        "unsigned int _mister_arr_ent_sum = 0;\n"
+        "unsigned int _mister_arr_frames = 0;\n"
+        "unsigned int _mister_arr_t_last = 0;\n"
+        "\n"
+        "void arrange_ents()"
+    )
+    ob = strict_replace(ob, arr_globals_old, arr_globals_new,
+                        'TEMPORARY DIAG: [ARR] globals')
+
+    # timer + entity-count sample around the per-tick arrange_ents() call
+    arr_time_old = (
+        "    }//end of for\n"
+        "    arrange_ents();"
+    )
+    arr_time_new = (
+        "    }//end of for\n"
+        "    {\n"
+        "        unsigned int _arr_t0 = timer_gettick();  /* TEMPORARY DIAG */\n"
+        "        arrange_ents();\n"
+        "        _mister_arr_ms += timer_gettick() - _arr_t0;\n"
+        "        _mister_arr_ticks++;\n"
+        "        _mister_arr_ent_sum += (unsigned int)ent_max;\n"
+        "        if((unsigned int)ent_max > _mister_arr_ent_peak) _mister_arr_ent_peak = (unsigned int)ent_max;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, arr_time_old, arr_time_new,
+                        'TEMPORARY DIAG: [ARR] timer + entity-count sample around arrange_ents()')
+
+    # periodic report, gameplay-only (title/menu/pause auto-skipped)
+    arr_print_old = (
+        "    if(ingame == 1 && !_pause)\n"
+        "    {\n"
+        "        draw_scrolled_bg();"
+    )
+    arr_print_new = (
+        "    if(ingame == 1 && !_pause)\n"
+        "    {\n"
+        "        /* TEMPORARY DIAG -- REVERT AFTER MEASURED -- log [ARR] every ~5 s */\n"
+        "        {\n"
+        "            unsigned int _now_ms = timer_gettick();\n"
+        "            if(_mister_arr_t_last == 0) _mister_arr_t_last = _now_ms;\n"
+        "            _mister_arr_frames++;\n"
+        "            /* CENSUS FIX (register item 8): the gate was WALL-CLOCK only, so a\n"
+        "               report needed 5 real seconds of gameplay. That makes a census\n"
+        "               machine-speed dependent -- and it never fires at all in the\n"
+        "               headless harness. Frame-based OR keeps the on-device meaning\n"
+        "               and makes the headless run deterministic and comparable. */\n"
+        "            if(_now_ms - _mister_arr_t_last >= 5000 || _mister_arr_frames >= 600) {\n"
+        "                unsigned int itv = _now_ms - _mister_arr_t_last;\n"
+        "                unsigned int fps_x10 = itv ? (_mister_arr_frames * 10000u) / itv : 0u;  /* itv can be 0 on the frame-triggered path */\n"
+        "                unsigned int frame_us = (_mister_arr_frames) ? (itv * 1000u) / _mister_arr_frames : 0u;\n"
+        "                unsigned int arr_us = (_mister_arr_frames) ? (_mister_arr_ms * 1000u) / _mister_arr_frames : 0u;\n"
+        "                unsigned int pct_x10 = (itv) ? (_mister_arr_ms * 1000u) / itv : 0u;\n"
+        "                unsigned int ent_avg = (_mister_arr_ticks) ? _mister_arr_ent_sum / _mister_arr_ticks : 0u;\n"
+        "                printf(\"[ARR] fps=%u.%u frame=%uus | arrange=%ums/%ums (%u.%u%% of frame, %uus/frame) | ent_max avg=%u peak=%u | frames=%u ticks=%u\\n\",\n"
+        "                       fps_x10 / 10u, fps_x10 % 10u,\n"
+        "                       frame_us,\n"
+        "                       _mister_arr_ms, itv,\n"
+        "                       pct_x10 / 10u, pct_x10 % 10u,\n"
+        "                       arr_us,\n"
+        "                       ent_avg, _mister_arr_ent_peak,\n"
+        "                       _mister_arr_frames, _mister_arr_ticks);\n"
+        "                unsigned int cmp_us = (_mister_arr_frames) ? (_mister_cmp_spriteq_ms * 1000u) / _mister_arr_frames : 0u;\n"
+        "                unsigned int cmp_pct = (itv) ? (_mister_cmp_spriteq_ms * 1000u) / itv : 0u;\n"
+        "                unsigned int ps_us = (_mister_arr_frames) ? (_mister_cmp_putsprite_ms * 1000u) / _mister_arr_frames : 0u;\n"
+        "                unsigned int sc_us = (_mister_arr_frames) ? (_mister_cmp_putscreen_ms * 1000u) / _mister_arr_frames : 0u;\n"
+        "                unsigned int ot_us = (_mister_arr_frames) ? (_mister_cmp_other_ms * 1000u) / _mister_arr_frames : 0u;\n"
+        "                printf(\"[CMP] spriteq=%uus/frame (%u.%u%% of frame) | putsprite=%uus (%u calls) putscreen=%uus (%u calls) other=%uus\\n\",\n"
+        "                       cmp_us, cmp_pct / 10u, cmp_pct % 10u,\n"
+        "                       ps_us, _mister_cmp_putsprite_n,\n"
+        "                       sc_us, _mister_cmp_putscreen_n,\n"
+        "                       ot_us);\n"
+        "                printf(\"[SCR] px/frame: copy=%u key=%u blend=%u blendkey=%u | x8p16(unconverted 8bpp)=%u calls\\n\",\n"
+        "                       _mister_cmp_px_copy / (_mister_arr_frames ? _mister_arr_frames : 1u),\n"
+        "                       _mister_cmp_px_key / (_mister_arr_frames ? _mister_arr_frames : 1u),\n"
+        "                       _mister_cmp_px_blend / (_mister_arr_frames ? _mister_arr_frames : 1u),\n"
+        "                       _mister_cmp_px_bkey / (_mister_arr_frames ? _mister_arr_frames : 1u),\n"
+        "                       _mister_cmp_x8p16_n);\n"
+        "                {\n"
+        "                    unsigned int _tot = _mister_tb0_fast + _mister_tb0_slow;\n"
+        "                    unsigned int _fpct = _tot ? (_mister_tb0_fast * 1000u) / _tot : 0u;\n"
+        "                    unsigned int _tms = _mister_tb0_fast_ms + _mister_tb0_slow_ms;\n"
+        "                    unsigned int _ftpct = _tms ? (_mister_tb0_fast_ms * 1000u) / _tms : 0u;\n"
+        "                    printf(\"[TB0] sprite working set=%u KB (%u sprites) | blits fast=%u slow=%u (fast %u.%u%% by COUNT)\\n\",\n"
+        "                           _mister_tb0_sprite_bytes / 1024u, _mister_tb0_sprite_count,\n"
+        "                           _mister_tb0_fast, _mister_tb0_slow,\n"
+        "                           _fpct / 10u, _fpct % 10u);\n"
+        "                    printf(\"[TBT] putsprite TIME: fast=%ums slow=%ums (fast %u.%u%% by TIME <- the real Tier-B ceiling)\\n\",\n"
+        "                           _mister_tb0_fast_ms, _mister_tb0_slow_ms,\n"
+        "                           _ftpct / 10u, _ftpct % 10u);\n"
+        "                }\n"
+        "                {\n"
+        "                    static const char *_bn[8] = {\"opaque\",\"SCREEN\",\"MULTIPLY\",\"OVERLAY\",\"HARDLIGHT\",\"DODGE\",\"HALF\",\"OOR\"};\n"
+        "                    unsigned int _i;\n"
+        "                    unsigned long long _tc = 0, _tp = 0;   /* T5: 64-bit TOTALS too */\n"
+        "                    for(_i = 0; _i < 8; _i++) { _tc += _mister_tbb_calls[_i]; _tp += _mister_tbb_px[_i]; }\n"
+        "                    printf(\"[TBB] blend modes on the FAST path:\\n\");\n"
+        "                    for(_i = 0; _i < 8; _i++) {\n"
+        "                        unsigned int _cp, _pp;\n"
+        "                        if(!_mister_tbb_calls[_i]) continue;\n"
+        "                        _cp = _tc ? (unsigned)((_mister_tbb_calls[_i] * 1000ull) / _tc) : 0u;\n"
+        "                        _pp = _tp ? (unsigned)((_mister_tbb_px[_i] * 1000ull) / _tp) : 0u;\n"
+        "                        printf(\"[TBB]   %-9s alpha=%u  calls=%7llu (%u.%u%%)  px=%7lluK (%u.%u%%)\\n\",\n"
+        "                               _bn[_i], _i, _mister_tbb_calls[_i], _cp/10u, _cp%10u,\n"
+        "                               _mister_tbb_px[_i]/1024u, _pp/10u, _pp%10u);\n"
+        "                    }\n"
+        "                    {   /* T1 FIX: the slow path, previously uncounted */\n"
+        "                        unsigned long long _sc = 0, _sp = 0;\n"
+        "                        for(_i = 0; _i < 8; _i++) { _sc += _mister_tbb_calls_slow[_i]; _sp += _mister_tbb_px_slow[_i]; }\n"
+        "                        printf(\"[TBBSLOW] calls=%llu px=%lluK\", _sc, _sp/1024ull);\n"
+        "                        for(_i = 0; _i < 8; _i++)\n"
+        "                            if(_mister_tbb_calls_slow[_i])\n"
+        "                                printf(\" s%u=%llu/%lluK\", _i, _mister_tbb_calls_slow[_i], _mister_tbb_px_slow[_i]/1024ull);\n"
+        "                        printf(\"\\n\");\n"
+        "                    }\n"
+        "                    printf(\"[TBB] tint-override=%u  rgbchannel(mode6)=%u  with-remap-table=%u  total=%llu calls\\n\",\n"
+        "                           _mister_tbb_tint, _mister_tbb_chan, _mister_tbb_remap, _tc);\n"
+        "                    for(_i = 0; _i < 8; _i++) { _mister_tbb_calls[_i] = 0; _mister_tbb_px[_i] = 0; }\n"
+        "                    for(_i = 0; _i < 8; _i++) { _mister_tbb_calls_slow[_i] = 0; _mister_tbb_px_slow[_i] = 0; }\n"
+        "                    _mister_tbb_tint = 0; _mister_tbb_chan = 0; _mister_tbb_remap = 0;\n"
+        "                }\n"
+        "                _mister_arr_ms = 0; _mister_arr_ticks = 0; _mister_arr_ent_sum = 0;\n"
+        "                _mister_cmp_spriteq_ms = 0; _mister_cmp_putsprite_ms = 0; _mister_cmp_putscreen_ms = 0;\n"
+        "                _mister_cmp_other_ms = 0; _mister_cmp_putsprite_n = 0; _mister_cmp_putscreen_n = 0;\n"
+        "                _mister_cmp_px_copy = 0; _mister_cmp_px_key = 0; _mister_cmp_px_blend = 0;\n"
+        "                _mister_cmp_px_bkey = 0; _mister_cmp_x8p16_n = 0;\n"
+        "                _mister_arr_frames = 0; _mister_arr_t_last = _now_ms;\n"
+        "            }\n"
+        "        }\n"
+        "        draw_scrolled_bg();"
+    )
+    ob = strict_replace(ob, arr_print_old, arr_print_new,
+                        'TEMPORARY DIAG: [ARR] periodic report')
+    print("  TEMPORARY DIAG [ARR] inserted (arrange bucket ms + ent_max) -- REVERT AFTER MEASURED")
+
+    # -- TEMPORARY DIAG 2026-07-28 (REVERT AFTER MEASURED) -- [CMP]/[SCR].
+    #
+    # Splits the compositing cost that dominates a heavy-PAK frame. He-Man
+    # measures ~27 ms/frame of which arrange is only ~0.4 ms; the rest is
+    # spriteq_draw. Before NEON-ing anything we need to know WHICH kernel:
+    #   [CMP] putsprite (character blits) vs putscreen (background layers)
+    #   [SCR] and within putscreen, how many pixels take each screen16.c path:
+    #         memcpy / colour-key / blend / blend+key
+    # This matters because the 16-bit vscreen ship (2026-07-28) + Step 23's
+    # Path B fork pre-decode backgrounds to PIXEL_16, so a plain layer now
+    # lands on blendscreen16's per-row memcpy. The documented "putscreen =
+    # 57 ns/px, 99.3% of putother" figures predate that and describe
+    # putscreenx8p32, which the ship build no longer runs. x8p16 call count is
+    # reported too: if it is non-zero, some background escaped the pre-decode.
+    cmp_globals_old = "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [ARR] arrange bucket. */\n"
+    # [TB0] globals must be declared EARLY: loadsprite() uses them around line
+    # 4670, long before arrange_ents() (~30118) where the [CMP] block sits.
+    # Declaring them next to [CMP] gave "'_mister_tb0_sprite_bytes' undeclared"
+    # at compile time -- C needs the definition first.
+    ob = strict_replace(
+        ob,
+        "int sprite_map_max_items = 0;\n",
+        "int sprite_map_max_items = 0;\n"
+        "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [TB0] Tier-B Phase-0 sizing. */\n"
+        "unsigned int _mister_tb0_sprite_bytes = 0;   /* total RLE sprite bytes malloc'd  */\n"
+        "unsigned int _mister_tb0_sprite_count = 0;   /* how many sprites loaded          */\n"
+        "unsigned int _mister_tb0_fast = 0;           /* blits taking the offloadable path*/\n"
+        "unsigned int _mister_tb0_slow = 0;           /* blits needing scale/rot/water/etc*/\n"
+        "int _mister_tb0_is_slow = 0;                 /* which path the last blit took    */\n"
+        "unsigned int _mister_tb0_fast_ms = 0;        /* TIME in the offloadable path      */\n"
+        "unsigned int _mister_tb0_slow_ms = 0;        /* TIME in the CPU-only fallback     */\n"
+        "/* [TBB] Phase 1b blend histogram. drawmethod->alpha is NOT an alpha level --\n"
+        " * it is a blend MODE INDEX: 0=opaque (fp NULL), 1=SCREEN, 2=MULTIPLY,\n"
+        " * 3=OVERLAY, 4=HARDLIGHT, 5=DODGE, 6=HALF -- see getblendfunction16(),\n"
+        " * pixelformat.c:629. A global tintmode>0 overrides fp with blend_tint16;\n"
+        " * usechannel turns mode 6 into blend_rgbchannel16. Counted per CALL and per\n"
+        " * PIXEL so a mode used by one huge sprite is not hidden by 20 tiny ones. */\n"
+        "unsigned long long _mister_tbb_calls[8] = {0,0,0,0,0,0,0,0};\n"
+        "unsigned long long _mister_tbb_px[8]    = {0,0,0,0,0,0,0,0};\n"
+        "/* T1 FIX: the histogram used to increment ONLY inside the fast branch while\n"
+        "   the report divided by full-run pixels, so 253,871 of 2,147,759 blits (11.8%)\n"
+        "   across 186 PAKs contributed nothing and some PAKs were understated ~13x.\n"
+        "   Kept as a SEPARATE pair rather than folded in, so the split stays visible\n"
+        "   and the 2026-07-29 baseline remains comparable field-for-field. */\n"
+        "unsigned long long _mister_tbb_calls_slow[8] = {0,0,0,0,0,0,0,0};\n"
+        "unsigned long long _mister_tbb_px_slow[8]    = {0,0,0,0,0,0,0,0};\n"
+        "unsigned int _mister_tbb_tint = 0;   /* fp overridden by tintmode            */\n"
+        "unsigned int _mister_tbb_chan = 0;   /* mode 6 + usechannel -> rgbchannel16   */\n"
+        "unsigned int _mister_tbb_remap = 0;  /* blits carrying a palette/remap table  */\n",
+        'TEMPORARY DIAG: [TB0] globals (declared early, before loadsprite)')
+
+    cmp_globals_new = (
+        "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [CMP]/[SCR] compositing split. */\n"
+        "unsigned int _mister_cmp_spriteq_ms = 0;\n"
+        "unsigned int _mister_cmp_putsprite_ms = 0;\n"
+        "unsigned int _mister_cmp_putscreen_ms = 0;\n"
+        "unsigned int _mister_cmp_other_ms = 0;\n"
+        "unsigned int _mister_cmp_putsprite_n = 0;\n"
+        "unsigned int _mister_cmp_putscreen_n = 0;\n"
+        "unsigned int _mister_cmp_px_copy = 0;\n"
+        "unsigned int _mister_cmp_px_key = 0;\n"
+        "unsigned int _mister_cmp_px_blend = 0;\n"
+        "unsigned int _mister_cmp_px_bkey = 0;\n"
+        "unsigned int _mister_cmp_x8p16_n = 0;\n"
+        "\n"
+        "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [ARR] arrange bucket. */\n"
+    )
+    ob = strict_replace(ob, cmp_globals_old, cmp_globals_new,
+                        'TEMPORARY DIAG: [CMP]/[SCR] globals')
+
+    # timer around the whole per-frame compositing call
+    cmp_sq_old = (
+        "    spriteq_draw(vscreen, 0, MIN_INT, MAX_INT, 0, 0); "
+        "// notice, always draw sprites at the very end of other methods"
+    )
+    cmp_sq_new = (
+        "    {\n"
+        "        unsigned int _sq_t0 = timer_gettick();  /* TEMPORARY DIAG */\n"
+        "        spriteq_draw(vscreen, 0, MIN_INT, MAX_INT, 0, 0); "
+        "// notice, always draw sprites at the very end of other methods\n"
+        "        _mister_cmp_spriteq_ms += timer_gettick() - _sq_t0;\n"
+        "    }"
+    )
+    ob = strict_replace(ob, cmp_sq_old, cmp_sq_new,
+                        'TEMPORARY DIAG: [CMP] timer around spriteq_draw()')
+
+    # [TB0] total sprite working set: sum every RLE sprite allocation. This is
+    # THE Tier-B go/no-go number -- the FPGA can only read a physically
+    # contiguous reserved DDR3 window (today just two 143 KB framebuffers at
+    # 0x3A000000 + the cart staging area), but sprites live in the Linux heap.
+    # If the working set is tens of MB, an upload-at-load design has to carve
+    # that much away from a 492 MB box that has already OOM'd once.
+    ob = strict_replace(
+        ob,
+        "    len = strlen(filename);\n"
+        "    size = fakey_encodesprite(bitmap);\n"
+        "    curr = malloc(sizeof(*curr));\n"
+        "    curr->sprite = malloc(size);",
+        "    len = strlen(filename);\n"
+        "    size = fakey_encodesprite(bitmap);\n"
+        "    _mister_tb0_sprite_bytes += (unsigned int)size;  /* TEMPORARY DIAG [TB0] */\n"
+        "    _mister_tb0_sprite_count++;\n"
+        "    curr = malloc(sizeof(*curr));\n"
+        "    curr->sprite = malloc(size);",
+        'TEMPORARY DIAG: [TB0] sprite working-set accumulator')
+    print("  TEMPORARY DIAG [TB0] inserted (sprite working set + fast/slow split) -- REVERT AFTER MEASURED")
+
+    # spriteq.c: split the dispatch into putsprite / putscreen / other
+    spq_path = os.path.join(obor, 'source/gamelib/spriteq.c')
+    spq = read(spq_path)
+    spq = strict_replace(
+        spq,
+        '#include "globals.h"\n',
+        '#include "globals.h"\n'
+        '#include "timer.h"  /* TEMPORARY DIAG [CMP] */\n'
+        '/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- defined in openbor.c */\n'
+        'extern unsigned int _mister_cmp_putsprite_ms;\n'
+        'extern unsigned int _mister_cmp_putscreen_ms;\n'
+        'extern unsigned int _mister_cmp_other_ms;\n'
+        'extern unsigned int _mister_cmp_putsprite_n;\n'
+        'extern unsigned int _mister_cmp_putscreen_n;\n'
+        'extern int _mister_tb0_is_slow;\n'
+        'extern unsigned int _mister_tb0_fast_ms;\n'
+        'extern unsigned int _mister_tb0_slow_ms;\n',
+        'TEMPORARY DIAG: spriteq.c timer.h + externs')
+    spq = strict_replace(
+        spq,
+        "            putsprite(x, y, order[i]->frame, screen, &(order[i]->drawmethod));\n"
+        "            break;\n",
+        "            {   /* TEMPORARY DIAG */\n"
+        "                unsigned int _t0 = timer_gettick();\n"
+        "                putsprite(x, y, order[i]->frame, screen, &(order[i]->drawmethod));\n"
+        "                {   /* TEMPORARY DIAG [TB0] attribute this sprite to its path. */\n"
+        "                    /* Reuses the SAME timer pair rather than adding one inside*/\n"
+        "                    /* putsprite_ex: a sub-microsecond fast blit would be      */\n"
+        "                    /* materially inflated by its own instrumentation, biasing */\n"
+        "                    /* the ratio toward 'offload is worth more'. Same estimator*/\n"
+        "                    /* for both buckets, so the RATIO is unbiased.             */\n"
+        "                    unsigned int _dt = timer_gettick() - _t0;\n"
+        "                    _mister_cmp_putsprite_ms += _dt;\n"
+        "                    if(_mister_tb0_is_slow) _mister_tb0_slow_ms += _dt;\n"
+        "                    else                    _mister_tb0_fast_ms += _dt;\n"
+        "                }\n"
+        "                _mister_cmp_putsprite_n++;\n"
+        "            }\n"
+        "            break;\n",
+        'TEMPORARY DIAG: [CMP] putsprite timer')
+    spq = strict_replace(
+        spq,
+        "            putscreen(screen, (s_screen *)(order[i]->frame), x, y, &(order[i]->drawmethod));\n"
+        "            break;\n",
+        "            {   /* TEMPORARY DIAG */\n"
+        "                unsigned int _t0 = timer_gettick();\n"
+        "                putscreen(screen, (s_screen *)(order[i]->frame), x, y, &(order[i]->drawmethod));\n"
+        "                _mister_cmp_putscreen_ms += timer_gettick() - _t0;\n"
+        "                _mister_cmp_putscreen_n++;\n"
+        "            }\n"
+        "            break;\n",
+        'TEMPORARY DIAG: [CMP] putscreen timer')
+    write(spq_path, spq)
+
+    # screen16.c: count pixels down each of blendscreen16's four paths, and
+    # count putscreenx8p16 calls (should be ~0 if Step 23 pre-decode covers
+    # every background -- a non-zero count means one escaped it).
+    sc16_path = os.path.join(obor, 'source/gamelib/screen16.c')
+    sc16 = read(sc16_path)
+    sc16 = strict_replace(
+        sc16,
+        "void putscreenx8p16(s_screen *dest, s_screen *src, int x, int y, int key, "
+        "unsigned short *remap, unsigned short(*blendfp)(unsigned short, unsigned short))\n"
+        "{\n",
+        "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- defined in openbor.c */\n"
+        "extern unsigned int _mister_cmp_px_copy;\n"
+        "extern unsigned int _mister_cmp_px_key;\n"
+        "extern unsigned int _mister_cmp_px_blend;\n"
+        "extern unsigned int _mister_cmp_px_bkey;\n"
+        "extern unsigned int _mister_cmp_x8p16_n;\n"
+        "\n"
+        "void putscreenx8p16(s_screen *dest, s_screen *src, int x, int y, int key, "
+        "unsigned short *remap, unsigned short(*blendfp)(unsigned short, unsigned short))\n"
+        "{\n"
+        "    _mister_cmp_x8p16_n++;  /* TEMPORARY DIAG */\n",
+        'TEMPORARY DIAG: [SCR] externs + putscreenx8p16 call counter')
+    sc16 = strict_replace(
+        sc16,
+        "    sp += (soy * sw + sox);\n"
+        "    dp += (y * dw + x);\n"
+        "\n"
+        "    if(blendfp)\n"
+        "    {\n"
+        "        if(key)\n",
+        "    sp += (soy * sw + sox);\n"
+        "    dp += (y * dw + x);\n"
+        "\n"
+        "    {   /* TEMPORARY DIAG -- which of the four paths, and how many px */\n"
+        "        unsigned int _px = (unsigned int)cw * (unsigned int)ch;\n"
+        "        if(blendfp) { if(key) _mister_cmp_px_bkey += _px; else _mister_cmp_px_blend += _px; }\n"
+        "        else        { if(key) _mister_cmp_px_key  += _px; else _mister_cmp_px_copy  += _px; }\n"
+        "    }\n"
+        "\n"
+        "    if(blendfp)\n"
+        "    {\n"
+        "        if(key)\n",
+        'TEMPORARY DIAG: [SCR] blendscreen16 per-path pixel counters')
+    write(sc16_path, sc16)
+
+    # [TB0] fast-path vs fallback split in putsprite_ex. The offloadable blit is
+    # the gated common case (no water/scale/rotate/flipy/shiftx/fill); anything
+    # else needs gfx_draw_scale and would STAY on the CPU in a hybrid design.
+    # The fast-path FRACTION caps what Tier-B can ever win.
+    spr_path = os.path.join(obor, 'source/gamelib/sprite.c')
+    spr = read(spr_path)
+    spr = strict_replace(
+        spr,
+        '#include "sprite.h"\n',
+        '#include "sprite.h"\n'
+        '/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- defined in openbor.c */\n'
+        'extern unsigned int _mister_tb0_fast;\n'
+        'extern unsigned int _mister_tb0_slow;\n'
+        'extern int _mister_tb0_is_slow;\n'
+        'extern unsigned long long _mister_tbb_calls[8];\n'
+        'extern unsigned long long _mister_tbb_px[8];\n'
+        'extern unsigned long long _mister_tbb_calls_slow[8];\n'
+        'extern unsigned long long _mister_tbb_px_slow[8];\n'
+        'extern unsigned int _mister_tbb_tint;\n'
+        'extern unsigned int _mister_tbb_chan;\n'
+        'extern unsigned int _mister_tbb_remap;\n',
+        'TEMPORARY DIAG: [TB0] sprite.c externs', count=1)
+    spr = strict_replace(
+        spr,
+        "    // no scale, no shift, no flip, no fill, so use common method\n"
+        "    if(!drawmethod->water.watermode && drawmethod->scalex == 256 && "
+        "drawmethod->scaley == 256 && !drawmethod->flipy && !drawmethod->shiftx && "
+        "drawmethod->fillcolor == TRANSPARENT_IDX && !drawmethod->rotate)\n"
+        "    {\n",
+        "    // no scale, no shift, no flip, no fill, so use common method\n"
+        "    if(!drawmethod->water.watermode && drawmethod->scalex == 256 && "
+        "drawmethod->scaley == 256 && !drawmethod->flipy && !drawmethod->shiftx && "
+        "drawmethod->fillcolor == TRANSPARENT_IDX && !drawmethod->rotate)\n"
+        "    {\n"
+        "        _mister_tb0_fast++;  /* TEMPORARY DIAG [TB0] offloadable */\n"
+        "        _mister_tb0_is_slow = 0;\n"
+        "        {   /* TEMPORARY DIAG [TBB] blend-mode histogram, fast path only */\n"
+        "            unsigned int _a = (unsigned int)drawmethod->alpha;\n"
+        "            unsigned int _i = (_a <= 6u) ? _a : 7u;\n"
+        "            _mister_tbb_calls[_i]++;\n"
+        "            if(frame) _mister_tbb_px[_i] += (unsigned long long)frame->width * (unsigned long long)frame->height;\n"
+        "            if(tintmode) _mister_tbb_tint++;\n"
+        "            if(_a == 6u && usechannel) _mister_tbb_chan++;\n"
+        "            if(drawmethod->table) _mister_tbb_remap++;\n"
+        "        }\n",
+        'TEMPORARY DIAG: [TB0] fast-path counter')
+    spr = strict_replace(
+        spr,
+        "    gfx.sprite = frame;\n",
+        "    _mister_tb0_slow++;  /* TEMPORARY DIAG [TB0] CPU-only fallback */\n"
+        "    _mister_tb0_is_slow = 1;\n"
+        "    {   /* T1 FIX: same histogram on the SLOW path (register item 8) */\n"
+        "        unsigned int _a = (unsigned int)drawmethod->alpha;\n"
+        "        unsigned int _i = (_a <= 6u) ? _a : 7u;\n"
+        "        _mister_tbb_calls_slow[_i]++;\n"
+        "        if(frame) _mister_tbb_px_slow[_i] += (unsigned long long)frame->width "
+        "* (unsigned long long)frame->height;\n"
+        "    }\n"
+        "    gfx.sprite = frame;\n",
+        'TEMPORARY DIAG: [TB0] fallback counter', count=1)
+    write(spr_path, spr)
+    print("  TEMPORARY DIAG [CMP]/[SCR] inserted (compositing split) -- REVERT AFTER MEASURED")
+
     # -- Step 15 (2026-05-26): Path 1 reorder of normal_find_target() loop body.
     #
     # SUB-PROFILE v8 data identified ai as He-Man's #2 bottleneck (23.4% of
