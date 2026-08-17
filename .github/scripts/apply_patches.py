@@ -3186,6 +3186,12 @@ extern int mrec_isolate;
             "void NativeVideoWriter_SetOverlay(const void *pixels){ (void)pixels; }\n"
             "void NativeVideoWriter_CaptureDisplay(void *dst){ (void)dst; }\n"
             "void NativeVideoWriter_GetDisplaySize(int *w, int *h){ if(w) *w = 320; if(h) *h = 224; }\n"
+            "/* Loading read-out. update_loading() calls this in BOTH builds, so the\n"
+            " * headless LINK needs it even though headless has no display to paint.\n"
+            " * Its absence broke the diff harness on 2026-08-17: the ship build was\n"
+            " * clean and the dry-run exited 0, because neither of those COMPILES --\n"
+            " * only the headless link catches a missing stub. */\n"
+            "void NativeVideoWriter_SetLoadingProgress(int pos, int max){ (void)pos; (void)max; }\n"
         )
         + "int mister_fps_overlay = 0; /* pause menu -> Options -> FPS Display. Read by native_video_writer.c, which draws it POST-downscale. Defined in BOTH builds so the replaced pausemenu() links headless. Defaults OFF every launch so it can never silently contaminate a frame-hash run. */\n"
         "#define MREC_ENGINE_VER 1u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */\n"
