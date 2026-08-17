@@ -550,7 +550,29 @@ void pausemenu()
 
         update(1, 0);
 
-        newkeys = player[controlp].newkeys;
+        /* Read the RAW controller state, not player[].newkeys.
+         *
+         * A cart can rewrite player[].newkeys from script, and with
+         * `alwaysupdate 1` its scripts run even while paused -- so the value we
+         * used to read had already been through the cart by the time we saw it.
+         * Lust Rush does exactly this every frame:
+         *     inputall.c  changeplayerproperty(player, "newkeys", 0)
+         *                 changeplayerproperty(player, "newkeys", FLAG_START)
+         *     update.c    changeplayerproperty(0, "newkeys", 0)
+         *                 changeplayerproperty(0, "newkeys", FLAG_ESC)
+         * which zeroes our navigation and then hands us a phantom START or ESC
+         * -- the menu appeared to ignore the d-pad and to "back out" on its own.
+         *
+         * playercontrolpointers[] is the raw controller read, upstream of the
+         * player struct, and changeplayerproperty cannot reach it. On every
+         * other cart the two are identical, so nothing changes there; on a cart
+         * that rewrites keys, the menu now behaves the same as everywhere else.
+         *
+         * This is a READ. Nothing is written, cleared or diverted: the cart
+         * still sees exactly what it saw, and the recorder -- which captures
+         * and injects these same fields earlier in inputrefresh -- is untouched
+         * and byte-identical. */
+        newkeys = (int)playercontrolpointers[controlp]->newkeyflags;
         {   /* lrkeys = a fresh press, OR a held direction that has passed
              * the delay and landed on a repeat frame. Only left/right
              * repeat: up/down through a 4-item list does not need it, and
