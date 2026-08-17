@@ -5084,6 +5084,32 @@ extern int mrec_isolate;
         "                    pos_x = (videomodes.hRes - size_x) / 2;\n"
         "                    pos_y = videomodes.vRes - 25;\n"
         "                }\n"
+        "                /* MiSTer fix 2026-08-17 (user-reported: Ultimate Double\n"
+        "                 * Dragon shows a still image and no bar). The clause above\n"
+        "                 * only rescues a bar whose SIZE is zero, on the assumption\n"
+        "                 * that a cart declaring a real size has its own visible\n"
+        "                 * loading display. Measured against the library, that is\n"
+        "                 * false: UDD declares `1 -999 -999 100 ...` -- a real\n"
+        "                 * bsize=100 at off-screen coords, with nothing else drawn.\n"
+        "                 * Size and position are independent faults, so clamp them\n"
+        "                 * independently. Strictly ADDITIVE: this is `else if`, so\n"
+        "                 * every case the size<=0 clause already handled keeps its\n"
+        "                 * exact previous placement (He-Man `2 0 0 0`, DD Reloaded,\n"
+        "                 * TMNT-RP on-screen at 100,200 all unchanged).\n"
+        "                 *\n"
+        "                 * Cannot double-draw: gated on loadingbg[0], the\n"
+        "                 * model-cache slot, while a cart's own per-level display\n"
+        "                 * is loadingbg[1] in a different phase. Avengers and PDC2\n"
+        "                 * (`1 -1113 -1194 100 ...`) therefore GAIN a bar during\n"
+        "                 * their long initial load, where they previously showed\n"
+        "                 * none -- they do not get a second one. */\n"
+        "                else if (s == &loadingbg[0] &&\n"
+        "                         (pos_x < 0 || pos_y < 0 ||\n"
+        "                          pos_x >= videomodes.hRes || pos_y >= videomodes.vRes))\n"
+        "                {\n"
+        "                    pos_x = (videomodes.hRes - size_x) / 2;\n"
+        "                    pos_y = videomodes.vRes - 25;\n"
+        "                }\n"
         "                loadingbarstatus.size.x = size_x;\n"
         "                bar(pos_x, pos_y, value, max, &loadingbarstatus);\n"
         "            }"
@@ -5091,6 +5117,39 @@ extern int mrec_isolate;
     ob = strict_replace(ob, loadingbar_old, loadingbar_new,
                         'step 12: clamp off-screen / zero-size loading bar to on-screen default')
     print("  update_loading(): off-screen/zero-size bar clamps to visible default")
+
+    # -- Step 12b (2026-08-17): honour the pause BUTTON even when a cart sets
+    # `nopause 1`. User-reported: Lust Rush's pause menu never appears, because
+    # data/Levels/P_Arcade.txt and P_Pathetic.txt declare `nopause 1` (and
+    # data/scripts/lib001.c drives it via changeopenborvariant("nopause", ...)).
+    #
+    # WHY WE OVERRIDE, when the rule is normally to respect cart authoring:
+    # on PC that directive costs the player nothing -- OpenBOR's own menu is
+    # reachable and the window can simply be closed. On MiSTer our pause menu
+    # is the ONLY route to Recording, Reset and Quit, so `nopause` does not
+    # merely disable a menu, it strands the user in the PAK with no way out
+    # and no way to reach the recorder. That is a port-specific consequence
+    # the cart author never had in view.
+    #
+    # Same class of decision as step 12 above and stated the same way: this is
+    # ENGINE-SIDE INTERPRETATION, not a cart-file edit -- the PAK on disk is
+    # untouched, honouring NEVER MODIFY USER GAME FILES.
+    #
+    # Deliberately narrow: `nopause` still suppresses everything else it
+    # controls; only the pause-menu gate ignores it. Applied to BOTH builds
+    # because pausemenu() is replaced in both, so record and replay see the
+    # same menu shape -- a menu that opened on one side but not the other
+    # would desync a take.
+    nopause_old = "    if(ingame == 1 && !_pause && !nopause && p_keys)"
+    nopause_new = (
+        "    /* MiSTer 2026-08-17: `!nopause` dropped from this gate. A cart that\n"
+        "     * sets `nopause 1` (Lust Rush) would otherwise make Recording, Reset\n"
+        "     * and Quit unreachable, because the pause menu is our only route to\n"
+        "     * them. Engine-side interpretation; the PAK is not modified. */\n"
+        "    if(ingame == 1 && !_pause && p_keys)")
+    ob = strict_replace(ob, nopause_old, nopause_new,
+                        'step 12b: pause menu opens even when a cart sets nopause')
+    print("  pause menu: reachable even on carts that declare nopause")
 
     # -- Step 14 (2026-05-26): B+E entity-collision optimization.
     #
