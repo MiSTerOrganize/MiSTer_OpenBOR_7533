@@ -2653,6 +2653,109 @@ extern int mrec_isolate;
             print("  PLAYER_MIN_Z/MAX_Z registered as openborconstant.")
         else:
             print("  WARN: constants.c anchor not found; PAK script-API workaround skipped")
+
+        # -- 9b. Register the SAMPLE_* sound constants ------------------
+        # v7533 restructured the hard-coded sounds into
+        # `s_global_sample global_sample_list` (openbor.c:342) and registers
+        # NO SAMPLE_* names in the openborconstant table. A PAK built against
+        # an engine that exposed them dies at load with
+        #   Can't find openbor constant 'SAMPLE_BEEP2'
+        #   Script compile error in 'update'
+        # and the engine shuts down -- a black screen from the user's side.
+        #
+        # MEASURED, not guessed: tools/harness/pak_sampleconst_scan.py over the
+        # 450-PAK library finds **9 PAKs** referencing 10 distinct names --
+        # Lust Rush, Sega Brawlers Megamix, Streets of Rage X2 Megamix,
+        # Kunio-Kun Renegade, Golden Axe Myth, Golden Axe Remake SE, Final
+        # Fight & Cadillacs 2, Art Of Fighting, Street Fighter Vs KOF.
+        # The scan also settled the two names inference would have got WRONG:
+        # it is SAMPLE_1UP (not SAMPLE_ONEUP) -> one_up, and SAMPLE_TIMEOVER
+        # (no underscore) -> time_over.
+        #
+        # All 15 struct members are registered, not just the 10 observed: the
+        # extra five cost nothing and cover a PAK outside this library.
+        #
+        # `global_sample_list` is ALREADY visible here -- scriptcommon.h:75
+        # declares it extern and constants.c includes that header -- so this
+        # needs no new declaration, only the legacy-name aliases.
+        SAMPLE_MAP = [
+            ("SAMPLE_BEAT",     "beat"),
+            ("SAMPLE_BEEP",     "beep"),
+            ("SAMPLE_BEEP2",    "beep_2"),
+            ("SAMPLE_BIKE",     "bike"),
+            ("SAMPLE_BLOCK",    "block"),
+            ("SAMPLE_FALL",     "fall"),
+            ("SAMPLE_GET",      "get"),
+            ("SAMPLE_GET2",     "get_2"),
+            ("SAMPLE_GO",       "go"),
+            ("SAMPLE_INDIRECT", "indirect"),
+            ("SAMPLE_JUMP",     "jump"),
+            ("SAMPLE_1UP",      "one_up"),
+            ("SAMPLE_PAUSE",    "pause"),
+            ("SAMPLE_PUNCH",    "punch"),
+            ("SAMPLE_TIMEOVER", "time_over"),
+        ]
+        cdata = read(cpath)
+        inc_anchor = '#include "scriptcommon.h"'
+        if inc_anchor in cdata and "SAMPLE_BEEP2" not in cdata:
+            # 🛑 SAMPLE_1UP starts with a digit after the underscore, which is a
+            # legal C identifier, but the ALIAS must be an object-like macro --
+            # do not try to name a C variable SAMPLE_1UP.
+            aliases = "\n".join(
+                "#define %-16s (global_sample_list.%s)" % (n, m)
+                for n, m in SAMPLE_MAP)
+            cdata = cdata.replace(
+                inc_anchor,
+                inc_anchor
+                + "\n\n/* MiSTer: legacy SAMPLE_* script constants. v7533 moved these into"
+                  "\n * global_sample_list and stopped registering the names; 9 PAKs in the"
+                  "\n * 450-PAK library still ask for them and fail script compile without."
+                  "\n * Aliases only -- the sounds themselves are unchanged. */\n"
+                + aliases + "\n",
+                1)
+            reg_anchor = "        ICMPCONST(PLAYER_MAX_Z)"
+            if reg_anchor in cdata:
+                regs = "".join("\n        ICMPCONST(%s)" % n for n, _ in SAMPLE_MAP)
+                cdata = cdata.replace(reg_anchor, reg_anchor + regs, 1)
+                write(cpath, cdata)
+                print("  %d SAMPLE_* constants registered (fixes 9 PAKs incl. Lust Rush)."
+                      % len(SAMPLE_MAP))
+            else:
+                print("  WARN: SAMPLE_* registration anchor missing; skipped")
+        elif "SAMPLE_BEEP2" in cdata:
+            print("  SAMPLE_* already present; skipped")
+        else:
+            print("  WARN: constants.c include anchor not found; SAMPLE_* skipped")
+
+        # -- 9c. Register the Z-layer constants ------------------------
+        # Same class again, and the biggest one: FRONTPANEL_Z is asked for by
+        # **26 PAKs** -- more than any other missing constant in the library --
+        # and Lust Rush hits it the moment SAMPLE_BEEP2 is fixed:
+        #   Can't find openbor constant 'FRONTPANEL_Z'
+        #   Script compile error in 'data/scripts/dc_anaglyph/main.c'
+        #
+        # These need no alias at all: openbor.h:101-108 already defines the
+        # whole family as plain macros over PLAYER_MIN_Z / PLAYER_MAX_Z, so
+        # they are valid C expressions and ICMPCONST takes them directly --
+        # exactly the PLAYER_MIN_Z precedent above.
+        #
+        # The whole family is registered though only FRONTPANEL_Z is currently
+        # demanded: the others are the same drawing-layer vocabulary, cost
+        # nothing, and a PAK outside this library will want them.
+        Z_CONSTS = ["FRONTPANEL_Z", "HUD_Z", "HOLE_Z", "SHADOW_Z",
+                    "NEONPANEL_Z", "SCREENPANEL_Z", "PANEL_Z", "MIRROR_Z"]
+        cdata = read(cpath)
+        z_anchor = "        ICMPCONST(PLAYER_MAX_Z)"
+        if z_anchor in cdata and "ICMPCONST(FRONTPANEL_Z)" not in cdata:
+            zregs = "".join("\n        ICMPCONST(%s)" % n for n in Z_CONSTS)
+            cdata = cdata.replace(z_anchor, z_anchor + zregs, 1)
+            write(cpath, cdata)
+            print("  %d Z-layer constants registered (FRONTPANEL_Z alone unblocks 26 PAKs)."
+                  % len(Z_CONSTS))
+        elif "ICMPCONST(FRONTPANEL_Z)" in cdata:
+            print("  Z-layer constants already present; skipped")
+        else:
+            print("  WARN: Z-layer anchor missing; skipped")
     else:
         print("  WARN: constants.c not found at expected path")
 
