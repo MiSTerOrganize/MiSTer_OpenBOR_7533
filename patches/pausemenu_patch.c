@@ -573,6 +573,34 @@ void pausemenu()
          * and injects these same fields earlier in inputrefresh -- is untouched
          * and byte-identical. */
         newkeys = (int)playercontrolpointers[controlp]->newkeyflags;
+
+        /* TEMPORARY DIAG -- REVERT AFTER MEASURED (2026-08-17).
+         *
+         * Question: when A is pressed on "Back", does the confirm fire ONCE or
+         * repeatedly? The report says A freezes while X on the identical two
+         * lines does not, and that the loop is still alive (d-pad still works),
+         * which points at the A edge re-firing.
+         *
+         * BOUNDED, deliberately: this loop runs >400 iterations/sec, and an
+         * unbounded per-iteration printf to the SD card is what once made the
+         * whole core unplayable. Logs only when a key is down or the menu state
+         * actually changed, and stops after 200 lines -- enough to cover a few
+         * button presses and nothing more. */
+        {
+            static int _dg_n = 0;
+            static int _dg_last = -1;
+            int _dg_state = (in_options ? 1 : 0) | (in_recording ? 2 : 0)
+                          | (in_quitconfirm ? 4 : 0) | (pauselector << 3)
+                          | (option_selector << 6) | (rec_selector << 9);
+            if (_dg_n < 200 && (newkeys != 0 || _dg_state != _dg_last))
+            {
+                printf("[PMDIAG] n=%d keys=0x%x opt=%d rec=%d qc=%d sel=%d osel=%d rsel=%d\n",
+                       _dg_n, (unsigned int)newkeys, in_options, in_recording,
+                       in_quitconfirm, pauselector, option_selector, rec_selector);
+                _dg_n++;
+                _dg_last = _dg_state;
+            }
+        }
         {   /* lrkeys = a fresh press, OR a held direction that has passed
              * the delay and landed on a repeat frame. Only left/right
              * repeat: up/down through a 4-item list does not need it, and
