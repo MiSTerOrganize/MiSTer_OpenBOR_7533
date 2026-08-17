@@ -120,6 +120,7 @@ void pausemenu()
     int quit = 0;
     int controlp = 0, i;
     int newkeys;
+    int _mister_saved_pauseoffset[7];   /* cart's own pauseoffset, restored on exit */
     /* Hold-to-repeat for left/right (slot row, volume rows), so crossing 8
      * slots or a volume gauge does not need a tap per step.
      *
@@ -155,6 +156,48 @@ void pausemenu()
     extern void NativeVideoWriter_SetOverlay(const void *pixels);
     extern void NativeVideoWriter_CaptureDisplay(void *dst);
     extern void NativeVideoWriter_GetDisplaySize(int *w, int *h);
+
+    /* MiSTer 2026-08-17 (user-reported: Lust Rush's pause menu is audible but
+     * invisible -- it opens, navigates and ACTS on a confirm, blind).
+     *
+     * Cause is cart authoring, stated outright by the author. levels.TXT:
+     *     pauseoffset  0 0 999 999 0 999 999   ### HIDE TEXT
+     * pauseoffset is {font0, font1, xpos, ypos, font_pause, xpos_pause,
+     * ypos_pause}, so every coordinate is pushed off-screen and the engine
+     * dutifully draws the menu where nobody can see it.
+     *
+     * On PC that costs nothing -- OpenBOR's pause menu is a convenience there.
+     * On MiSTer it is the ONLY route to Recording, Stop Recording, Reset and
+     * Quit, so an invisible-but-live menu is worse than no menu at all: a stray
+     * press skips a scene or resets to the title with no way to see what is
+     * selected. Same port-specific consequence the cart author never had in
+     * view, and the same remedy as the step 12 loading-bar clamp -- ENGINE-SIDE
+     * INTERPRETATION, the PAK on disk is untouched.
+     *
+     * Unlike the loading bar, this needs no guesswork about the cart's
+     * intentions: off-screen pause text is unusable in every case, and the cart
+     * cannot substitute its own display because it does not know about our
+     * Recording items. Carts that leave the engine defaults {0,1,0,0,3,0,0}
+     * (ATOV, TMNT-RP) are on-screen already and are not touched.
+     *
+     * Saved and restored around the menu so the cart's own value survives. */
+    {
+        int _po_i;
+        for(_po_i = 0; _po_i < 7; _po_i++) _mister_saved_pauseoffset[_po_i] = pauseoffset[_po_i];
+        /* [2],[3] = item x,y   [5],[6] = title x,y */
+        if(pauseoffset[2] < 0 || pauseoffset[2] >= videomodes.hRes ||
+           pauseoffset[3] < 0 || pauseoffset[3] >= videomodes.vRes)
+        {
+            pauseoffset[2] = 0;
+            pauseoffset[3] = 0;
+        }
+        if(pauseoffset[5] < 0 || pauseoffset[5] >= videomodes.hRes ||
+           pauseoffset[6] < 0 || pauseoffset[6] >= videomodes.vRes)
+        {
+            pauseoffset[5] = 0;
+            pauseoffset[6] = 0;
+        }
+    }
     /* Notice() had the same problem and has had it since the recorder landed:
      * its only declaration is in that same too-late prelude, so every call
      * below resolved implicitly. It happened to work -- const char* + int
@@ -189,6 +232,13 @@ void pausemenu()
     if(!pausebuffer)
     {
         printf("[PAUSE] out of memory for the pause buffer -- not opening the menu\n");
+        /* This return is BEFORE the normal restore at the end, so put the
+         * cart's pauseoffset back here too -- otherwise a failed allocation
+         * leaves our clamped value in a cart-owned global permanently. */
+        {
+            int _po_i;
+            for(_po_i = 0; _po_i < 7; _po_i++) pauseoffset[_po_i] = _mister_saved_pauseoffset[_po_i];
+        }
         return;
     }
 
@@ -1067,6 +1117,14 @@ void pausemenu()
     {
         free(menubg);
         menubg = NULL;
+    }
+
+    /* Hand the cart's own pauseoffset back, clamped or not. Nothing else reads
+     * it today, but leaving a value we invented in a cart-owned global is the
+     * kind of thing that surfaces as a mystery two features later. */
+    {
+        int _po_i;
+        for(_po_i = 0; _po_i < 7; _po_i++) pauseoffset[_po_i] = _mister_saved_pauseoffset[_po_i];
     }
 
     spriteq_unlock();
