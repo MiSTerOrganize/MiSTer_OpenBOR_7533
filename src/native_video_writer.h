@@ -51,6 +51,17 @@ void NativeVideoWriter_Notice(const char* msg, int seconds);
  * because which copy path runs depends on the PAK's native resolution. */
 int NativeVideoWriter_NoticeRows(void);
 
+/* Loading read-out. Call from the engine's update_loading() with its real
+ * (pos, max); the read-out paints "LOADING nn%" bottom-left in DISPLAY space and
+ * expires on a wall-clock deadline ~700 ms after the last call, so there is no
+ * "loading finished" call to remember and no way to leave it stuck on screen.
+ *
+ * Deliberately independent of the cart's `loadingbg`: measured across the
+ * library, that config cannot distinguish a PAK that shows no progress from one
+ * drawing its own bar in script, so any fix based on it helps one PAK by
+ * double-barring another. */
+void NativeVideoWriter_SetLoadingProgress(int pos, int max);
+
 /* Forget which buffers already hold the notice band, so a live notice is
  * painted into them again. Call after anything wipes a frame buffer -- the band
  * is written once and then protected by the row skip above, so a wipe we are

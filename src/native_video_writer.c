@@ -271,7 +271,7 @@ static const uint8_t nv_font_az[26][7] = {
 };
 
 /* Only the punctuation the messages use. */
-static const uint8_t nv_font_punct[7][7] = {
+static const uint8_t nv_font_punct[8][7] = {
     {0x00,0x00,0x00,0x0E,0x00,0x00,0x00}, /* - */
     {0x00,0x00,0x00,0x00,0x00,0x0C,0x0C}, /* . */
     {0x00,0x0C,0x0C,0x00,0x0C,0x0C,0x00}, /* : */
@@ -279,6 +279,13 @@ static const uint8_t nv_font_punct[7][7] = {
     {0x04,0x04,0x04,0x04,0x04,0x00,0x04}, /* ! */
     {0x02,0x04,0x08,0x08,0x08,0x04,0x02}, /* ( */
     {0x08,0x04,0x02,0x02,0x02,0x04,0x08}, /* ) */
+    /* '%' added 2026-08-17 for the loading read-out. This font is OURS, so the
+     * charset is whatever we give it -- but note the rule that a character with
+     * no glyph renders as a BLANK here (not a box), which is how "this take's"
+     * once shipped as "THIS TAKE S". Anything added must also be picked up by
+     * notice_wrap_check.py, which derives the set from nv_glyph_rows() rather
+     * than from a hardcoded list, so it tracks this automatically. */
+    {0x19,0x1A,0x02,0x04,0x08,0x0B,0x13}, /* % */
 };
 
 /* NULL for space and anything unmapped: an unknown character renders as a
@@ -295,6 +302,7 @@ static const uint8_t* nv_glyph_rows(char c) {
         case '!': return nv_font_punct[4];
         case '(': return nv_font_punct[5];
         case ')': return nv_font_punct[6];
+        case '%': return nv_font_punct[7];
         default:  return NULL;
     }
 }
@@ -681,6 +689,74 @@ static void nv_paint_notice_band(volatile uint16_t* dst, int rows) {
     }
 }
 
+/* ---------------------------------------------------------------- loading %
+ *
+ * A MiSTer-side loading read-out, driven by the engine's real
+ * update_loading(pos, max) progress and painted here in DISPLAY space.
+ *
+ * WHY NOT USE THE CART'S BAR: measured across the 450-PAK library, a cart's
+ * `loadingbg` cannot tell us what we need. Ultimate Double Dragon, Avengers and
+ * PDC2 all declare the SAME thing (set=1, background only, bar coords
+ * off-screen) yet one shows nothing while the other two draw their own bar from
+ * script -- which the engine cannot see. An earlier attempt to rescue the bar by
+ * clamping its coordinates therefore fixed UDD and gave Avengers/PDC2 a SECOND
+ * bar. Reading cart config is a dead end; this ignores it entirely and is
+ * identical on every PAK.
+ *
+ * Deliberately NOT bar-shaped: a bar reads as a duplicate of the game's own on
+ * the PAKs that have one. A percentage reads as a system indicator, like the fps
+ * digits, and tells you how far in you are -- which is what matters on a 69 s
+ * Justice League load.
+ *
+ * Expiry is a WALL-CLOCK deadline refreshed on every progress call, so the
+ * read-out disappears on its own shortly after loading stops. That avoids having
+ * to find and hook every exit from every loading path -- a missed one would
+ * leave the text burned on screen for the rest of the session. */
+#define NV_LOAD_HOLD_MS 700u
+
+static volatile int      nv_load_pct      = 0;
+static volatile uint32_t nv_load_until_ms = 0;
+
+void NativeVideoWriter_SetLoadingProgress(int pos, int max) {
+    int pct;
+    if (max <= 0 || pos < 0) {          /* update_loading(-1, 1) = init */
+        pct = 0;
+    } else {
+        pct = (int)(((long)pos * 100L) / (long)max);
+        if (pct < 0)   pct = 0;
+        if (pct > 100) pct = 100;
+    }
+    nv_load_pct      = pct;
+    nv_load_until_ms = nv_now_ms() + NV_LOAD_HOLD_MS;
+}
+
+/* Bottom-LEFT: clear of the notice band (top, full width) and of the fps digits
+ * (bottom-right), so all three can be live without overlapping. */
+static void nv_draw_loading(volatile uint16_t* dst) {
+    char buf[16];
+    int  n = 0, v = nv_load_pct, i;
+    const char* prefix = "LOADING ";
+    int y = NV_FRAME_HEIGHT - NV_FPS_MARGIN - 7;   /* 1x glyphs are 7 rows */
+
+    for (i = 0; prefix[i] && n < (int)sizeof(buf) - 5; i++) buf[n++] = prefix[i];
+    if (v >= 100) { buf[n++] = '1'; buf[n++] = '0'; buf[n++] = '0'; }
+    else if (v >= 10) { buf[n++] = (char)('0' + v / 10); buf[n++] = (char)('0' + v % 10); }
+    else { buf[n++] = (char)('0' + v); }
+    buf[n++] = '%';
+    buf[n]   = '\0';
+
+    /* Shadow then text, exactly as the notice band and fps do -- the loading
+     * background is cart art and can be any colour, so the offset black copy is
+     * what keeps this legible rather than a backing panel. */
+    for (int pass = 0; pass < 2; pass++) {
+        uint16_t c   = (pass == 0) ? 0x0000 : 0xFFFF;
+        int      off = (pass == 0) ? 1 : 0;
+        for (i = 0; i < n; i++)
+            nv_blit_rows1x(dst, NV_FPS_MARGIN + i * 6 + off, y + off,
+                           nv_glyph_rows(buf[i]), c);
+    }
+}
+
 /* Which of the two frame buffers `dst` is, or -1 if it is neither.
  *
  * Derived from the POINTER rather than taken from the caller on purpose. The
@@ -877,6 +953,16 @@ void NativeVideoWriter_DrawOverlaysAt(volatile uint16_t* dst, int buf_index) {
             else        nv_fps_bak_valid[fb] = 0;
         }
         if (fps_on) nv_draw_fps(dst);
+    }
+
+    /* The loading read-out, while its deadline is live. No save/restore rect
+     * like the fps digits need: those exist so the pause menu's CaptureDisplay
+     * does not freeze the fps number into its backdrop, and the pause menu
+     * cannot be open during a load. Drawn every frame rather than once per
+     * buffer because the number changes -- same as the fps digits, and unlike
+     * the notice band, which is static precisely because its text does not. */
+    if ((int32_t)(nv_load_until_ms - nv_now_ms()) > 0) {
+        nv_draw_loading(dst);
     }
 
     /* The notice, once per buffer. Bottom-right fps first so a notice is never

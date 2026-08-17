@@ -5092,6 +5092,42 @@ extern int mrec_isolate;
                         'step 12: clamp off-screen / zero-size loading bar to on-screen default')
     print("  update_loading(): off-screen/zero-size bar clamps to visible default")
 
+    # -- Step 12c (2026-08-17): MiSTer loading read-out.
+    #
+    # Feed the engine's real progress to the display-space overlay, which
+    # paints "LOADING nn%" bottom-left. Independent of the cart's loadingbg:
+    # measured across 450 PAKs, that config cannot tell a PAK showing no
+    # progress (Ultimate Double Dragon) from one drawing its own bar in
+    # script (Avengers, PDC2) -- all three declare set=1 with off-screen bar
+    # coords -- so the earlier clamp fixed one and double-barred the others.
+    #
+    # Hooked at the TOP of update_loading, before its early-outs, so the
+    # percentage tracks even on a frame the engine decides not to redraw.
+    # Anchored on the LAST declaration in the function, not on the opening
+    # brace. Two reasons, both of which would have failed the ship build:
+    #   - openbor.c does not include native_video_writer.h (only sdl/control.c
+    #     does), so the call needs its own extern or it is an implicit
+    #     declaration -- illegal C99, and the ship Makefile builds with -Werror.
+    #     The headless script seds -Werror away; the ship script does NOT.
+    #   - inserting the CALL before these declarations is a statement before a
+    #     declaration, which -Werror=declaration-after-statement rejects.
+    loadpct_old = (
+        "    unsigned int ticks = timer_gettick();\n")
+    loadpct_new = (
+        "    unsigned int ticks = timer_gettick();\n"
+        "    /* MiSTer 2026-08-17: publish real load progress to the display\n"
+        "     * overlay. A read-out, not a bar: on the PAKs that already draw\n"
+        "     * their own bar a second bar looks like a duplicate, whereas a\n"
+        "     * percentage reads as a system indicator and says how far in you\n"
+        "     * are. Expires on a wall-clock deadline in the writer, so there\n"
+        "     * is no end-of-load call to remember. */\n"
+        "    extern void NativeVideoWriter_SetLoadingProgress(int pos, int max);\n"
+        "    NativeVideoWriter_SetLoadingProgress(value, max);\n")
+    ob = strict_replace(ob, loadpct_old, loadpct_new,
+                        'step 12c: publish loading progress to the display overlay')
+    print("  update_loading(): publishes LOADING nn%% to the display overlay")
+
+
     # -- Step 14 (2026-05-26): B+E entity-collision optimization.
     #
     # Profile evidence from 7 PAKs (Avengers, He-Man, JL Legacy, TMNT-RP, PDC2,
