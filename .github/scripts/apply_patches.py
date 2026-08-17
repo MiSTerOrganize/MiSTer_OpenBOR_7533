@@ -3137,6 +3137,15 @@ extern int mrec_isolate;
         "                    * Play both exit() and respawn, so a slot chosen in the menu would\n"
         "                    * otherwise be forgotten before the take is written. */\n"
         "#define MREC_SLOTS 8\n"
+        # MiSTer 2026-08-17: while OUR pause menu is open the cart's scripts must
+        # not see the menu's presses. Measured on Lust Rush, whose scripts poll
+        # jump x38 and special x47 -- our confirm and our back -- so one press both
+        # moved the menu AND advanced the game. Stock avoided this by confirming on
+        # START alone; that is not sufficient either (start x3, `anybutton` x2).
+        # mister_pausekeys carries the presses to the menu; the raw fields are then
+        # zeroed so the scripts read nothing.
+        "volatile int mister_pausemenu_open = 0;\n"
+        "u64 mister_pausekeys[4] = {0, 0, 0, 0};\n"
         "volatile int mrec_slot_pub_fresh = 0; /* Set when the pause menu publishes its slot to the OSD;\n"
         "                    * consumed by the ONE swap-thread poll that follows.\n"
         "                    * NOT optional bookkeeping -- it closes a real race. The reader\n"
@@ -4596,6 +4605,25 @@ extern int mrec_isolate;
             "                  playercontrolpointers[_mr_p]->newkeyflags=_mr_fr[5+_mr_p]; }\n"
             "                _mr_pos++;\n"
             "            }\n"
+            "        }\n"
+            "    }\n"
+            "    /* MiSTer 2026-08-17: hide the raw keys from the cart's scripts\n"
+            "     * while OUR pause menu is open. Placed HERE deliberately, AFTER the\n"
+            "     * recorder block above has captured (or injected) this frame, so\n"
+            "     * recording and replay see exactly what they always saw and no\n"
+            "     * existing take is affected. The menu reads mister_pausekeys.\n"
+            "     *\n"
+            "     * Zeroing BEFORE the recorder would record blanks and break menu\n"
+            "     * replay -- the very thing removing the pause gate fixed. The\n"
+            "     * ordering IS the correctness argument here. */\n"
+            "    if(mister_pausemenu_open)\n"
+            "    {\n"
+            "        int _pk;\n"
+            "        for(_pk = 0; _pk < MAX_PLAYERS && _pk < 4; _pk++)\n"
+            "        {\n"
+            "            mister_pausekeys[_pk] = playercontrolpointers[_pk]->newkeyflags;\n"
+            "            playercontrolpointers[_pk]->keyflags = 0;\n"
+            "            playercontrolpointers[_pk]->newkeyflags = 0;\n"
             "        }\n"
             "    }")
         ob = strict_replace(ob, rec_arm_anchor, rec_arm_new,

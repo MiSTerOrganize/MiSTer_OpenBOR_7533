@@ -357,6 +357,15 @@ void pausemenu()
      * so anyone who "restored" the guard on the strength of the old sentence
      * would break both. */
 
+    /* From here until the loop ends, inputrefresh() diverts the raw keys into
+     * mister_pausekeys and zeroes the real fields, so the cart's scripts see
+     * nothing while our menu is up. Set AFTER the early return above, so a
+     * failed allocation cannot leave it stuck on. */
+    {
+        extern volatile int mister_pausemenu_open;
+        mister_pausemenu_open = 1;
+    }
+
     while(!quit)
     {
         int recmode = mrec_mode;   /* 0=idle, 1=recording, 2=playing */
@@ -550,7 +559,15 @@ void pausemenu()
 
         update(1, 0);
 
-        newkeys = player[controlp].newkeys;
+        /* Read the presses inputrefresh() set aside for us. player[].newkeys is
+         * deliberately zero while the menu is open -- that is what stops the
+         * cart's scripts acting on the same press (Lust Rush polls jump x38 and
+         * special x47). The recorder is unaffected: it captured this frame
+         * BEFORE the diversion. */
+        {
+            extern u64 mister_pausekeys[4];
+            newkeys = (int)mister_pausekeys[controlp];
+        }
         {   /* lrkeys = a fresh press, OR a held direction that has passed
              * the delay and landed on a repeat frame. Only left/right
              * repeat: up/down through a 4-item list does not need it, and
@@ -1132,6 +1149,15 @@ void pausemenu()
     {
         free(menubg);
         menubg = NULL;
+    }
+
+    /* Stop diverting the keys BEFORE anything else runs -- from here on the
+     * cart's scripts must see input normally again. The exit(0) paths (Reset,
+     * Quit) never reach this, but the process is gone in those cases so the
+     * flag dies with it. */
+    {
+        extern volatile int mister_pausemenu_open;
+        mister_pausemenu_open = 0;
     }
 
     /* Hand the cart's own pauseoffset back, clamped or not. Nothing else reads
