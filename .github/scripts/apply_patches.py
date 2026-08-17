@@ -2756,6 +2756,36 @@ extern int mrec_isolate;
             print("  Z-layer constants already present; skipped")
         else:
             print("  WARN: Z-layer anchor missing; skipped")
+
+        # -- 9d. ATK_ATTACK<n> as an alias family for ATK_NORMAL<n> ----
+        # v7533 names the user attack types ATK_NORMAL1..10 and registers the
+        # family with the prefix macro ICMPSCONSTC(ATK_NORMAL). Some PAKs use
+        # the older spelling ATK_ATTACK<n>, e.g. Bare Knuckle VACUUM:
+        #   changeentityproperty(self,"defense",openborconstant("ATK_ATTACK1"),1,1,1);
+        # `defense` is indexed BY attack type and ATK_NORMAL1 is attack type 1,
+        # so the two spellings denote the same thing.
+        #
+        # One line, because "ATK_ATTACK" and "ATK_NORMAL" are both 10 chars --
+        # ICMPSCONSTC keys off sizeof(#x)-1, so the offset arithmetic that
+        # yields (atoi(name+10) + STA_ATKS - 1) is identical for both.
+        #
+        # SCOPE, corrected: this is 3 PAKs for ATK_ATTACK4 and 5 for
+        # ATK_ATTACK1 -- NOT the 19 a first scan reported. That count included
+        # COMMENTED-OUT lines; Avengers and Sega Brawlers only mention
+        # ATK_ATTACK4 inside `//damageentity(...)` while using live ATK_NORMAL<n>
+        # 58 and 51 times. pak_missingconst_scan.py now strips comments.
+        cdata = read(cpath)
+        atk_anchor = "        ICMPSCONSTC(ATK_NORMAL)"
+        if atk_anchor in cdata and "ICMPSCONSTC(ATK_ATTACK)" not in cdata:
+            cdata = cdata.replace(
+                atk_anchor,
+                atk_anchor + "\n        ICMPSCONSTC(ATK_ATTACK)", 1)
+            write(cpath, cdata)
+            print("  ATK_ATTACK<n> aliased to ATK_NORMAL<n> (live use in 5 PAKs).")
+        elif "ICMPSCONSTC(ATK_ATTACK)" in cdata:
+            print("  ATK_ATTACK family already present; skipped")
+        else:
+            print("  WARN: ATK_NORMAL prefix anchor missing; skipped")
     else:
         print("  WARN: constants.c not found at expected path")
 

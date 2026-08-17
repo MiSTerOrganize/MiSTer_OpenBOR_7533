@@ -26,6 +26,22 @@ HEAD = struct.Struct("<III")
 CALL_RE = re.compile(rb"""openborconstant\s*\(\s*['"]\s*([A-Za-z_][A-Za-z0-9_]*)\s*['"]""")
 TEXT_EXT = (".c", ".txt", ".h")
 
+# Strip C comments BEFORE matching.
+#
+# Without this the scan is badly wrong in the direction that matters: it counts
+# DEAD CODE as a dependency. Measured -- Avengers United Battle Force and Sega
+# Brawlers Megamix "ask for" ATK_ATTACK4 only in lines like
+#     //damageentity(vself, NULL(), 10, 0, openborconstant("ATK_ATTACK4"));
+# while using the live ATK_NORMAL<n> 58 and 51 times respectively. Avengers is a
+# known-WORKING PAK. Counting those made ATK_ATTACK4 look like it blocked 19
+# PAKs when most were never blocked at all.
+BLOCK_COMMENT = re.compile(rb"/\*.*?\*/", re.S)
+LINE_COMMENT = re.compile(rb"//[^\r\n]*")
+
+
+def strip_comments(blob):
+    return LINE_COMMENT.sub(b"", BLOCK_COMMENT.sub(b"", blob))
+
 REG_RE = re.compile(r"\bI?ICMPCONST\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")
 PREFIX_RE = re.compile(r"\bICMPSCONST[ABC]\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)")
 
@@ -81,7 +97,7 @@ def main():
             with open(p, "rb") as f:
                 for _n, off, size in members:
                     f.seek(off)
-                    for m in CALL_RE.findall(f.read(size)):
+                    for m in CALL_RE.findall(strip_comments(f.read(size))):
                         asked.setdefault(m.decode("latin-1").upper(), set()).add(nm)
         except Exception as e:
             errors += 1
