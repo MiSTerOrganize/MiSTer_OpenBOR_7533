@@ -2100,14 +2100,14 @@ items, two of them already closed, and omitted most of the real ones.
 
 | # | item | where |
 |---|---|---|
-| 8 | **The overdraw census RE-RUN.** ⚠️ **INSTRUMENT FIXED 2026-08-16, COLLECTION BLOCKED.** Branch `tierb-census-rerun` carries the corrected build (ARM binary verified to contain `TBBSLOW`/`TB0`; `main` untouched — the diag markers make CI skip the commit-back). **T1 fixed**: the histogram now runs on the slow path too, on a separate `[TBBSLOW]` line so the split stays visible and the 2026-07-29 baseline stays comparable. **T5 fixed**: arrays, accumulate cast, printf formats **and the TOTALS** widened to 64-bit — `_tp` sums all eight counters so it overflows first, and it divides every percentage. 🛑 **A THIRD defect found**: the report gate was **wall-clock only** (5 real seconds of gameplay), which makes a census machine-speed dependent; now `5s OR 600 frames`. 🛑 **BLOCKER, precisely located:** the gate sits in `update(int ingame, int usevwait)` under `if(ingame == 1 && !_pause)` — and **`ingame` is a PARAMETER, not a global**. The headless harness reports *"entered level at frame 551"* from its OWN marker and still emits no census line, so it is evidently never calling `update(1, ...)`. **One `printf` on `ingame` settles it** — do that before anything else | 14.5, branch `tierb-census-rerun` |
+| 8 | **The overdraw census RE-RUN.** ⚠️ **INSTRUMENT FIXED AND PROVEN ON DEVICE; the LIBRARY-WIDE run is still open.** Branch `tierb-census-rerun`. **T1 fixed** — the slow path is now counted, on a separate `[TBBSLOW]` line so the split stays visible; on He-Man it carried **25% of histogram-counted blits and 5.6% of pixels**, previously recorded as zero. **T5 fixed** — arrays, accumulate cast, printf formats **and the totals** widened to 64-bit (`_tp` sums all eight, so it overflows first and divides every percentage). 🛑 **A THIRD defect found while verifying:** the report gate was **wall-clock only**, which makes a census machine-speed dependent; now `5s OR 600 frames`. **Proven end to end on hardware** — a recorded take drove He-Man into gameplay and the census fired twice with sane numbers. 🛑 **Still blocked for the 450-PAK run:** the gate lives in `update(int ingame, int usevwait)` under `if(ingame == 1 && !_pause)` and **`ingame` is a PARAMETER**; the headless harness reports *"entered level"* from its own marker yet emits nothing, so it is evidently never calling `update(1, ...)`. **One `printf` on `ingame` settles it** — do that first | 14.5, branch `tierb-census-rerun` |
 | 9 | **M11's DDR3 consumer enumeration.** ✅ **CLOSED 2026-08-16 — `docs/dev/tierb_ddr3_consumer_map.md` §5.** The SPLIT was settled 2026-08-15 from the kernel cmdline (`mem=511M memmap=513M$511M`): 513 MB withheld at `0x1FF00000–0x3FFFFFFF`. **Both remaining extents are now measured from source:** **(1) `ascal` = 24 MB, `0x2000_0000–0x217F_FFFF`** (`RAMSIZE` 8 MB x 3 buffers) and 🛑 **resolution-INDEPENDENT** — `avl_wadrs <= i_wadrs AND (RAMSIZE-1)` (`ascal.vhd:1689`) masks writes into the buffer, so "measure it per output mode" was the wrong question; **(2) the core window = 896 KB, `0x3A00_0000–0x3A0D_FFFF`**, terminated by an **audio ring** (64 KB, hard-masked) that the original consumer table had **omitted entirely** — the tail was never unbounded, it was unlisted. 🛑 **What IS unbounded is a different thing:** the RTL cart writer (`openbor_video_reader.sv:470`) has no length check and no `ioctl_index` gate. It is **dormant** — `CONF_STR` declares only `SC0,PAK` (a mounted image), no F-entry, so `ioctl_download` never asserts for content — but it disqualifies the 95 MB above the window as an arena site. **Arena region: `0x2180_0000–0x39FF_FFFF`, 392 MB**, bounded both sides by synthesis-time constants. **Finding (a) — runtime `LFB_BASE` — is NOT part of this item and stays open as a Phase 2 design obligation** | 6, 9.14, **ddr3_consumer_map §5** |
 | 10 | **Arena write cost** -- population is one-time per PAK load, but into strongly-ordered memory | 9.9.4 |
 | 11 | **Uncached-write rasterise cost** for the fallback scratch | 9.14 M17 |
 | 12 | **M4 whole-frame-fallback frequency** -- if water/tint PAKs are common they lose the offload entirely. 🛑 **Partly answerable from data already in the repo, and the answer is not reassuring:** `pak_blendscan` gives **67 / 450 PAKs declaring `tint`** (1 declares `channel`), and He-Man's runtime line is `tint = 2734` of 12,779 blits = **21.4%**. 9.5's "the tint population must be measured, not assumed rare" is settled -- it is not rare | 9.14 M4, 9.5 |
 | 13 | **`~10 distinct palettes per band`** is asserted, not measured, and is the sole input to 9.4's bandwidth | 9.4 |
-| 14 | 🛑 **RE-OPENED (round 5's "E-3").** The 2.36x headless-vs-device overdraw ratio does not follow from "96.5% headless vs 71.2% device" — those are by-count vs by-time, device by-count is 65.8% — and it is **not additive** with the bandwidth correction. If He-Man's real port load is **144.9** rather than 122.57, He-Man needs **8-beat** reads, not 4. ⚠️ **DEVICE RUN ATTEMPTED 2026-08-16, NOT OBTAINED.** The corrected diag binary deployed and ran, the virtual pad worked (`grabbed by: MiSTer`, 99.5 fps observed), but He-Man **never left its title screen**: 🛑 **START is Pause on OpenBOR**, so repeated pulses navigate the pause menu and eventually select Reset — the injector caught exactly that (`frame counter went BACKWARDS 19448 -> 11`). Blind START pulsing cannot drive this PAK into a level. **What this needs: a He-Man `.inp` recording** (title-anchored, drives the menus itself — the documented debug use) or a hand-driven session | 14.4.5, 14.5 |
-| 15 | **Sprite arena exhaustion headroom.** Observed working set 44.9 MB on He-Man on device (46,001 KB; the committed headless scan says 34,323 KB) and 150.5 MB at the library max; **Lust Rush is 3.12x He-Man's pixel area and still has no measurement.** ⚠️ **2026-08-16: still none, and now we know WHY it never had one** — Lust Rush is `exit 1 / NO_TBB_LINE` in the headless runtime scan, i.e. it **fails headless**, so only a device run can measure it. It is on the card (395 MB, the largest PAK). The number wanted is `[TB0] sprite working set=<KB>`, which the corrected diag build emits — same blocker as item 14: something has to drive it into gameplay | 9.9.3, 14.4.4 |
+| 14 | **The 2.36x headless-vs-device overdraw ratio.** ✅ **CLOSED 2026-08-16 — MEASURED ON DEVICE, and the objection was RIGHT.** Round 5 said the 2.36x does not follow from "96.5% headless vs 71.2% device" because those are by-count vs by-time. Confirmed: a device run under the corrected instrumentation, driven by a recorded take (13,864 frames of real gameplay), gives **by-COUNT 65.4%** (`fast=157670 slow=83250`) and **by-TIME 71.0%** (`fast=84079ms slow=34285ms`) — reproducing the register's 65.8% / 71.2% within run variance. **The like-for-like comparison is 96.5% headless vs 65.4% device = 1.48x, NOT 2.36x.** 🛑 The 8-beat question therefore does **not** follow from this ratio, and any He-Man verdict that stacked 2.36x on top of the bandwidth correction was double-counting. 🛑 **NEW, and it constrains the blend unit:** the slow path is **100% HARDLIGHT** (`[TBBSLOW] s4=525/24536K` — every slow blit is alpha=4). Tier-B cannot offload HARDLIGHT without first establishing what forces those blits to the CPU | 14.4.5, 14.5 |
+| 15 | **Sprite arena exhaustion headroom.** ⚠️ **HALF-CLOSED 2026-08-16.** **He-Man: CONFIRMED ON DEVICE** — `[TB0] sprite working set=46001 KB (2899 sprites)`, reproducing the recorded 46,001 KB **to the kilobyte** and confirming the committed headless scan's 34,323 KB is the under-measurement (a headless run samples less content). **Lust Rush: still unmeasured, but no longer BLOCKED** — it failed for a reason now fixed: it shut down at load on `Can't find openbor constant 'SAMPLE_BEEP2'`, then `FRONTPANEL_Z`. With both registered (branch `fix-script-constants`) it reaches `Loading scripts... Done!` and runs to a clean exit. It needs a recorded take to drive it, like He-Man did. 150.5 MB library max still stands as the sizing input | 9.9.3, 14.4.4 |
 
 **Assertions to add to the code:**
 
@@ -2344,6 +2344,46 @@ term scales with overdraw; the background and output terms do not), Quack Ninja 
 ceiling" is computed from T1/T5/N15-affected inputs. It is **unsupported until the census
 is re-run with the slow path included and the counters widened** -- that re-run is a
 prerequisite for Phase 2, not a nice-to-have.
+
+### 14.6 PAK script-API compatibility (found while chasing item 15)
+
+Item 15's Lust Rush measurement was blocked by something unrelated to Tier-B, and chasing it
+turned up a whole class worth recording.
+
+**v7533 dropped script constants that PAKs still reference.** A PAK that names one fails to
+compile its scripts and the engine shuts down -- from the user's side, a black screen.
+`tools/harness/pak_missingconst_scan.py` diffs what the 450-PAK library asks for against what
+`constants.c` registers: **18 constants are missing**.
+
+| constant | live PAKs | fixed on `fix-script-constants` |
+|---|---:|---|
+| `FRONTPANEL_Z` (+ the Z-layer family) | **26** | yes -- already plain macros in `openbor.h:101-108`, so `ICMPCONST` takes them directly |
+| `SAMPLE_*` (15 registered) | **9** | yes -- v7533 moved the sounds into `global_sample_list` and stopped registering the names |
+| `ATK_ATTACK<n>` | 5 | yes -- one line; `"ATK_ATTACK"` and `"ATK_NORMAL"` are both 10 chars, so `ICMPSCONSTC` arithmetic is identical |
+| `ANI_FOLLOW`, `SPECIAL2`, `AIMOVE2_*`, `TYPE_PSHOT`, ... | 1-9 each | **not yet** -- a different sub-class, unverified |
+
+Measured before/after, headless, against the 2026-07-29 mass-scan baseline:
+
+```
+  Bare Knuckle VACUUM   exit 1 / NO_TBB_LINE  ->  exit 0, 0 constant errors
+  Lust Rush             exit 1 / NO_TBB_LINE  ->  exit 0, 0 constant errors
+  Sega Brawlers Megamix exit 0 (already fine) ->  exit 0, unchanged
+```
+
+🛑 **Two methodology notes, both learned the hard way here.**
+
+**Names must be read from the PAKs, not inferred.** The scan settled two that inference gets
+wrong: it is `SAMPLE_1UP` (not `SAMPLE_ONEUP`) and `SAMPLE_TIMEOVER` (no underscore).
+
+**A scan that counts commented-out code reports a fiction.** The first pass called
+`ATK_ATTACK4` a 19-PAK blocker. With comments stripped it is **3** -- Avengers United Battle
+Force and Sega Brawlers Megamix mention it only inside `//damageentity(...)` while using live
+`ATK_NORMAL<n>` 58 and 51 times, and Avengers is a *known-working* PAK, which is what made the
+number visibly wrong. The scanner now strips comments; `SAMPLE_*` (9) and `FRONTPANEL_Z` (26)
+were re-checked against the stricter scan and are unchanged.
+
+**Not shipped.** Every OpenBOR_7533 change owes the ATOV + TMNT-RP + modern-PAK hardware check
+first, and that rule exists because a harmless-looking change shipped a palette regression.
 
 ## 15. Success criteria
 
