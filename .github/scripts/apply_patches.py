@@ -56,6 +56,14 @@ def _strip_c_comments(_src):
     return "".join(_out)
 
 
+
+# === TEMPORARY DIAG: gameplay-baseline A/B (2026-08-17) ===
+# Disables ONLY the three patches that change entity BEHAVIOUR, to answer
+# one question about the TMNT-RP reports: are those bugs ours at all?
+# REVERT AFTER MEASURED. The DIAG markers make CI skip the binary
+# commit-back, so this can never ship.
+MISTER_GAMEPLAY_BASELINE = True
+
 def strict_replace(content, old, new, label, count=1):
     """Replace `old` with `new` in content; RAISE if `old` not found OR
     if found more than `count` times (default 1).
@@ -1439,8 +1447,9 @@ extern int mrec_isolate;
         "    }"
     )
     ob_k36 = read(ob_path_g)
-    ob_k36 = strict_replace(ob_k36, kent_entry_old, kent_entry_new,
-                             'Step 36+38: kill_entity entry validates victim + child pointers (parent, subentity)')
+    if not MISTER_GAMEPLAY_BASELINE:
+        ob_k36 = strict_replace(ob_k36, kent_entry_old, kent_entry_new,
+                                 'Step 36+38: kill_entity entry validates victim + child pointers (parent, subentity)')
     write(ob_path_g, ob_k36)
     print("  Step 36: kill_entity entry validates victim (catches recursive stale-pointer entry)")
     print("  Step 38: kill_entity entry also defends victim->parent + victim->subentity (TMNT-RP save-restore crash)")
@@ -2249,8 +2258,9 @@ extern int mrec_isolate;
         "\t\tif(self->toss_time <= _time)\n"
     )
     ob_s57 = read(ob_path_g)
-    ob_s57 = strict_replace(ob_s57, s57_old, s57_new,
-                             'Step 57: rolling at-rest fix outside airborne block')
+    if not MISTER_GAMEPLAY_BASELINE:
+        ob_s57 = strict_replace(ob_s57, s57_old, s57_new,
+                                 'Step 57: rolling at-rest fix outside airborne block')
     write(ob_path_g, ob_s57)
     print("  Step 57: unconditional rolling block at end of check_gravity (fires for at-rest barrels)")
 
@@ -5215,8 +5225,9 @@ extern int mrec_isolate;
         "    return;\n"
         "}"
     )
-    ob = strict_replace(ob, bp14_old, bp14_new,
-                        'Step 14: B+E entity-collision optimization (filter non-collidable + 256px rect cull)')
+    if not MISTER_GAMEPLAY_BASELINE:
+        ob = strict_replace(ob, bp14_old, bp14_new,
+                            'Step 14: B+E entity-collision optimization (filter non-collidable + 256px rect cull)')
     print("  Step 14: B+E entity-collision cull -- expected 5-10x speedup on arrange bucket")
 
     # -- Step 15 (2026-05-26): Path 1 reorder of normal_find_target() loop body.
