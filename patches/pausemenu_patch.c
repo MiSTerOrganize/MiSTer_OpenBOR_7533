@@ -197,6 +197,21 @@ void pausemenu()
             pauseoffset[5] = 0;
             pauseoffset[6] = 0;
         }
+        /* Second half of the same problem, user-reported once the text became
+         * visible: the menu marks the CURRENT row purely by drawing it in a
+         * different font -- pauseoffset[1] for the selected row, [0] for the
+         * rest. Lust Rush sets BOTH to 0, so every row looks identical and you
+         * cannot tell what you are about to confirm. Audible but unreadable,
+         * exactly like the off-screen coordinates above.
+         *
+         * Restore the engine default's distinction. Font 1 is `font2.gif` by
+         * OpenBOR's naming convention and Lust Rush ships one; a PAK that lacks
+         * it is no worse off than it is today, because the highlight is already
+         * invisible in that case. */
+        if(pauseoffset[0] == pauseoffset[1])
+        {
+            pauseoffset[1] = (pauseoffset[0] == 1) ? 0 : 1;
+        }
     }
     /* Notice() had the same problem and has had it since the recorder landed:
      * its only declaration is in that same too-late prelude, so every call
