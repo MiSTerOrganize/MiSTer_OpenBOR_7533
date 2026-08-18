@@ -42,11 +42,43 @@ USAGE
 import argparse
 import binascii
 import hashlib
+import io
+import os
+import re
 import struct
 import sys
 
 CONTAINER = 2
-ENGINE_VER = 1
+
+
+def _engine_ver():
+    """MREC_ENGINE_VER, read from the one place it is defined.
+
+    apply_patches.py owns the value; the emitted C and the shipped binary both
+    come from it. A copy of the number here would silently disagree the moment
+    it is bumped, and the failure mode is not obvious -- every synthetic take
+    is refused for a version mismatch BEFORE reaching whatever the test is
+    actually about, so the suite reports a failure that looks like the feature
+    under test is broken. Raise rather than default: a wrong version here
+    invalidates every take this module writes.
+    """
+    ap = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                      os.pardir, os.pardir, ".github", "scripts",
+                      "apply_patches.py")
+    ap = os.path.normpath(ap)
+    try:
+        src = io.open(ap, encoding="utf-8", errors="replace").read()
+    except OSError as e:
+        raise SystemExit("mrec_synth: cannot read %s (%s) -- MREC_ENGINE_VER "
+                         "must come from the engine, not a copy" % (ap, e))
+    m = re.search(r"#define\s+MREC_ENGINE_VER\s+(\d+)u", src)
+    if not m:
+        raise SystemExit("mrec_synth: MREC_ENGINE_VER not found in %s -- did "
+                         "the define move or change shape?" % ap)
+    return int(m.group(1))
+
+
+ENGINE_VER = _engine_ver()
 FRAME_WORDS = 9          # [0]=interval, [1..4]=keyflags, [5..8]=newkeyflags
 MAX_FRAMES = 2000000
 

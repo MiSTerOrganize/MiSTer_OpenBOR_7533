@@ -2653,6 +2653,139 @@ extern int mrec_isolate;
             print("  PLAYER_MIN_Z/MAX_Z registered as openborconstant.")
         else:
             print("  WARN: constants.c anchor not found; PAK script-API workaround skipped")
+
+        # -- 9b. Register the SAMPLE_* sound constants ------------------
+        # v7533 restructured the hard-coded sounds into
+        # `s_global_sample global_sample_list` (openbor.c:342) and registers
+        # NO SAMPLE_* names in the openborconstant table. A PAK built against
+        # an engine that exposed them dies at load with
+        #   Can't find openbor constant 'SAMPLE_BEEP2'
+        #   Script compile error in 'update'
+        # and the engine shuts down -- a black screen from the user's side.
+        #
+        # MEASURED, not guessed: tools/harness/pak_sampleconst_scan.py over the
+        # 450-PAK library finds **9 PAKs** referencing 10 distinct names --
+        # Lust Rush, Sega Brawlers Megamix, Streets of Rage X2 Megamix,
+        # Kunio-Kun Renegade, Golden Axe Myth, Golden Axe Remake SE, Final
+        # Fight & Cadillacs 2, Art Of Fighting, Street Fighter Vs KOF.
+        # The scan also settled the two names inference would have got WRONG:
+        # it is SAMPLE_1UP (not SAMPLE_ONEUP) -> one_up, and SAMPLE_TIMEOVER
+        # (no underscore) -> time_over.
+        #
+        # All 15 struct members are registered, not just the 10 observed: the
+        # extra five cost nothing and cover a PAK outside this library.
+        #
+        # `global_sample_list` is ALREADY visible here -- scriptcommon.h:75
+        # declares it extern and constants.c includes that header -- so this
+        # needs no new declaration, only the legacy-name aliases.
+        SAMPLE_MAP = [
+            ("SAMPLE_BEAT",     "beat"),
+            ("SAMPLE_BEEP",     "beep"),
+            ("SAMPLE_BEEP2",    "beep_2"),
+            ("SAMPLE_BIKE",     "bike"),
+            ("SAMPLE_BLOCK",    "block"),
+            ("SAMPLE_FALL",     "fall"),
+            ("SAMPLE_GET",      "get"),
+            ("SAMPLE_GET2",     "get_2"),
+            ("SAMPLE_GO",       "go"),
+            ("SAMPLE_INDIRECT", "indirect"),
+            ("SAMPLE_JUMP",     "jump"),
+            ("SAMPLE_1UP",      "one_up"),
+            ("SAMPLE_PAUSE",    "pause"),
+            ("SAMPLE_PUNCH",    "punch"),
+            ("SAMPLE_TIMEOVER", "time_over"),
+        ]
+        cdata = read(cpath)
+        inc_anchor = '#include "scriptcommon.h"'
+        if inc_anchor in cdata and "SAMPLE_BEEP2" not in cdata:
+            # 🛑 SAMPLE_1UP starts with a digit after the underscore, which is a
+            # legal C identifier, but the ALIAS must be an object-like macro --
+            # do not try to name a C variable SAMPLE_1UP.
+            aliases = "\n".join(
+                "#define %-16s (global_sample_list.%s)" % (n, m)
+                for n, m in SAMPLE_MAP)
+            cdata = cdata.replace(
+                inc_anchor,
+                inc_anchor
+                + "\n\n/* MiSTer: legacy SAMPLE_* script constants. v7533 moved these into"
+                  "\n * global_sample_list and stopped registering the names; 9 PAKs in the"
+                  "\n * 450-PAK library still ask for them and fail script compile without."
+                  "\n * Aliases only -- the sounds themselves are unchanged. */\n"
+                + aliases + "\n",
+                1)
+            reg_anchor = "        ICMPCONST(PLAYER_MAX_Z)"
+            if reg_anchor in cdata:
+                regs = "".join("\n        ICMPCONST(%s)" % n for n, _ in SAMPLE_MAP)
+                cdata = cdata.replace(reg_anchor, reg_anchor + regs, 1)
+                write(cpath, cdata)
+                print("  %d SAMPLE_* constants registered (fixes 9 PAKs incl. Lust Rush)."
+                      % len(SAMPLE_MAP))
+            else:
+                print("  WARN: SAMPLE_* registration anchor missing; skipped")
+        elif "SAMPLE_BEEP2" in cdata:
+            print("  SAMPLE_* already present; skipped")
+        else:
+            print("  WARN: constants.c include anchor not found; SAMPLE_* skipped")
+
+        # -- 9c. Register the Z-layer constants ------------------------
+        # Same class again, and the biggest one: FRONTPANEL_Z is asked for by
+        # **26 PAKs** -- more than any other missing constant in the library --
+        # and Lust Rush hits it the moment SAMPLE_BEEP2 is fixed:
+        #   Can't find openbor constant 'FRONTPANEL_Z'
+        #   Script compile error in 'data/scripts/dc_anaglyph/main.c'
+        #
+        # These need no alias at all: openbor.h:101-108 already defines the
+        # whole family as plain macros over PLAYER_MIN_Z / PLAYER_MAX_Z, so
+        # they are valid C expressions and ICMPCONST takes them directly --
+        # exactly the PLAYER_MIN_Z precedent above.
+        #
+        # The whole family is registered though only FRONTPANEL_Z is currently
+        # demanded: the others are the same drawing-layer vocabulary, cost
+        # nothing, and a PAK outside this library will want them.
+        Z_CONSTS = ["FRONTPANEL_Z", "HUD_Z", "HOLE_Z", "SHADOW_Z",
+                    "NEONPANEL_Z", "SCREENPANEL_Z", "PANEL_Z", "MIRROR_Z"]
+        cdata = read(cpath)
+        z_anchor = "        ICMPCONST(PLAYER_MAX_Z)"
+        if z_anchor in cdata and "ICMPCONST(FRONTPANEL_Z)" not in cdata:
+            zregs = "".join("\n        ICMPCONST(%s)" % n for n in Z_CONSTS)
+            cdata = cdata.replace(z_anchor, z_anchor + zregs, 1)
+            write(cpath, cdata)
+            print("  %d Z-layer constants registered (FRONTPANEL_Z alone unblocks 26 PAKs)."
+                  % len(Z_CONSTS))
+        elif "ICMPCONST(FRONTPANEL_Z)" in cdata:
+            print("  Z-layer constants already present; skipped")
+        else:
+            print("  WARN: Z-layer anchor missing; skipped")
+
+        # -- 9d. ATK_ATTACK<n> as an alias family for ATK_NORMAL<n> ----
+        # v7533 names the user attack types ATK_NORMAL1..10 and registers the
+        # family with the prefix macro ICMPSCONSTC(ATK_NORMAL). Some PAKs use
+        # the older spelling ATK_ATTACK<n>, e.g. Bare Knuckle VACUUM:
+        #   changeentityproperty(self,"defense",openborconstant("ATK_ATTACK1"),1,1,1);
+        # `defense` is indexed BY attack type and ATK_NORMAL1 is attack type 1,
+        # so the two spellings denote the same thing.
+        #
+        # One line, because "ATK_ATTACK" and "ATK_NORMAL" are both 10 chars --
+        # ICMPSCONSTC keys off sizeof(#x)-1, so the offset arithmetic that
+        # yields (atoi(name+10) + STA_ATKS - 1) is identical for both.
+        #
+        # SCOPE, corrected: this is 3 PAKs for ATK_ATTACK4 and 5 for
+        # ATK_ATTACK1 -- NOT the 19 a first scan reported. That count included
+        # COMMENTED-OUT lines; Avengers and Sega Brawlers only mention
+        # ATK_ATTACK4 inside `//damageentity(...)` while using live ATK_NORMAL<n>
+        # 58 and 51 times. pak_missingconst_scan.py now strips comments.
+        cdata = read(cpath)
+        atk_anchor = "        ICMPSCONSTC(ATK_NORMAL)"
+        if atk_anchor in cdata and "ICMPSCONSTC(ATK_ATTACK)" not in cdata:
+            cdata = cdata.replace(
+                atk_anchor,
+                atk_anchor + "\n        ICMPSCONSTC(ATK_ATTACK)", 1)
+            write(cpath, cdata)
+            print("  ATK_ATTACK<n> aliased to ATK_NORMAL<n> (live use in 5 PAKs).")
+        elif "ICMPSCONSTC(ATK_ATTACK)" in cdata:
+            print("  ATK_ATTACK family already present; skipped")
+        else:
+            print("  WARN: ATK_NORMAL prefix anchor missing; skipped")
     else:
         print("  WARN: constants.c not found at expected path")
 
@@ -2972,6 +3105,16 @@ extern int mrec_isolate;
     # mrec_mode) is replaced unconditionally, so the headless diff-harness build
     # needs the global defined too or it fails to link. The recorder HOOK (b) is
     # ship-only (`not HEADLESS`).
+    # A cart's update script must not run inside our modal pause menu.
+    # alwaysupdate is the only branch that ignores _pause; a cart that
+    # ships its own pause menu then runs it underneath ours and can call
+    # the engine options() from script -- modal nested inside modal.
+    ob = strict_replace(
+        ob,
+        "if ((!_pause && ingame == 1) || alwaysupdate)",
+        "if ((!_pause && ingame == 1) || (alwaysupdate && !mister_in_pausemenu))",
+        "update(): no cart update scripts inside the modal pause menu")
+
     ob = strict_replace(
         ob,
         "a_playrecstatus *playrecstatus = NULL;",
@@ -3053,9 +3196,16 @@ extern int mrec_isolate;
             "void NativeVideoWriter_SetOverlay(const void *pixels){ (void)pixels; }\n"
             "void NativeVideoWriter_CaptureDisplay(void *dst){ (void)dst; }\n"
             "void NativeVideoWriter_GetDisplaySize(int *w, int *h){ if(w) *w = 320; if(h) *h = 224; }\n"
+            "/* Loading read-out. update_loading() calls this in BOTH builds, so the\n"
+            " * headless LINK needs it even though headless has no display to paint.\n"
+            " * Its absence broke the diff harness on 2026-08-17: the ship build was\n"
+            " * clean and the dry-run exited 0, because neither of those COMPILES --\n"
+            " * only the headless link catches a missing stub. */\n"
+            "void NativeVideoWriter_SetLoadingProgress(int pos, int max){ (void)pos; (void)max; }\n"
         )
+        + "int mister_in_pausemenu = 0; /* nonzero only inside our modal pause menu. Guards the ONE path that ignores _pause: alwaysupdate. A cart with its own pause menu (Lust Rush) otherwise keeps running it INSIDE ours -- advancing a hidden selector on the same presses and finally calling the engine options() from script, a modal loop nested in a modal loop, which freezes the picture while input and sound keep responding. Defined in BOTH builds so the replaced pausemenu() links headless. */\n"
         + "int mister_fps_overlay = 0; /* pause menu -> Options -> FPS Display. Read by native_video_writer.c, which draws it POST-downscale. Defined in BOTH builds so the replaced pausemenu() links headless. Defaults OFF every launch so it can never silently contaminate a frame-hash run. */\n"
-        "#define MREC_ENGINE_VER 1u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */\n"
+        "#define MREC_ENGINE_VER 2u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */\n"
         "/* Header geometry, derived from the field widths rather than hand-counted.\n"
         " * Every offset in this format was previously written as a literal sum in\n"
         " * three separate places -- reader, size check, and the shell handler -- and\n"
@@ -4958,6 +5108,42 @@ extern int mrec_isolate;
     ob = strict_replace(ob, loadingbar_old, loadingbar_new,
                         'step 12: clamp off-screen / zero-size loading bar to on-screen default')
     print("  update_loading(): off-screen/zero-size bar clamps to visible default")
+
+    # -- Step 12c (2026-08-17): MiSTer loading read-out.
+    #
+    # Feed the engine's real progress to the display-space overlay, which
+    # paints "LOADING nn%" bottom-left. Independent of the cart's loadingbg:
+    # measured across 450 PAKs, that config cannot tell a PAK showing no
+    # progress (Ultimate Double Dragon) from one drawing its own bar in
+    # script (Avengers, PDC2) -- all three declare set=1 with off-screen bar
+    # coords -- so the earlier clamp fixed one and double-barred the others.
+    #
+    # Hooked at the TOP of update_loading, before its early-outs, so the
+    # percentage tracks even on a frame the engine decides not to redraw.
+    # Anchored on the LAST declaration in the function, not on the opening
+    # brace. Two reasons, both of which would have failed the ship build:
+    #   - openbor.c does not include native_video_writer.h (only sdl/control.c
+    #     does), so the call needs its own extern or it is an implicit
+    #     declaration -- illegal C99, and the ship Makefile builds with -Werror.
+    #     The headless script seds -Werror away; the ship script does NOT.
+    #   - inserting the CALL before these declarations is a statement before a
+    #     declaration, which -Werror=declaration-after-statement rejects.
+    loadpct_old = (
+        "    unsigned int ticks = timer_gettick();\n")
+    loadpct_new = (
+        "    unsigned int ticks = timer_gettick();\n"
+        "    /* MiSTer 2026-08-17: publish real load progress to the display\n"
+        "     * overlay. A read-out, not a bar: on the PAKs that already draw\n"
+        "     * their own bar a second bar looks like a duplicate, whereas a\n"
+        "     * percentage reads as a system indicator and says how far in you\n"
+        "     * are. Expires on a wall-clock deadline in the writer, so there\n"
+        "     * is no end-of-load call to remember. */\n"
+        "    extern void NativeVideoWriter_SetLoadingProgress(int pos, int max);\n"
+        "    NativeVideoWriter_SetLoadingProgress(value, max);\n")
+    ob = strict_replace(ob, loadpct_old, loadpct_new,
+                        'step 12c: publish loading progress to the display overlay')
+    print("  update_loading(): publishes LOADING nn%% to the display overlay")
+
 
     # -- Step 14 (2026-05-26): B+E entity-collision optimization.
     #
@@ -7067,6 +7253,8 @@ extern int mrec_isolate;
     _required = {
         'openbor.c': [
             'volatile int mrec_mode = 0;',                  # recorder mode global
+            'int mister_in_pausemenu = 0;',   # modal-menu freeze flag
+            '(alwaysupdate && !mister_in_pausemenu)',   # ...and the guard that reads it
             '#define MREC_HDR_BYTES',                       # container geometry
             'int mrec_save_slot_marker(int slot)',          # marker writer (stub in headless)
         ],
@@ -7078,6 +7266,8 @@ extern int mrec_isolate;
         _required = {
             'openbor.c': [
                 'has_remap_directive',                              # v3.9 palette flag (steps 0c/0d)
+                'int mister_in_pausemenu = 0;',   # modal-menu freeze flag
+                '(alwaysupdate && !mister_in_pausemenu)',   # ...and the guard that reads it
                 'has_palette_directive',                            # v3.10 palette flag (steps 0g/0h)
                 'drawmethod->has_remap_directive = e->modeldata',   # render copy -- the exact line 5c89107 dropped
                 'newchar->has_remap_directive = 1',                 # CMD_MODEL_REMAP sets it (step 0c)
