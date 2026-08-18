@@ -558,46 +558,6 @@ void pausemenu()
             NativeVideoWriter_SetOverlay(menuscreen->data);
         }
 
-        /* TEMPORARY DIAG -- REVERT AFTER MEASURED (2026-08-17)
-         *
-         * One line per second to STDERR, flushed. NOT printf: openbor.c
-         * #defines printf to writeToLogFile, which buffers into
-         * OpenBorLog.txt, and a SIGKILL discards that buffer -- which is
-         * precisely what made an earlier beat read as "the loop stopped"
-         * while the user could still hear the menu responding to input.
-         * _handler.sh redirects stderr into OpenBOR.log.
-         *
-         * What this is testing for: update() ends with video_copy_screen(),
-         * but ABOVE it sits
-         *     if(ingame == 1 && (goto_mainmenu_flag & 1))
-         *         { backto_mainmenu(); return; }
-         * which -- unlike the pausemenu() call right above it -- is NOT
-         * guarded by !_pause. A cart script can set that flag through
-         * gotomainmenu(), and with `alwaysupdate 1` Lust Rush's scripts run
-         * on every iteration of this UNCAPPED loop. If it fires, update()
-         * returns before publishing, so nothing new ever reaches the FPGA:
-         * the picture freezes while this loop keeps iterating, keeps reading
-         * input and keeps playing navigation sounds. That is the reported
-         * symptom exactly, including that it worsens the longer the menu is
-         * held up. These fields say whether that is what happened. */
-        {
-            static unsigned int _d_last = 0;
-            static unsigned int _d_n = 0;
-            unsigned int _d_now = timer_gettick();
-            _d_n++;
-            if(_d_now - _d_last >= 1000)
-            {
-                _d_last = _d_now;
-                fprintf(stderr,
-                        "[PMDIAG] n=%u gmm=%d endgame=%d pause=%d au=%d "
-                        "nopause=%d sel=%d opt=%d rec=%d quit=%d\n",
-                        _d_n, (int)goto_mainmenu_flag, (int)endgame,
-                        (int)_pause, (int)alwaysupdate, (int)nopause,
-                        pauselector, in_options, in_recording, in_quitconfirm);
-                fflush(stderr);
-            }
-        }
-
         update(1, 0);
 
         /* Read the RAW controller state, not player[].newkeys.
