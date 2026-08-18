@@ -601,6 +601,50 @@ void pausemenu()
             newkeys = (int)(_raw & ~_mister_prev_raw);
             _mister_prev_raw = _raw;
         }
+
+        /* TEMPORARY DIAG -- REVERT AFTER MEASURED (2026-08-17).
+         *
+         * The de-dupe fixed the double-fire but A-on-FPS still "freezes", and
+         * the one thing I cannot tell from source is whether the LOOP is still
+         * running. So: a HEARTBEAT every ~1s with the iteration count, plus the
+         * per-press state.
+         *
+         *   heartbeat keeps ticking after the freeze -> the loop is alive and
+         *       the menu has stopped being REDRAWN/published (a display
+         *       problem, and the fps overlay is the thing that just changed)
+         *   heartbeat stops                          -> the loop is genuinely
+         *       stuck, and the last state line says where
+         *
+         * Bounded: 400 lines total, and the heartbeat is wall-clock so an
+         * uncapped loop cannot flood the card. */
+        {
+            static int _dg_n = 0;
+            static int _dg_last = -1;
+            static unsigned int _dg_iter = 0;
+            static unsigned int _dg_hb = 0;
+            unsigned int _dg_now = timer_gettick();
+            int _dg_state = (in_options ? 1 : 0) | (in_recording ? 2 : 0)
+                          | (in_quitconfirm ? 4 : 0) | (pauselector << 3)
+                          | (option_selector << 6) | (rec_selector << 9);
+            _dg_iter++;
+            if (_dg_n < 400 && (newkeys != 0 || _dg_state != _dg_last))
+            {
+                printf("[PMDIAG] n=%d it=%u keys=0x%x fps=%d opt=%d rec=%d qc=%d sel=%d osel=%d rsel=%d\n",
+                       _dg_n, _dg_iter, (unsigned int)newkeys, mister_fps_overlay,
+                       in_options, in_recording, in_quitconfirm,
+                       pauselector, option_selector, rec_selector);
+                _dg_n++;
+                _dg_last = _dg_state;
+            }
+            if (_dg_n < 400 && (_dg_hb == 0 || _dg_now - _dg_hb >= 1000))
+            {
+                printf("[PMBEAT] it=%u fps=%d opt=%d rec=%d sel=%d osel=%d\n",
+                       _dg_iter, mister_fps_overlay, in_options, in_recording,
+                       pauselector, option_selector);
+                _dg_hb = _dg_now;
+                _dg_n++;
+            }
+        }
         {   /* lrkeys = a fresh press, OR a held direction that has passed
              * the delay and landed on a repeat frame. Only left/right
              * repeat: up/down through a 4-item list does not need it, and
