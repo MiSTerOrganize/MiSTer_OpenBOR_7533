@@ -3109,6 +3109,30 @@ extern int mrec_isolate;
     # alwaysupdate is the only branch that ignores _pause; a cart that
     # ships its own pause menu then runs it underneath ours and can call
     # the engine options() from script -- modal nested inside modal.
+    # Death sequence (AIR): do not wait for a fall this entity cannot
+    # perform. `nomove 1` sets PAIN_CONFIG_FALL_DISABLE, which sets
+    # drop = 0 -- the engine has already decided it cannot be knocked
+    # down -- so the fall-first branch's early return strands it before
+    # the blink+vanish code below and it hangs until `lifespan` removes
+    # it. An entity that CAN fall is unaffected.
+    ob = strict_replace(
+        ob,
+        "if ((death_sequence & DEATH_CONFIG_FALL_LAND_AIR && acting_event != DEATH_TRY_SEQUENCE_ACTING_EVENT_LIE)",
+        "if (!(acting_entity->modeldata.pain_config_flags & PAIN_CONFIG_FALL_DISABLE) && (death_sequence & DEATH_CONFIG_FALL_LAND_AIR && acting_event != DEATH_TRY_SEQUENCE_ACTING_EVENT_LIE)",
+        "death sequence (AIR): skip fall phase when fall is disabled")
+
+    # Death sequence (GROUND): do not wait for a fall this entity cannot
+    # perform. `nomove 1` sets PAIN_CONFIG_FALL_DISABLE, which sets
+    # drop = 0 -- the engine has already decided it cannot be knocked
+    # down -- so the fall-first branch's early return strands it before
+    # the blink+vanish code below and it hangs until `lifespan` removes
+    # it. An entity that CAN fall is unaffected.
+    ob = strict_replace(
+        ob,
+        "if ((death_sequence & DEATH_CONFIG_FALL_LAND_GROUND && acting_event != DEATH_TRY_SEQUENCE_ACTING_EVENT_LIE)",
+        "if (!(acting_entity->modeldata.pain_config_flags & PAIN_CONFIG_FALL_DISABLE) && (death_sequence & DEATH_CONFIG_FALL_LAND_GROUND && acting_event != DEATH_TRY_SEQUENCE_ACTING_EVENT_LIE)",
+        "death sequence (GROUND): skip fall phase when fall is disabled")
+
     ob = strict_replace(
         ob,
         "if ((!_pause && ingame == 1) || alwaysupdate)",
