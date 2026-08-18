@@ -256,6 +256,7 @@ void pausemenu()
          * leaves our clamped value in a cart-owned global permanently. */
         {
             int _po_i;
+            mister_in_pausemenu = 0;
             for(_po_i = 0; _po_i < 7; _po_i++) pauseoffset[_po_i] = _mister_saved_pauseoffset[_po_i];
         }
         return;
@@ -338,6 +339,11 @@ void pausemenu()
     sound_pause_music(1);
     sound_pause_sample(1);
     _pause = 2;
+    /* Freeze the cart for the lifetime of this modal menu. alwaysupdate
+     * would otherwise keep its update script running underneath us; see
+     * the note on the global in apply_patches.py. Cleared on EVERY exit
+     * below -- the early return as well as the normal tail. */
+    mister_in_pausemenu = 1;
     bothnewkeys = 0;
 
     /* NOTE: the press that opened this menu is deliberately LEFT IN the
@@ -1229,6 +1235,7 @@ void pausemenu()
      * kind of thing that surfaces as a mystery two features later. */
     {
         int _po_i;
+        mister_in_pausemenu = 0;
         for(_po_i = 0; _po_i < 7; _po_i++) pauseoffset[_po_i] = _mister_saved_pauseoffset[_po_i];
     }
 

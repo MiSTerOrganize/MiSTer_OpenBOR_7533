@@ -3105,6 +3105,16 @@ extern int mrec_isolate;
     # mrec_mode) is replaced unconditionally, so the headless diff-harness build
     # needs the global defined too or it fails to link. The recorder HOOK (b) is
     # ship-only (`not HEADLESS`).
+    # A cart's update script must not run inside our modal pause menu.
+    # alwaysupdate is the only branch that ignores _pause; a cart that
+    # ships its own pause menu then runs it underneath ours and can call
+    # the engine options() from script -- modal nested inside modal.
+    ob = strict_replace(
+        ob,
+        "if ((!_pause && ingame == 1) || alwaysupdate)",
+        "if ((!_pause && ingame == 1) || (alwaysupdate && !mister_in_pausemenu))",
+        "update(): no cart update scripts inside the modal pause menu")
+
     ob = strict_replace(
         ob,
         "a_playrecstatus *playrecstatus = NULL;",
@@ -3193,6 +3203,7 @@ extern int mrec_isolate;
             " * only the headless link catches a missing stub. */\n"
             "void NativeVideoWriter_SetLoadingProgress(int pos, int max){ (void)pos; (void)max; }\n"
         )
+        + "int mister_in_pausemenu = 0; /* nonzero only inside our modal pause menu. Guards the ONE path that ignores _pause: alwaysupdate. A cart with its own pause menu (Lust Rush) otherwise keeps running it INSIDE ours -- advancing a hidden selector on the same presses and finally calling the engine options() from script, a modal loop nested in a modal loop, which freezes the picture while input and sound keep responding. Defined in BOTH builds so the replaced pausemenu() links headless. */\n"
         + "int mister_fps_overlay = 0; /* pause menu -> Options -> FPS Display. Read by native_video_writer.c, which draws it POST-downscale. Defined in BOTH builds so the replaced pausemenu() links headless. Defaults OFF every launch so it can never silently contaminate a frame-hash run. */\n"
         "#define MREC_ENGINE_VER 1u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */\n"
         "/* Header geometry, derived from the field widths rather than hand-counted.\n"
@@ -7242,6 +7253,8 @@ extern int mrec_isolate;
     _required = {
         'openbor.c': [
             'volatile int mrec_mode = 0;',                  # recorder mode global
+            'int mister_in_pausemenu = 0;',   # modal-menu freeze flag
+            '(alwaysupdate && !mister_in_pausemenu)',   # ...and the guard that reads it
             '#define MREC_HDR_BYTES',                       # container geometry
             'int mrec_save_slot_marker(int slot)',          # marker writer (stub in headless)
         ],
@@ -7253,6 +7266,8 @@ extern int mrec_isolate;
         _required = {
             'openbor.c': [
                 'has_remap_directive',                              # v3.9 palette flag (steps 0c/0d)
+                'int mister_in_pausemenu = 0;',   # modal-menu freeze flag
+                '(alwaysupdate && !mister_in_pausemenu)',   # ...and the guard that reads it
                 'has_palette_directive',                            # v3.10 palette flag (steps 0g/0h)
                 'drawmethod->has_remap_directive = e->modeldata',   # render copy -- the exact line 5c89107 dropped
                 'newchar->has_remap_directive = 1',                 # CMD_MODEL_REMAP sets it (step 0c)
