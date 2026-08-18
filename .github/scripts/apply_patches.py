@@ -3205,7 +3205,7 @@ extern int mrec_isolate;
         )
         + "int mister_in_pausemenu = 0; /* nonzero only inside our modal pause menu. Guards the ONE path that ignores _pause: alwaysupdate. A cart with its own pause menu (Lust Rush) otherwise keeps running it INSIDE ours -- advancing a hidden selector on the same presses and finally calling the engine options() from script, a modal loop nested in a modal loop, which freezes the picture while input and sound keep responding. Defined in BOTH builds so the replaced pausemenu() links headless. */\n"
         + "int mister_fps_overlay = 0; /* pause menu -> Options -> FPS Display. Read by native_video_writer.c, which draws it POST-downscale. Defined in BOTH builds so the replaced pausemenu() links headless. Defaults OFF every launch so it can never silently contaminate a frame-hash run. */\n"
-        "#define MREC_ENGINE_VER 1u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */\n"
+        "#define MREC_ENGINE_VER 2u  /* bump ONLY on a shipped game-LOGIC change (physics/RNG/timestep/entity/input) that would desync old replays; NOT for render/audio/UI/perf changes */\n"
         "/* Header geometry, derived from the field widths rather than hand-counted.\n"
         " * Every offset in this format was previously written as a literal sum in\n"
         " * three separate places -- reader, size check, and the shell handler -- and\n"
