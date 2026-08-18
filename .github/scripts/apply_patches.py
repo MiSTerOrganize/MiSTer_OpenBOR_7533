@@ -3115,6 +3115,33 @@ extern int mrec_isolate;
     # down -- so the fall-first branch's early return strands it before
     # the blink+vanish code below and it hangs until `lifespan` removes
     # it. An entity that CAN fall is unaffected.
+    # Death sequence: a can't-fall entity must not DEFER its own removal.
+    #
+    # The fall-phase guard above stops it waiting for a knockdown that never
+    # comes, but the very next block plays the death animation and returns
+    # on `animating` -- and the takeaction=suicide / blink code sits BELOW
+    # that return. The only re-entry which would reach it is ACTING_EVENT_LIE,
+    # from the fall/lie path the guard just skipped. So the entity finishes
+    # its death animation and then sits inert until `lifespan` removes it:
+    # frozen, no flicker (TMNT-RP sewer flame, still broken after the guard
+    # alone).
+    #
+    # 6391 set the removal action AT the death, not behind a second entry:
+    #     takeaction = suicide; blink = 1; stalltime = _time + GAME_SPEED*2;
+    #
+    # So only defer for an entity that can actually return via fall/lie. One
+    # that cannot falls through to REMOVE_* in the same pass and gets the
+    # two-second blink-then-suicide, with its death animation still playing.
+    # An entity that CAN fall is untouched.
+    #
+    # count=2: the air and ground blocks are identical here and both need it.
+    ob = strict_replace(
+        ob,
+        "            if (acting_entity->animating)",
+        "            if (acting_entity->animating && !(acting_entity->modeldata.pain_config_flags & PAIN_CONFIG_FALL_DISABLE))",
+        "death sequence: no deferred removal when fall is disabled",
+        count=2)
+
     ob = strict_replace(
         ob,
         "if ((death_sequence & DEATH_CONFIG_FALL_LAND_AIR && acting_event != DEATH_TRY_SEQUENCE_ACTING_EVENT_LIE)",
