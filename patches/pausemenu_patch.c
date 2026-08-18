@@ -121,6 +121,10 @@ void pausemenu()
     int controlp = 0, i;
     int newkeys;
     int _mister_saved_pauseoffset[7];   /* cart's own pauseoffset, restored on exit */
+    /* Last raw controller value we have already acted on. LOCAL, not static:
+     * this is a modal loop, and a static would carry a stale value into the
+     * next visit to the menu and swallow that visit's first press. */
+    u64 _mister_prev_raw = 0;
     /* Hold-to-repeat for left/right (slot row, volume rows), so crossing 8
      * slots or a volume gauge does not need a tap per step.
      *
@@ -572,7 +576,31 @@ void pausemenu()
          * still sees exactly what it saw, and the recorder -- which captures
          * and injects these same fields earlier in inputrefresh -- is untouched
          * and byte-identical. */
-        newkeys = (int)playercontrolpointers[controlp]->newkeyflags;
+        /* Edge-detect against what we last acted on.
+         *
+         * newkeyflags is itself an edge, but control_update recomputes it at
+         * FRAME rate while this loop is UNCAPPED at 400+ iterations/sec -- so a
+         * single press is visible for several iterations and was being acted on
+         * every one of them. Measured on hardware ([PMDIAG]):
+         *     n=19 keys=0x100 osel=2      <- one press
+         *     n=20 keys=0x100 osel=2      <- read again
+         *     n=35 keys=0x100 rec=1 -> rec=0    Back leaves Recording
+         *     n=37 keys=0x100 rec=0 -> rec=1    and immediately re-enters
+         * which is the double beep from a single press, and the
+         * Options->Back->Options oscillation that reads as a frozen menu.
+         *
+         * player[].newkeys did not have this property because the engine
+         * consumed it per frame; the raw field persists until the next
+         * control_update. So the de-duplication has to happen here.
+         *
+         * Masking against the previous value (rather than comparing whole
+         * words) keeps multi-button presses correct: a bit already acted on is
+         * ignored while a genuinely new one in the same word still fires. */
+        {
+            u64 _raw = playercontrolpointers[controlp]->newkeyflags;
+            newkeys = (int)(_raw & ~_mister_prev_raw);
+            _mister_prev_raw = _raw;
+        }
         {   /* lrkeys = a fresh press, OR a held direction that has passed
              * the delay and landed on a repeat frame. Only left/right
              * repeat: up/down through a 4-item list does not need it, and

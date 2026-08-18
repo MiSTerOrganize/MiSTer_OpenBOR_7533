@@ -730,13 +730,18 @@ void NativeVideoWriter_SetLoadingProgress(int pos, int max) {
     nv_load_until_ms = nv_now_ms() + NV_LOAD_HOLD_MS;
 }
 
-/* Bottom-LEFT: clear of the notice band (top, full width) and of the fps digits
- * (bottom-right), so all three can be live without overlapping. */
+/* Bottom-RIGHT, at the user's request, sitting one line ABOVE the fps digits.
+ *
+ * The fps read-out occupies the very bottom-right corner, so sharing the corner
+ * needs the vertical offset or the two would overlap whenever the fps overlay is
+ * on during a load. One 9px line up clears it: fps starts at row 206 and is 14
+ * tall, this sits at 197 and is 7 tall. Still clear of the notice band, which is
+ * a full-width band at the TOP. */
 static void nv_draw_loading(volatile uint16_t* dst) {
     char buf[16];
-    int  n = 0, v = nv_load_pct, i;
+    int  n = 0, v = nv_load_pct, i, x0;
     const char* prefix = "LOADING ";
-    int y = NV_FRAME_HEIGHT - NV_FPS_MARGIN - 7;   /* 1x glyphs are 7 rows */
+    int y = NV_FRAME_HEIGHT - NV_FPS_MARGIN - NV_GLYPH_H - 9;
 
     for (i = 0; prefix[i] && n < (int)sizeof(buf) - 5; i++) buf[n++] = prefix[i];
     if (v >= 100) { buf[n++] = '1'; buf[n++] = '0'; buf[n++] = '0'; }
@@ -748,11 +753,16 @@ static void nv_draw_loading(volatile uint16_t* dst) {
     /* Shadow then text, exactly as the notice band and fps do -- the loading
      * background is cart art and can be any colour, so the offset black copy is
      * what keeps this legible rather than a backing panel. */
+    /* Right-aligned: the text grows leftward as the number widens, so the right
+     * edge stays put and the digits do not jitter sideways from 9% to 10%. */
+    x0 = NV_FRAME_WIDTH - NV_FPS_MARGIN - n * 6;
+    if (x0 < 0) x0 = 0;
+
     for (int pass = 0; pass < 2; pass++) {
         uint16_t c   = (pass == 0) ? 0x0000 : 0xFFFF;
         int      off = (pass == 0) ? 1 : 0;
         for (i = 0; i < n; i++)
-            nv_blit_rows1x(dst, NV_FPS_MARGIN + i * 6 + off, y + off,
+            nv_blit_rows1x(dst, x0 + i * 6 + off, y + off,
                            nv_glyph_rows(buf[i]), c);
     }
 }
