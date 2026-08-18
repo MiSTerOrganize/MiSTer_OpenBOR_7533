@@ -584,8 +584,7 @@ void pausemenu()
                 _d_last = _d_now;
                 fprintf(stderr,
                         "[PMDIAG] n=%u gmm=%d endgame=%d pause=%d au=%d "
-                        "nopause=%d sel=%d opt=%d rec=%d quit=%d
-",
+                        "nopause=%d sel=%d opt=%d rec=%d quit=%d\n",
                         _d_n, (int)goto_mainmenu_flag, (int)endgame,
                         (int)_pause, (int)alwaysupdate, (int)nopause,
                         pauselector, in_options, in_recording, in_quitconfirm);
