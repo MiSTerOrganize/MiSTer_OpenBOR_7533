@@ -26,7 +26,17 @@ echo "SDL2 libs:   $(pkg-config sdl2 --libs)"
 # ── Clone OpenBOR v7533 (same source as the ship build) ────────────
 cd /tmp
 rm -rf openbor
-git clone --filter=blob:none https://github.com/DCurrent/openbor.git
+# Bounded, and retried once: this clone stalled for 2h45m on 2026-08-19
+# with no timeout anywhere above it. --filter=blob:none fetches blobs
+# lazily, so a slow remote hangs rather than failing.
+clone_openbor() {
+  rm -rf /tmp/openbor
+  timeout 600 git clone --filter=blob:none \n      https://github.com/DCurrent/openbor.git /tmp/openbor
+}
+if ! clone_openbor; then
+  echo "clone stalled or failed -- retrying once" >&2
+  clone_openbor || { echo "ERROR: could not clone OpenBOR" >&2; exit 1; }
+fi
 cd openbor
 git checkout v7533
 cd engine
