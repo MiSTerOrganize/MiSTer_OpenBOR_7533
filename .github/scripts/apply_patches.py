@@ -3109,6 +3109,42 @@ extern int mrec_isolate;
     # alwaysupdate is the only branch that ignores _pause; a cart that
     # ships its own pause menu then runs it underneath ours and can call
     # the engine options() from script -- modal nested inside modal.
+    # TEMPORARY DIAG - flame death trace. Three fixes changed nothing and
+    # every static check passes, so the runtime is doing something my model
+    # does not predict. Gated to models named \"flame\" to keep the log
+    # readable. REVERT AFTER MEASURED.
+    ob = strict_replace(
+        ob,
+        "    e_death_state death_state = acting_entity->death_state;",
+        "    e_death_state death_state = acting_entity->death_state;\n    /* TEMPORARY DIAG - flame death trace */\n    int _fd = acting_entity && acting_entity->modeldata.name && !strcmp(acting_entity->modeldata.name, \"flame\");\n    if (_fd) printf(\"[FLAME] enter state=%d seq=0x%x event=%d anim=%d pain=0x%x hp=%d\\n\", (int)death_state, (unsigned)death_sequence, (int)acting_event, acting_entity->animating, (unsigned)acting_entity->modeldata.pain_config_flags, acting_entity->energy_state.health_current);",
+        "TEMPORARY DIAG: flame trace entry")
+
+    ob = strict_replace(
+        ob,
+        "            result = 0;\n            return result;",
+        "            if (_fd) printf(\"[FLAME] fall-first early return (state=%d)\\n\", (int)death_state);\n            result = 0;\n            return result;",
+        "TEMPORARY DIAG: flame trace fall-return",
+        count=2)
+
+    ob = strict_replace(
+        ob,
+        "            set_death(acting_entity, attack_type, 0);",
+        "            set_death(acting_entity, attack_type, 0);\n            if (_fd) printf(\"[FLAME] set_death done anim=%d\\n\", acting_entity->animating);",
+        "TEMPORARY DIAG: flame trace set_death",
+        count=2)
+
+    ob = strict_replace(
+        ob,
+        "        if (death_sequence & DEATH_CONFIG_REMOVE_VANISH_GROUND)\n        {",
+        "        if (_fd) printf(\"[FLAME] reached GROUND removal block\\n\");\n        if (death_sequence & DEATH_CONFIG_REMOVE_VANISH_GROUND)\n        {",
+        "TEMPORARY DIAG: flame trace ground removal")
+
+    ob = strict_replace(
+        ob,
+        "        if (death_sequence & DEATH_CONFIG_REMOVE_VANISH_AIR)\n        {",
+        "        if (_fd) printf(\"[FLAME] reached AIR removal block\\n\");\n        if (death_sequence & DEATH_CONFIG_REMOVE_VANISH_AIR)\n        {",
+        "TEMPORARY DIAG: flame trace air removal")
+
     ob = strict_replace(
         ob,
         "if ((!_pause && ingame == 1) || alwaysupdate)",
