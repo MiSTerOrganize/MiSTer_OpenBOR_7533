@@ -31,7 +31,7 @@ rm -rf openbor
 # lazily, so a slow remote hangs rather than failing.
 clone_openbor() {
   rm -rf /tmp/openbor
-  timeout 600 git clone --filter=blob:none \n      https://github.com/DCurrent/openbor.git /tmp/openbor
+  timeout 600 git clone --filter=blob:none https://github.com/DCurrent/openbor.git /tmp/openbor
 }
 if ! clone_openbor; then
   echo "clone stalled or failed -- retrying once" >&2
