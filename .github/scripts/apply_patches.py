@@ -3037,6 +3037,16 @@ extern int mrec_isolate;
     s_dm_v310_old = "\tint has_remap_directive; /* MiSTer v3.9: legacy-PAK flag for sprite.c step 4 v2 bypass; copied from model at render-time */\n} s_drawmethod;"
     s_dm_v310_new = "\tint has_remap_directive; /* MiSTer v3.9: legacy-PAK flag for sprite.c step 4 v2 bypass; copied from model at render-time */\n\tint has_palette_directive; /* MiSTer v3.10: master-palette flag (tightens step 4 v2 gate for TMNT-RP-style modern PAKs); copied from model at render-time */\n} s_drawmethod;"
     types = strict_replace(types, s_dm_v310_old, s_dm_v310_new, 'v3.10: add has_palette_directive to s_drawmethod END')
+    # TEMPORARY DIAG -- REVERT AFTER MEASURED -- [TBS] shadow census tag. A
+    # SEPARATE END-of-struct field after the locked v3.10 line, which stays
+    # byte-untouched; appending at the END shifts no existing offset.
+    types = strict_replace(
+        types,
+        "copied from model at render-time */\n} s_drawmethod;",
+        "copied from model at render-time */\n"
+        "\tint mister_shadow_kind; /* TEMPORARY DIAG [TBS]: 0 other, 1 gfxshadow, 2 sprite shadow */\n"
+        "} s_drawmethod;",
+        'TEMPORARY DIAG: [TBS] s_drawmethod.mister_shadow_kind END field')
     write(types_path, types)
     print("  s_drawmethod.has_palette_directive added at struct end (v3.10)")
 
@@ -5410,6 +5420,17 @@ extern int mrec_isolate;
         "                                printf(\" s%u=%llu/%lluK\", _i, _mister_tbb_calls_slow[_i], _mister_tbb_px_slow[_i]/1024ull);\n"
         "                        printf(\"\\n\");\n"
         "                    }\n"
+        "                    {   /* TEMPORARY DIAG [TBS] shadow census: k<kind>m<mode><F|S>=calls/pxK, zeroed per report */\n"
+        "                        unsigned int _k, _p;\n"
+        "                        printf(\"[TBS]\");\n"
+        "                        for(_k = 0; _k < 4; _k++) for(_i = 0; _i < 8; _i++) for(_p = 0; _p < 2; _p++)\n"
+        "                            if(_mister_tbs_calls[_k][_i][_p])\n"
+        "                                printf(\" k%um%u%c=%llu/%lluK\", _k, _i, _p ? 'S' : 'F',\n"
+        "                                       _mister_tbs_calls[_k][_i][_p], _mister_tbs_px[_k][_i][_p]/1024ull);\n"
+        "                        printf(\"\\n\");\n"
+        "                        memset(_mister_tbs_calls, 0, sizeof(_mister_tbs_calls));\n"
+        "                        memset(_mister_tbs_px, 0, sizeof(_mister_tbs_px));\n"
+        "                    }\n"
         "                    printf(\"[TBB] tint-override=%u  rgbchannel(mode6)=%u  with-remap-table=%u  total=%llu calls\\n\",\n"
         "                           _mister_tbb_tint, _mister_tbb_chan, _mister_tbb_remap, _tc);\n"
         "                    for(_i = 0; _i < 8; _i++) { _mister_tbb_calls[_i] = 0; _mister_tbb_px[_i] = 0; }\n"
@@ -5478,8 +5499,30 @@ extern int mrec_isolate;
         "unsigned long long _mister_tbb_px_slow[8]    = {0,0,0,0,0,0,0,0};\n"
         "unsigned int _mister_tbb_tint = 0;   /* fp overridden by tintmode            */\n"
         "unsigned int _mister_tbb_chan = 0;   /* mode 6 + usechannel -> rgbchannel16   */\n"
-        "unsigned int _mister_tbb_remap = 0;  /* blits carrying a palette/remap table  */\n",
+        "unsigned int _mister_tbb_remap = 0;  /* blits carrying a palette/remap table  */\n"
+        "/* [TBS] register item 14: which blits are SHADOWS. [kind][mode][path]:\n"
+        " * kind 0 = everything else, 1 = gfxshadow, 2 = sprite shadow, 3 = unexpected\n"
+        " * tag value; mode = the TBB blend index; path 0 = fast, 1 = slow. */\n"
+        "unsigned long long _mister_tbs_calls[4][8][2];\n"
+        "unsigned long long _mister_tbs_px[4][8][2];\n",
         'TEMPORARY DIAG: [TB0] globals (declared early, before loadsprite)')
+
+    # TEMPORARY DIAG -- REVERT AFTER MEASURED -- [TBS] tag the two shadow draw
+    # sites. Every other drawmethod keeps mister_shadow_kind 0: plainmethod is a
+    # positional initializer, so the new END field defaults to zero, and both
+    # shadow sites start from `shadowmethod = plainmethod;`.
+    ob = strict_replace(
+        ob,
+        "                                    shadowmethod.alpha = shadowalpha;\n",
+        "                                    shadowmethod.alpha = shadowalpha;\n"
+        "                                    shadowmethod.mister_shadow_kind = 1; /* TEMPORARY DIAG [TBS] gfxshadow */\n",
+        'TEMPORARY DIAG: [TBS] tag the gfxshadow drawmethod')
+    ob = strict_replace(
+        ob,
+        "                                shadowmethod.alpha = BLEND_MULTIPLY + 1;\n",
+        "                                shadowmethod.alpha = BLEND_MULTIPLY + 1;\n"
+        "                                shadowmethod.mister_shadow_kind = 2; /* TEMPORARY DIAG [TBS] sprite shadow */\n",
+        'TEMPORARY DIAG: [TBS] tag the sprite-shadow drawmethod')
 
     cmp_globals_new = (
         "/* TEMPORARY DIAG -- REVERT AFTER MEASURED -- [CMP]/[SCR] compositing split. */\n"
@@ -5656,7 +5699,9 @@ extern int mrec_isolate;
         'extern unsigned long long _mister_tbb_px_slow[8];\n'
         'extern unsigned int _mister_tbb_tint;\n'
         'extern unsigned int _mister_tbb_chan;\n'
-        'extern unsigned int _mister_tbb_remap;\n',
+        'extern unsigned int _mister_tbb_remap;\n'
+        'extern unsigned long long _mister_tbs_calls[4][8][2];\n'
+        'extern unsigned long long _mister_tbs_px[4][8][2];\n',
         'TEMPORARY DIAG: [TB0] sprite.c externs', count=1)
     spr = strict_replace(
         spr,
@@ -5680,6 +5725,12 @@ extern int mrec_isolate;
         "            if(tintmode) _mister_tbb_tint++;\n"
         "            if(_a == 6u && usechannel) _mister_tbb_chan++;\n"
         "            if(drawmethod->table) _mister_tbb_remap++;\n"
+        "            {   /* TEMPORARY DIAG [TBS] shadow kind, fast path */\n"
+        "                unsigned int _k = (unsigned int)drawmethod->mister_shadow_kind;\n"
+        "                if(_k > 3u) _k = 3u;\n"
+        "                _mister_tbs_calls[_k][_i][0]++;\n"
+        "                if(frame) _mister_tbs_px[_k][_i][0] += (unsigned long long)frame->width * (unsigned long long)frame->height;\n"
+        "            }\n"
         "        }\n",
         'TEMPORARY DIAG: [TB0] fast-path counter')
     spr = strict_replace(
@@ -5693,6 +5744,13 @@ extern int mrec_isolate;
         "        _mister_tbb_calls_slow[_i]++;\n"
         "        if(frame) _mister_tbb_px_slow[_i] += (unsigned long long)frame->width "
         "* (unsigned long long)frame->height;\n"
+        "        {   /* TEMPORARY DIAG [TBS] shadow kind, slow path */\n"
+        "            unsigned int _k = (unsigned int)drawmethod->mister_shadow_kind;\n"
+        "            if(_k > 3u) _k = 3u;\n"
+        "            _mister_tbs_calls[_k][_i][1]++;\n"
+        "            if(frame) _mister_tbs_px[_k][_i][1] += (unsigned long long)frame->width "
+        "* (unsigned long long)frame->height;\n"
+        "        }\n"
         "    }\n"
         "    gfx.sprite = frame;\n",
         'TEMPORARY DIAG: [TB0] fallback counter', count=1)
