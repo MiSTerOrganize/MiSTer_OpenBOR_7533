@@ -1,0 +1,21 @@
+# OpenBOR golden gate -- the fast subset. PAK file names, one per line.
+# Chosen to exercise every path the gate classifies, not for popularity:
+# the v3.10 palette trio (legacy remap / palette+remap / modern)
+A Tale of Vengeance.pak
+Teenage Mutant Ninja Turtles - Rescue Palooza!.pak
+Pocket Dimensional Clash 2.pak
+# heavy, high-resolution and script-heavy PAKs
+He-Man and the Masters of the Universe.pak
+Justice League Legacy.pak
+Double Dragon Reloaded Alternate.pak
+Marvel vs Capcom.pak
+Captain Commando and the Avengers.pak
+# 4086-era legacy content
+Aliens Clash.pak
+A Saga de Ryu.pak
+Streets of Rage 2X.pak
+# failed at baseline (FAIL1): must stay KNOWNFAIL, or be seen to change
+Avengers - United Battle Force.pak
+Lust Rush.pak
+# crashed at baseline (FAIL139), engine fix landed 2026-07-23: shows as NOGOLDEN until re-baselined
+Memory Loss.pak

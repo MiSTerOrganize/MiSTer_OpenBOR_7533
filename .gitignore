@@ -24,3 +24,8 @@ __pycache__/
 # does not cost a full recompile to get the winner back. Build artifacts --
 # the WINNER is committed normally from output_files/, this dir is never.
 fpga/seed_lottery/
+
+# Golden-gate scratch (run_ob_golden_gate.sh): the staged binary, per-shard
+# results and the traces of anything that did not match. Regenerated every run.
+tools/harness/.ob_golden_gate_work/
+tools/harness/.ob_golden_gate_full/

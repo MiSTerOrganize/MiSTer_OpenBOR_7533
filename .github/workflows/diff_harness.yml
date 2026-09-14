@@ -83,6 +83,12 @@ jobs:
       # name), and this check found a third on its first run.
       - name: Writer/reader agreement (the reader-only blind spot)
         run: python3 tools/harness/test_writer_reader_agree.py
+      # The golden gate (run_ob_golden_gate.sh) replays ONE run per PAK against
+      # goldens made by trace_shard.sh's TWO. A run made under different conditions
+      # compares as a false DIFF on every PAK, so the conditions are asserted
+      # identical here rather than trusted to stay in sync by hand.
+      - name: Golden gate runs the way the goldens were made
+        run: python3 tools/harness/test_ob_golden_sync.py
       - name: Build OpenBOR headless (x86-64)
         run: bash .github/scripts/build_headless.sh
       - name: Stage binary
