@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """apply_patches_headless.py — patch upstream OpenBOR for the headless diff/debug
 harness build (diff_harness.yml). SEPARATE from apply_patches.py (the MiSTer ship
-build): this applies only the two harness hooks needed to run PAKs off-device:
+build): this applies only the harness hooks needed to run PAKs off-device:
 
   1. sdl/sdlport.c : replace main() with the headless main (env OB_PAK, crash +
      SIGALRM-hang handlers, SDL dummy) from patches/headless_patch.c.
   2. sdl/video.c   : inject a per-frame counter + exit-after-OB_FRAMES + alarm
      re-arm into video_copy_screen (so a PAK runs N frames then exits clean, and
      a stuck frame trips SIGALRM).
+  3. openbor.c     : scripted-input injection (OB_INPUT / OB_INPUT2) and .inp
+     record/replay triggers in inputrefresh() -- the headless AI bot.
+  4. source/utils.c: mirror writeToLogFile to stderr, so engine printf output
+     (including DIAG/census reports) reaches the per-run capture.
 
-NO engine-logic patches yet (milestone 1b is crash/hang plumbing). Engine-logic
-patches (palette/stale-pointer/screen_status/range/loadsprite-hash) get layered
-in a later milestone so the harness tests OUR shipped behavior.
+The engine-logic patches (palette, stale-pointer, screen_status, range, ...)
+come from apply_patches.py, which the headless build runs first with
+OB_HEADLESS=1; this file only adds what is specific to running off-device.
 
 Usage: apply_patches_headless.py <openbor_engine_dir> <patches_dir>
 """
@@ -240,6 +244,40 @@ def main():
     o = strict_replace(o, inj_anchor, inj_code, "openbor.c headless input injection")
     write(o_path, o)
     print("  two-phase input injection + .inp record/replay hooked into inputrefresh().")
+
+    # ── 4. Mirror the engine log to stderr ────────────────────────────────
+    # globals.h does `#define printf writeToLogFile`, so every engine printf --
+    # including every DIAG/census report ([ARR] [CMP] [TB0] [TBB] [TBBSLOW]) --
+    # goes to OpenBorLog.txt, never to the stdout/stderr the scan runners
+    # capture. That is why a headless census "emitted nothing": the lines were
+    # written, just to a file nobody read. Worse, the log is opened "wt" at a
+    # FIXED absolute path, so parallel scan jobs truncate and overwrite each
+    # other's copy. Mirroring to stderr puts every line in the per-process log
+    # the runners already keep. Headless-only: the ship build is untouched.
+    # The mirror runs BEFORE the NULL-log early return, so a run whose log dir
+    # does not exist still reports.
+    print("Patching source/utils.c (mirror engine log to stderr)...")
+    u_path = os.path.join(obor, "source/utils.c")
+    u = read(u_path)
+    log_old = ("#else\n"
+               "    if(openborLog == NULL)\n"
+               "    {\n"
+               "        openborLog = OPEN_LOGFILE(OPENBOR_LOG);\n")
+    log_new = ("#else\n"
+               "    /* headless harness: mirror every engine log line to stderr */\n"
+               "    {\n"
+               "        va_list _hl_args;\n"
+               "        va_start(_hl_args, msg);\n"
+               "        vfprintf(stderr, msg, _hl_args);\n"
+               "        va_end(_hl_args);\n"
+               "        fflush(stderr);\n"
+               "    }\n"
+               "    if(openborLog == NULL)\n"
+               "    {\n"
+               "        openborLog = OPEN_LOGFILE(OPENBOR_LOG);\n")
+    u = strict_replace(u, log_old, log_new, "source/utils.c writeToLogFile stderr mirror")
+    write(u_path, u)
+    print("  writeToLogFile mirrors to stderr (census/DIAG lines reach the scan logs).")
 
     print("All headless patches applied successfully.")
 

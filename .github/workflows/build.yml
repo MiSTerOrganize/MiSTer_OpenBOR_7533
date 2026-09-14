@@ -31,6 +31,14 @@ on:
       # rebuild. Shipped docs still propagate -- dispatch_db.yml and
       # refresh_release.yml both trigger on docs/** and are unaffected by this.
       - 'docs/**'
+      # The headless harness build's own inputs. Consumers measured 2026-09-14:
+      # build_headless.sh is run only by diff_harness.yml, apply_patches_headless.py
+      # only by build_headless.sh, and patches/headless_patch.c only by
+      # apply_patches_headless.py -- none reaches build_mister_arm.sh, so none can
+      # change the ARM binary. diff_harness.yml still runs on all three.
+      - '.github/scripts/build_headless.sh'
+      - '.github/scripts/apply_patches_headless.py'
+      - 'patches/headless_patch.c'
   pull_request:
     branches: [main]
 
