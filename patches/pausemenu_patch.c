@@ -120,6 +120,11 @@ void pausemenu()
     int quit = 0;
     int controlp = 0, i;
     int newkeys;
+    int _mister_saved_pauseoffset[7];   /* cart's own pauseoffset, restored on exit */
+    /* Last raw controller value we have already acted on. LOCAL, not static:
+     * this is a modal loop, and a static would carry a stale value into the
+     * next visit to the menu and swallow that visit's first press. */
+    u64 _mister_prev_raw = 0;
     /* Hold-to-repeat for left/right (slot row, volume rows), so crossing 8
      * slots or a volume gauge does not need a tap per step.
      *
@@ -155,6 +160,63 @@ void pausemenu()
     extern void NativeVideoWriter_SetOverlay(const void *pixels);
     extern void NativeVideoWriter_CaptureDisplay(void *dst);
     extern void NativeVideoWriter_GetDisplaySize(int *w, int *h);
+
+    /* MiSTer 2026-08-17 (user-reported: Lust Rush's pause menu is audible but
+     * invisible -- it opens, navigates and ACTS on a confirm, blind).
+     *
+     * Cause is cart authoring, stated outright by the author. levels.TXT:
+     *     pauseoffset  0 0 999 999 0 999 999   ### HIDE TEXT
+     * pauseoffset is {font0, font1, xpos, ypos, font_pause, xpos_pause,
+     * ypos_pause}, so every coordinate is pushed off-screen and the engine
+     * dutifully draws the menu where nobody can see it.
+     *
+     * On PC that costs nothing -- OpenBOR's pause menu is a convenience there.
+     * On MiSTer it is the ONLY route to Recording, Stop Recording, Reset and
+     * Quit, so an invisible-but-live menu is worse than no menu at all: a stray
+     * press skips a scene or resets to the title with no way to see what is
+     * selected. Same port-specific consequence the cart author never had in
+     * view, and the same remedy as the step 12 loading-bar clamp -- ENGINE-SIDE
+     * INTERPRETATION, the PAK on disk is untouched.
+     *
+     * Unlike the loading bar, this needs no guesswork about the cart's
+     * intentions: off-screen pause text is unusable in every case, and the cart
+     * cannot substitute its own display because it does not know about our
+     * Recording items. Carts that leave the engine defaults {0,1,0,0,3,0,0}
+     * (ATOV, TMNT-RP) are on-screen already and are not touched.
+     *
+     * Saved and restored around the menu so the cart's own value survives. */
+    {
+        int _po_i;
+        for(_po_i = 0; _po_i < 7; _po_i++) _mister_saved_pauseoffset[_po_i] = pauseoffset[_po_i];
+        /* [2],[3] = item x,y   [5],[6] = title x,y */
+        if(pauseoffset[2] < 0 || pauseoffset[2] >= videomodes.hRes ||
+           pauseoffset[3] < 0 || pauseoffset[3] >= videomodes.vRes)
+        {
+            pauseoffset[2] = 0;
+            pauseoffset[3] = 0;
+        }
+        if(pauseoffset[5] < 0 || pauseoffset[5] >= videomodes.hRes ||
+           pauseoffset[6] < 0 || pauseoffset[6] >= videomodes.vRes)
+        {
+            pauseoffset[5] = 0;
+            pauseoffset[6] = 0;
+        }
+        /* Second half of the same problem, user-reported once the text became
+         * visible: the menu marks the CURRENT row purely by drawing it in a
+         * different font -- pauseoffset[1] for the selected row, [0] for the
+         * rest. Lust Rush sets BOTH to 0, so every row looks identical and you
+         * cannot tell what you are about to confirm. Audible but unreadable,
+         * exactly like the off-screen coordinates above.
+         *
+         * Restore the engine default's distinction. Font 1 is `font2.gif` by
+         * OpenBOR's naming convention and Lust Rush ships one; a PAK that lacks
+         * it is no worse off than it is today, because the highlight is already
+         * invisible in that case. */
+        if(pauseoffset[0] == pauseoffset[1])
+        {
+            pauseoffset[1] = (pauseoffset[0] == 1) ? 0 : 1;
+        }
+    }
     /* Notice() had the same problem and has had it since the recorder landed:
      * its only declaration is in that same too-late prelude, so every call
      * below resolved implicitly. It happened to work -- const char* + int
@@ -189,6 +251,14 @@ void pausemenu()
     if(!pausebuffer)
     {
         printf("[PAUSE] out of memory for the pause buffer -- not opening the menu\n");
+        /* This return is BEFORE the normal restore at the end, so put the
+         * cart's pauseoffset back here too -- otherwise a failed allocation
+         * leaves our clamped value in a cart-owned global permanently. */
+        {
+            int _po_i;
+            mister_in_pausemenu = 0;
+            for(_po_i = 0; _po_i < 7; _po_i++) pauseoffset[_po_i] = _mister_saved_pauseoffset[_po_i];
+        }
         return;
     }
 
@@ -269,6 +339,11 @@ void pausemenu()
     sound_pause_music(1);
     sound_pause_sample(1);
     _pause = 2;
+    /* Freeze the cart for the lifetime of this modal menu. alwaysupdate
+     * would otherwise keep its update script running underneath us; see
+     * the note on the global in apply_patches.py. Cleared on EVERY exit
+     * below -- the early return as well as the normal tail. */
+    mister_in_pausemenu = 1;
     bothnewkeys = 0;
 
     /* NOTE: the press that opened this menu is deliberately LEFT IN the
@@ -485,7 +560,53 @@ void pausemenu()
 
         update(1, 0);
 
-        newkeys = player[controlp].newkeys;
+        /* Read the RAW controller state, not player[].newkeys.
+         *
+         * A cart can rewrite player[].newkeys from script, and with
+         * `alwaysupdate 1` its scripts run even while paused -- so the value we
+         * used to read had already been through the cart by the time we saw it.
+         * Lust Rush does exactly this every frame:
+         *     inputall.c  changeplayerproperty(player, "newkeys", 0)
+         *                 changeplayerproperty(player, "newkeys", FLAG_START)
+         *     update.c    changeplayerproperty(0, "newkeys", 0)
+         *                 changeplayerproperty(0, "newkeys", FLAG_ESC)
+         * which zeroes our navigation and then hands us a phantom START or ESC
+         * -- the menu appeared to ignore the d-pad and to "back out" on its own.
+         *
+         * playercontrolpointers[] is the raw controller read, upstream of the
+         * player struct, and changeplayerproperty cannot reach it. On every
+         * other cart the two are identical, so nothing changes there; on a cart
+         * that rewrites keys, the menu now behaves the same as everywhere else.
+         *
+         * This is a READ. Nothing is written, cleared or diverted: the cart
+         * still sees exactly what it saw, and the recorder -- which captures
+         * and injects these same fields earlier in inputrefresh -- is untouched
+         * and byte-identical. */
+        /* Edge-detect against what we last acted on.
+         *
+         * newkeyflags is itself an edge, but control_update recomputes it at
+         * FRAME rate while this loop is UNCAPPED at 400+ iterations/sec -- so a
+         * single press is visible for several iterations and was being acted on
+         * every one of them. Measured on hardware ([PMDIAG]):
+         *     n=19 keys=0x100 osel=2      <- one press
+         *     n=20 keys=0x100 osel=2      <- read again
+         *     n=35 keys=0x100 rec=1 -> rec=0    Back leaves Recording
+         *     n=37 keys=0x100 rec=0 -> rec=1    and immediately re-enters
+         * which is the double beep from a single press, and the
+         * Options->Back->Options oscillation that reads as a frozen menu.
+         *
+         * player[].newkeys did not have this property because the engine
+         * consumed it per frame; the raw field persists until the next
+         * control_update. So the de-duplication has to happen here.
+         *
+         * Masking against the previous value (rather than comparing whole
+         * words) keeps multi-button presses correct: a bit already acted on is
+         * ignored while a genuinely new one in the same word still fires. */
+        {
+            u64 _raw = playercontrolpointers[controlp]->newkeyflags;
+            newkeys = (int)(_raw & ~_mister_prev_raw);
+            _mister_prev_raw = _raw;
+        }
         {   /* lrkeys = a fresh press, OR a held direction that has passed
              * the delay and landed on a repeat frame. Only left/right
              * repeat: up/down through a 4-item list does not need it, and
@@ -1067,6 +1188,15 @@ void pausemenu()
     {
         free(menubg);
         menubg = NULL;
+    }
+
+    /* Hand the cart's own pauseoffset back, clamped or not. Nothing else reads
+     * it today, but leaving a value we invented in a cart-owned global is the
+     * kind of thing that surfaces as a mystery two features later. */
+    {
+        int _po_i;
+        mister_in_pausemenu = 0;
+        for(_po_i = 0; _po_i < 7; _po_i++) pauseoffset[_po_i] = _mister_saved_pauseoffset[_po_i];
     }
 
     spriteq_unlock();

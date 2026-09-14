@@ -40,6 +40,10 @@ run-name: ${{ inputs.reason || 'openbor-diff-harness' }}
 jobs:
   harness:
     runs-on: ubuntu-latest
+    # A hung network fetch used to run to GitHub's 6-hour default. The
+    # whole job is normally ~2 min, so 25 turns a silent 6-hour burn
+    # into a loud failure while the cause is still fresh.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       # 🛑 This test existed on BOTH cores and NO workflow ran it. The staleness
