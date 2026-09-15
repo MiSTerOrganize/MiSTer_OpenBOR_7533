@@ -1609,7 +1609,29 @@ extern int mrec_isolate;
     # Step 31 v2/v3 (subject_to_gravity / no_adjust_base directive_seen),
     # Step 34 v2 (range default restoration),
     # Step 35 (in_*screen openborvariant 0/1 normalize).
-    print("Patching openbor.c (Step 37: legacy instant-death for carts without anim fall)...")
+    # ── Step 37 v3 (2026-09-14): mirror v6391 falldie 1 + nodieblink EXACTLY ──
+    #
+    # v2 keyed on "DEATH flag set AND no anim fall" and forced a silent 5 s
+    # suicide. Both halves were wrong for TMNT-RP (a v6391-era PAK):
+    #   - sewer `flame` (falldie 1, nodieblink 0, no anim fall): v2 took it and
+    #     suppressed the blink -- "freezes, no flicker, then vanishes". The two
+    #     2026-08-18 guards sat BELOW v2's early return, so they never ran.
+    #   - `mouser_hole_floor` (falldie 1, nodieblink 3, HAS anim fall; damages
+    #     itself on spawn-anim frame 8): v2 skipped it, 7533 went fall-first,
+    #     and the fall anim replaced the spawn anim that emits mousers 2-5.
+    # The death flags cannot tell falldie 1 from falldie 2 (both set
+    # DEATH_CONFIG_MACRO_DEATH, and the nodieblink conversion rewrites the
+    # fall/blink/remove bits), so the raw directive values are recorded in
+    # END-of-s_model fields and v6391 is mirrored for `falldie 1` only:
+    #   DAMAGE (v6391 openbor.c:24621): stop, set_death, never fall. With no
+    #     death anim the CURRENT anim keeps running.
+    #   LIE (v6391 common_lie:23520): 0 -> blink + suicide after 2 s at once;
+    #     1 -> the same once the anim ends; 2 -> suicide when the anim ends;
+    #     3 -> corpse (CORPSE + noaicontrol, 7533's form of TYPE_NONE) at end.
+    # v2's scroll lock came from v1 returning on LIE without removing the
+    # entity; v3 removes on LIE, so no forced CORPSE/5 s stall is needed.
+    # Every model without `falldie 1` runs the stock 7533 sequence unchanged.
+    print("Patching openbor.c (Step 37 v3: v6391 falldie 1 + nodieblink semantics)...")
     dtsd_entry_old = (
         "int death_try_sequence_damage(entity* acting_entity, e_death_config_flags death_sequence, e_death_sequence_acting_event acting_event)\n"
         "{\n"
@@ -1626,37 +1648,44 @@ extern int mrec_isolate;
         "    e_attack_types attack_type = acting_entity->last_damage_type;\n"
         "    e_death_state death_state = acting_entity->death_state;\n"
         "\n"
-        "    /* MiSTer Step 37 v2 (2026-05-29): legacy cart compat -- restore 4086's */\n"
-        "    /* falldie==1 instant-death semantics for carts WITHOUT anim fall.      */\n"
-        "    /* Damon Caskey's 2023-03-28 refactor defers to fall-first via this     */\n"
-        "    /* function; carts authored before the refactor (TMNT Rescue Palooza,   */\n"
-        "    /* etc.) omit anim fall and expect anim death to play immediately on    */\n"
-        "    /* lethal damage. Without this guard, set_fall returns 0, kill() runs,  */\n"
-        "    /* and anim death (with its @cmd spawnbind explosion sprite) NEVER      */\n"
-        "    /* plays. Modern carts with proper anim fall fall through unchanged.    */\n"
-        "    /*                                                                      */\n"
-        "    /* v2 (scroll-lock fix): after set_death, ALSO set DEATH_STATE_CORPSE + */\n"
-        "    /* noaicontrol + takeaction=suicide + stalltime. v1 left entity in      */\n"
-        "    /* DEATH_STATE_DEAD-only state, but count_ents (openbor.c:29874) uses   */\n"
-        "    /* CORPSE bit to decide 'alive enemy'; without CORPSE, update_scroller  */\n"
-        "    /* (line 44389) keeps wall locked. v2 sets CORPSE so scroll releases    */\n"
-        "    /* immediately while anim_die continues playing visually; suicide cleans*/\n"
-        "    /* up the entity after stalltime (5 sec, enough for the longest cart    */\n"
-        "    /* anim_die like bubblecopter's 10x-explosion sequence).                */\n"
-        "    if (((death_sequence & DEATH_CONFIG_DEATH_AIR) || (death_sequence & DEATH_CONFIG_DEATH_GROUND))\n"
-        "        && !validanim(acting_entity, ANI_FALL))\n"
+        "    /* MiSTer Step 37 v3 (2026-09-14): a model that declares falldie 1   */\n"
+        "    /* follows v6391 exactly. DAMAGE: stop and play anim death, never    */\n"
+        "    /* fall (no death anim -> the current anim keeps running). LIE:      */\n"
+        "    /* nodieblink decides removal, as v6391 common_lie did.              */\n"
+        "    if (acting_entity->modeldata.mister_legacy_falldie == 1)\n"
         "    {\n"
-        "        acting_entity->velocity.x = 0;\n"
-        "        acting_entity->velocity.y = 0;\n"
-        "        acting_entity->velocity.z = 0;\n"
-        "        set_death(acting_entity, attack_type, 0);\n"
-        "        if (!(acting_entity->modeldata.type & TYPE_PLAYER)) {\n"
-        "            /* Non-player: mark CORPSE so count_ents stops counting +       */\n"
-        "            /* schedule suicide for cleanup after anim_die plays.           */\n"
-        "            acting_entity->death_state |= DEATH_STATE_CORPSE;\n"
-        "            acting_entity->noaicontrol = 1;\n"
-        "            acting_entity->takeaction = suicide;\n"
-        "            acting_entity->stalltime = _time + GAME_SPEED * 5;\n"
+        "        int legacy_nodieblink = acting_entity->modeldata.mister_legacy_nodieblink;\n"
+        "\n"
+        "        if (acting_event == DEATH_TRY_SEQUENCE_ACTING_EVENT_DAMAGE)\n"
+        "        {\n"
+        "            acting_entity->velocity.x = 0;\n"
+        "            acting_entity->velocity.y = 0;\n"
+        "            acting_entity->velocity.z = 0;\n"
+        "            set_death(acting_entity, attack_type, 0);\n"
+        "            return 1;\n"
+        "        }\n"
+        "\n"
+        "        if (legacy_nodieblink == 0 || (legacy_nodieblink == 1 && !acting_entity->animating))\n"
+        "        {\n"
+        "            acting_entity->takeaction = (acting_entity->modeldata.type & TYPE_PLAYER) ? player_blink : suicide;\n"
+        "            acting_entity->blink = 1;\n"
+        "            acting_entity->stalltime = _time + GAME_SPEED * 2;\n"
+        "        }\n"
+        "        else if (legacy_nodieblink == 2 && !acting_entity->animating)\n"
+        "        {\n"
+        "            acting_entity->takeaction = (acting_entity->modeldata.type & TYPE_PLAYER) ? player_die : suicide;\n"
+        "        }\n"
+        "        else if (legacy_nodieblink == 3 && !acting_entity->animating)\n"
+        "        {\n"
+        "            if (acting_entity->modeldata.type & TYPE_PLAYER)\n"
+        "            {\n"
+        "                acting_entity->takeaction = player_die;\n"
+        "            }\n"
+        "            else\n"
+        "            {\n"
+        "                acting_entity->death_state |= DEATH_STATE_CORPSE;\n"
+        "                acting_entity->noaicontrol = 1;\n"
+        "            }\n"
         "        }\n"
         "        return 1;\n"
         "    }\n"
@@ -1665,9 +1694,21 @@ extern int mrec_isolate;
     )
     ob_k37 = read(ob_path_g)
     ob_k37 = strict_replace(ob_k37, dtsd_entry_old, dtsd_entry_new,
-                             'Step 37: death_try_sequence_damage instant-death early-return for carts without anim fall')
+                             'Step 37 v3: death_try_sequence_damage mirrors v6391 for falldie 1')
+    ob_k37 = strict_replace(
+        ob_k37,
+        "newchar->death_config_flags = death_config_get_value_from_falldie(newchar->death_config_flags, tempInt);",
+        "newchar->mister_legacy_falldie = tempInt; /* MiSTer Step 37 v3: keep the raw value */\n"
+        "                newchar->death_config_flags = death_config_get_value_from_falldie(newchar->death_config_flags, tempInt);",
+        'Step 37 v3: CMD_MODEL_FALLDIE/DEATH records the raw falldie value')
+    ob_k37 = strict_replace(
+        ob_k37,
+        "newchar->death_config_flags = death_config_get_value_from_nodieblink(newchar->death_config_flags, tempInt);",
+        "newchar->mister_legacy_nodieblink = tempInt; /* MiSTer Step 37 v3: keep the raw value */\n"
+        "                newchar->death_config_flags = death_config_get_value_from_nodieblink(newchar->death_config_flags, tempInt);",
+        'Step 37 v3: CMD_MODEL_NODIEBLINK records the raw nodieblink value')
     write(ob_path_g, ob_k37)
-    print("  Step 37: death_try_sequence_damage now triggers set_death immediately when DEATH flag set + no anim fall (TMNT-RP explosion fix)")
+    print("  Step 37 v3: falldie 1 models now die and are removed per v6391 (TMNT-RP flame blink, mouser hole spawns)")
 
     # ── Step 42 (2026-05-29): defensive force SUBJECT_TO_GRAVITY for TYPE_PLAYER
     # User reported Raph respawn-goes-vertical-upward regression after Step 37 v2
@@ -2976,8 +3017,8 @@ extern int mrec_isolate;
     # Step 31 v2 (2026-05-28): also add gravity_directive_seen field at the END.
     # Step 31 v3 (2026-05-28): also add no_adjust_base_directive_seen field.
     # END placement preserves the no-offset-shift safety pattern of v3.9/v3.10.
-    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n    int gravity_directive_seen; /* MiSTer Step 31 v2: set by CMD_MODEL_SUBJECT_TO_GRAVITY parser; gates ent_default_init force-gravity for TYPE_NONE */\n    int no_adjust_base_directive_seen; /* MiSTer Step 31 v3: set by CMD_MODEL_NO_ADJUST_BASE parser; gates ent_default_init force-no-adjust-base for TYPE_NONE */\n    int aironly_directive_seen; /* MiSTer Step 45: set by CMD_MODEL_AIRONLY parser when arg>0; gates SUBTYPE_ARROW auto-transition to ANI_FALL */\n    int hole_directive_seen; /* MiSTer Step 67: set by CMD_MODEL_SUBJECT_TO_HOLE parser; gates Step 42 v2 SUBJECT_TO_HOLE force-set for flying characters (Bearz OWL) */\n    int obstacle_directive_seen; /* MiSTer Step 68: set by CMD_MODEL_SUBJECT_TO_OBSTACLE parser; gates Step 42 v2 SUBJECT_TO_OBSTACLE force-set */\n    int platform_directive_seen; /* MiSTer Step 68: set by CMD_MODEL_SUBJECT_TO_PLATFORM parser; gates Step 42 v2 SUBJECT_TO_PLATFORM force-set */\n} s_model;"
-    obh = strict_replace(obh, s_model_v310_old, s_model_v310_new, 'v3.10 + Step 31 v2 + v3 + Step 45: add directive_seen fields to s_model END')
+    s_model_v310_new = "    int has_remap_directive; /* MiSTer v3.9: set by CMD_MODEL_REMAP only; gates step 4 v2 sprite.c bypass per-model */\n    int has_palette_directive; /* MiSTer v3.10: set by CMD_MODEL_PALETTE; tightens step 4 v2 gate for modern PAKs that ALSO use remap (e.g., TMNT-RP) */\n    int gravity_directive_seen; /* MiSTer Step 31 v2: set by CMD_MODEL_SUBJECT_TO_GRAVITY parser; gates ent_default_init force-gravity for TYPE_NONE */\n    int no_adjust_base_directive_seen; /* MiSTer Step 31 v3: set by CMD_MODEL_NO_ADJUST_BASE parser; gates ent_default_init force-no-adjust-base for TYPE_NONE */\n    int aironly_directive_seen; /* MiSTer Step 45: set by CMD_MODEL_AIRONLY parser when arg>0; gates SUBTYPE_ARROW auto-transition to ANI_FALL */\n    int hole_directive_seen; /* MiSTer Step 67: set by CMD_MODEL_SUBJECT_TO_HOLE parser; gates Step 42 v2 SUBJECT_TO_HOLE force-set for flying characters (Bearz OWL) */\n    int obstacle_directive_seen; /* MiSTer Step 68: set by CMD_MODEL_SUBJECT_TO_OBSTACLE parser; gates Step 42 v2 SUBJECT_TO_OBSTACLE force-set */\n    int platform_directive_seen; /* MiSTer Step 68: set by CMD_MODEL_SUBJECT_TO_PLATFORM parser; gates Step 42 v2 SUBJECT_TO_PLATFORM force-set */\n    int mister_legacy_falldie; /* MiSTer Step 37 v3: raw falldie/death arg as written in the model (0 = default) */\n    int mister_legacy_nodieblink; /* MiSTer Step 37 v3: raw nodieblink arg as written in the model (0 = default) */\n} s_model;"
+    obh = strict_replace(obh, s_model_v310_old, s_model_v310_new, 'v3.10 + Step 31 v2 + v3 + Step 45 + Step 37 v3: add directive fields to s_model END')
     # -- Step 70 (2026-06-09): stall-tracker fields at END of s_entity for the
     # wall-pinned rolling-barrel despawn fix (TMNT-RP construction level). A
     # subtype-arrow aironly roller can jam against a boundary wall just offscreen,
@@ -3109,42 +3150,6 @@ extern int mrec_isolate;
     # alwaysupdate is the only branch that ignores _pause; a cart that
     # ships its own pause menu then runs it underneath ours and can call
     # the engine options() from script -- modal nested inside modal.
-    # TEMPORARY DIAG - flame death trace. Three fixes changed nothing and
-    # every static check passes, so the runtime is doing something my model
-    # does not predict. Gated to models named \"flame\" to keep the log
-    # readable. REVERT AFTER MEASURED.
-    ob = strict_replace(
-        ob,
-        "    e_death_state death_state = acting_entity->death_state;",
-        "    e_death_state death_state = acting_entity->death_state;\n    /* TEMPORARY DIAG - flame death trace */\n    int _fd = acting_entity && acting_entity->modeldata.name && !strcmp(acting_entity->modeldata.name, \"flame\");\n    if (_fd) printf(\"[FLAME] enter state=%d seq=0x%x event=%d anim=%d pain=0x%x hp=%d\\n\", (int)death_state, (unsigned)death_sequence, (int)acting_event, acting_entity->animating, (unsigned)acting_entity->modeldata.pain_config_flags, acting_entity->energy_state.health_current);",
-        "TEMPORARY DIAG: flame trace entry")
-
-    ob = strict_replace(
-        ob,
-        "            result = 0;\n            return result;",
-        "            if (_fd) printf(\"[FLAME] fall-first early return (state=%d)\\n\", (int)death_state);\n            result = 0;\n            return result;",
-        "TEMPORARY DIAG: flame trace fall-return",
-        count=2)
-
-    ob = strict_replace(
-        ob,
-        "            set_death(acting_entity, attack_type, 0);",
-        "            set_death(acting_entity, attack_type, 0);\n            if (_fd) printf(\"[FLAME] set_death done anim=%d\\n\", acting_entity->animating);",
-        "TEMPORARY DIAG: flame trace set_death",
-        count=2)
-
-    ob = strict_replace(
-        ob,
-        "        if (death_sequence & DEATH_CONFIG_REMOVE_VANISH_GROUND)\n        {",
-        "        if (_fd) printf(\"[FLAME] reached GROUND removal block\\n\");\n        if (death_sequence & DEATH_CONFIG_REMOVE_VANISH_GROUND)\n        {",
-        "TEMPORARY DIAG: flame trace ground removal")
-
-    ob = strict_replace(
-        ob,
-        "        if (death_sequence & DEATH_CONFIG_REMOVE_VANISH_AIR)\n        {",
-        "        if (_fd) printf(\"[FLAME] reached AIR removal block\\n\");\n        if (death_sequence & DEATH_CONFIG_REMOVE_VANISH_AIR)\n        {",
-        "TEMPORARY DIAG: flame trace air removal")
-
     ob = strict_replace(
         ob,
         "if ((!_pause && ingame == 1) || alwaysupdate)",
@@ -7293,6 +7298,8 @@ extern int mrec_isolate;
             '(alwaysupdate && !mister_in_pausemenu)',   # ...and the guard that reads it
             '#define MREC_HDR_BYTES',                       # container geometry
             'int mrec_save_slot_marker(int slot)',          # marker writer (stub in headless)
+            'modeldata.mister_legacy_falldie == 1',         # Step 37 v3 death sequence (both builds)
+            'newchar->mister_legacy_nodieblink = tempInt;', # ...and the parser that feeds it
         ],
     }
     # NOT in this list, verified rather than assumed: the recorder HOOK body
@@ -7302,6 +7309,8 @@ extern int mrec_isolate;
         _required = {
             'openbor.c': [
                 'has_remap_directive',                              # v3.9 palette flag (steps 0c/0d)
+                'modeldata.mister_legacy_falldie == 1',             # Step 37 v3 death sequence
+                'newchar->mister_legacy_nodieblink = tempInt;',     # ...and the parser that feeds it
                 'int mister_in_pausemenu = 0;',   # modal-menu freeze flag
                 '(alwaysupdate && !mister_in_pausemenu)',   # ...and the guard that reads it
                 'has_palette_directive',                            # v3.10 palette flag (steps 0g/0h)
