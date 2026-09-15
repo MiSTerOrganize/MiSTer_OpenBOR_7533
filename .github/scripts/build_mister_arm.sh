@@ -67,17 +67,21 @@ fetch_verify() {
 SDL_PREFIX=/tmp/sdl2
 
 # Debian 11 left LTS 2026-08-31. Mid-move to archive.debian.org, the live
-# bullseye-security index still lists package versions whose pool files are
-# already gone (404 on deb.debian.org AND security.debian.org; archive.debian.org
-# has no bullseye-security yet) -- every install failed on 2026-09-14. Plain
-# bullseye + bullseye-updates still resolve. This container only BUILDS; nothing
-# from its security updates ships in the binary, and the glibc 2.31 target is
-# set by bullseye itself, so the build uses bullseye without the security suite.
+# bullseye-security index lists package versions whose pool files are already
+# gone (404 on deb.debian.org AND security.debian.org; archive.debian.org has no
+# bullseye-security yet) -- every install failed on 2026-09-14.
+# Dropping the security suite is NOT enough: the image's own libc6 is already a
+# security build, so gcc/g++ need the matching libc6-dev and apt reports "held
+# broken packages". The image ships commented snapshot.debian.org lines pinned
+# to the date it was built; use exactly those. They name the versions the image
+# was made from and a snapshot is never purged, so the build is also reproducible.
 for _src in /etc/apt/sources.list /etc/apt/sources.list.d/*; do
-    if [ -f "$_src" ]; then sed -i "/-security/d" "$_src"; fi
+    if [ -f "$_src" ]; then
+        sed -i -e "/^deb /d" -e "s|^# deb http://snapshot|deb http://snapshot|" "$_src"
+    fi
 done
 
-apt-get update -qq
+apt-get -o Acquire::Check-Valid-Until=false update -qq
 apt-get install -y -qq gcc g++ make wget git python3 pkg-config autoconf automake libtool
 if ! which wget >/dev/null 2>&1; then echo "ERROR: apt-get install failed — wget not found"; exit 1; fi
 apt-get clean
