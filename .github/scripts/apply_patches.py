@@ -3150,6 +3150,54 @@ extern int mrec_isolate;
     # alwaysupdate is the only branch that ignores _pause; a cart that
     # ships its own pause menu then runs it underneath ours and can call
     # the engine options() from script -- modal nested inside modal.
+    # TEMPORARY DIAG - TMNT-RP April's level. Step 37 v3 should fix the flame
+    # blink and the mouser hole; whether it also fixes the door/elevator foot
+    # soldiers that never come forward cannot be settled statically (every
+    # engine path compared identical to v6391). One hardware pass with these
+    # two bounded traces answers all three. REVERT AFTER MEASURED.
+    ob = strict_replace(
+        ob,
+        "    /* MiSTer Step 37 v3 (2026-09-14): a model that declares falldie 1   */",
+        "    /* TEMPORARY DIAG - TMNT-RP spawner death trace. REVERT AFTER MEASURED. */\n"
+        "    {\n"
+        "        static int _spdiag_lines = 0;\n"
+        "        const char *_spn = acting_entity->modeldata.name;\n"
+        "        if (_spn && _spdiag_lines < 300\n"
+        "            && (acting_event == DEATH_TRY_SEQUENCE_ACTING_EVENT_DAMAGE || (_time % 50) == 0)\n"
+        "            && (!strcmp(_spn, \"door\") || !strcmp(_spn, \"door_late\") || !strcmp(_spn, \"elevator\")\n"
+        "                || !strcmp(_spn, \"elevator_late\") || !strcmp(_spn, \"mouser_hole_floor\") || !strcmp(_spn, \"flame\")))\n"
+        "        {\n"
+        "            _spdiag_lines++;\n"
+        "            printf(\"[SPDIAG] t=%u %s event=%d anim=%d animpos=%d animating=%d falldie=%d nodieblink=%d hp=%d\\n\",\n"
+        "                   (unsigned)_time, _spn, (int)acting_event, acting_entity->animnum, acting_entity->animpos,\n"
+        "                   (int)acting_entity->animating, acting_entity->modeldata.mister_legacy_falldie,\n"
+        "                   acting_entity->modeldata.mister_legacy_nodieblink, acting_entity->energy_state.health_current);\n"
+        "        }\n"
+        "    }\n"
+        "    /* MiSTer Step 37 v3 (2026-09-14): a model that declares falldie 1   */",
+        "TEMPORARY DIAG: TMNT-RP spawner death trace")
+
+    ob = strict_replace(
+        ob,
+        "    if(!is_frozen(self) )\n    {\n        if(self->nextmove <= _time && (self->movex || self->movez) )",
+        "    /* TEMPORARY DIAG - TMNT-RP background foot soldier trace. REVERT AFTER MEASURED. */\n"
+        "    {\n"
+        "        static int _fsdiag_lines = 0;\n"
+        "        const char *_fsn = self->modeldata.name;\n"
+        "        if (_fsn && _fsdiag_lines < 400 && (_time % 10) == 0\n"
+        "            && (!strcmp(_fsn, \"foot_door\") || !strcmp(_fsn, \"foot_sword_elevator\")))\n"
+        "        {\n"
+        "            _fsdiag_lines++;\n"
+        "            printf(\"[FSDIAG] t=%u %s ent=%p pos=(%.1f,%.1f,%.1f) base=%.1f anim=%d animpos=%d animating=%d movex=%.2f movez=%.2f vz=%.2f zmin=%.1f zmax=%.1f trymove=%d frozen=%d\\n\",\n"
+        "                   (unsigned)_time, _fsn, (void *)self, self->position.x, self->position.z, self->position.y,\n"
+        "                   self->base, self->animnum, self->animpos, (int)self->animating, self->movex, self->movez,\n"
+        "                   self->velocity.z, (float)(PLAYER_MIN_Z), (float)(PLAYER_MAX_Z), self->trymove != NULL,\n"
+        "                   (int)is_frozen(self));\n"
+        "        }\n"
+        "    }\n"
+        "    if(!is_frozen(self) )\n    {\n        if(self->nextmove <= _time && (self->movex || self->movez) )",
+        "TEMPORARY DIAG: TMNT-RP background foot soldier trace")
+
     ob = strict_replace(
         ob,
         "if ((!_pause && ingame == 1) || alwaysupdate)",
