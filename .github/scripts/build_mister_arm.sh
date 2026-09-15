@@ -81,8 +81,21 @@ for _src in /etc/apt/sources.list /etc/apt/sources.list.d/*; do
     fi
 done
 
-apt-get -o Acquire::Check-Valid-Until=false update -qq
-apt-get install -y -qq gcc g++ make wget git python3 pkg-config autoconf automake libtool
+# snapshot.debian.org throttles and resets connections mid-download (seen
+# 2026-09-15: "Connection reset by peer" on cpp-10 and g++-10, failing the whole
+# build). Per-file retries inside apt, plus whole-step retries with a growing
+# wait. Still fails loud below if every attempt fails.
+_apt_ok=0
+for _apt_try in 1 2 3 4 5; do
+    if apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=5 update -qq \
+       && apt-get -o Acquire::Retries=5 install -y -qq gcc g++ make wget git python3 pkg-config autoconf automake libtool; then
+        _apt_ok=1
+        break
+    fi
+    echo "WARN: apt attempt $_apt_try of 5 failed; retrying in $((_apt_try * 20)) s" >&2
+    sleep $((_apt_try * 20))
+done
+if [ "$_apt_ok" != 1 ]; then echo "ERROR: apt-get failed after 5 attempts"; exit 1; fi
 if ! which wget >/dev/null 2>&1; then echo "ERROR: apt-get install failed — wget not found"; exit 1; fi
 apt-get clean
 
