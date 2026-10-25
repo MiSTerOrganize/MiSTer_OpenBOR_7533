@@ -1,5 +1,7 @@
 # MiSTer OpenBOR
 
+<a href="https://github.com/sponsors/MiSTerOrganize"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=GitHub&style=for-the-badge" alt="Sponsor" width="190"></a>
+
 Hybrid ARM+FPGA OpenBOR beat-em-up engine for MiSTer FPGA. Ships **two engine builds** (4086 and 7533) that share a single PAK library, the same controller mappings, and identical FPGA video/audio output. Pick which build to load at runtime by selecting the matching RBF in `_Other/`. Inspired by [SumolX](https://github.com/SumolX/MiSTer_OpenBOR)'s original MiSTer OpenBOR port.
 
 ## Which build do I load?
@@ -298,3 +300,11 @@ Both builds share the same FPGA core, identical timing.
 ## License
 
 GPL-3.0. See LICENSE. OpenBOR itself is BSD-3-Clause.
+
+## Support
+
+<p align="center">
+  <a href="https://www.patreon.com/join/MiSTer_Organize">
+    <img src="assets/patreon_banner.png" alt="Support MiSTer Organize on Patreon" width="500">
+  </a>
+</p>
